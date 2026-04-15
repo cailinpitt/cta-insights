@@ -19,18 +19,17 @@ const names = {
   '77':  'Belmont',
   '79':  '79th',
   '80':  'Irving Park',
-  '147': 'Outer DuSable',
+  '146': 'Inner Lake Shore / Michigan Express',
+  '147': 'Outer Lake Shore Express',
   '151': 'Sheridan',
 };
 
 // Routes polled for bunching events. Favors coverage — any high-frequency route
 // where "two buses within 1000 ft" is meaningful content.
-const bunching = ['8', '9', 'X9', '20', '22', '29', '36', '49', 'X49', '60', '62', '66', '72', '76', '77', '79', '80', '147', '151'];
+const bunching = ['8', '9', 'X9', '20', '22', '29', '36', '49', 'X49', '60', '62', '66', '72', '76', '77', '79', '80', '146', '147', '151'];
 
 // Routes eligible for the 60-minute speedmap. Favors density — only routes with
 // enough active buses to fill most segments with real data during a one-hour window.
-// Low-frequency / express routes (147 Outer DuSable, 151 Sheridan) are deliberately
-// excluded because their speedmaps end up mostly gray "no data" segments.
-const speedmap = ['8', '9', 'X9', '22', '36', '49', 'X49', '53', '66', '72', '76', '77', '79', '80'];
+const speedmap = ['8', '9', 'X9', '22', '36', '49', 'X49', '53', '66', '72', '76', '77', '79', '80', '151'];
 
 module.exports = { names, bunching, speedmap };
