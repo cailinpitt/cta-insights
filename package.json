@@ -14,7 +14,9 @@
   },
   "scripts": {
     "bunching": "node bin/bunching.js",
-    "bunching:dry": "node bin/bunching.js --dry-run"
+    "bunching:dry": "node bin/bunching.js --dry-run",
+    "speedmap": "node bin/speedmap.js",
+    "speedmap:dry": "node bin/speedmap.js --dry-run"
   },
   "author": "Cailin Pitt <cailinpitt1@gmail.com> (https://cailinpitt.com)",
   "license": "ISC"

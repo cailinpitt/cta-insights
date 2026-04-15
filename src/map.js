@@ -2,6 +2,7 @@ const axios = require('axios');
 const sharp = require('sharp');
 const { encode } = require('./polyline');
 const { cumulativeDistances, haversineFt } = require('./geo');
+const { colorForSpeed } = require('./speedmap');
 
 const STYLE = 'mapbox/dark-v11';
 const WIDTH = 1200;
@@ -76,4 +77,51 @@ async function renderBunchingMap(bunch, pattern) {
   return sharp(data).jpeg({ quality: 85 }).toBuffer();
 }
 
-module.exports = { renderBunchingMap };
+const SPEEDMAP_SEGMENT_STROKE = 8;
+const SPEEDMAP_HALO_STROKE = 12;
+
+/**
+ * Slice pattern points into N ordered groups by cumulative distance along the line.
+ * Each slice gets an extra point copied from the next slice's start so adjacent
+ * colored segments visually connect without gaps.
+ */
+function slicePatternIntoSegments(pattern, numBins) {
+  const cum = cumulativeDistances(pattern.points);
+  const total = cum[cum.length - 1];
+  const segLen = total / numBins;
+
+  const slices = Array.from({ length: numBins }, () => []);
+  for (let i = 0; i < pattern.points.length; i++) {
+    const idx = Math.min(numBins - 1, Math.floor(cum[i] / segLen));
+    slices[idx].push(pattern.points[i]);
+  }
+  // Bridge each slice to the next so colored segments don't have visible gaps.
+  for (let i = 0; i < slices.length - 1; i++) {
+    if (slices[i + 1].length > 0) slices[i].push(slices[i + 1][0]);
+  }
+  return slices;
+}
+
+async function renderSpeedmap(pattern, binSpeeds) {
+  const slices = slicePatternIntoSegments(pattern, binSpeeds.length);
+
+  // Full-route dark halo rendered first, then each colored segment layered on top.
+  const fullEncoded = encodeURIComponent(encode(pattern.points.map((p) => [p.lat, p.lon])));
+  const overlays = [`path-${SPEEDMAP_HALO_STROKE}+${ROUTE_HALO_COLOR}(${fullEncoded})`];
+
+  for (let i = 0; i < slices.length; i++) {
+    if (slices[i].length < 2) continue;
+    const encoded = encodeURIComponent(encode(slices[i].map((p) => [p.lat, p.lon])));
+    const color = colorForSpeed(binSpeeds[i]);
+    overlays.push(`path-${SPEEDMAP_SEGMENT_STROKE}+${color}(${encoded})`);
+  }
+
+  const token = process.env.MAPBOX_TOKEN;
+  if (!token) throw new Error('MAPBOX_TOKEN missing');
+
+  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlays.join(',')}/auto/${WIDTH}x${HEIGHT}@2x?access_token=${token}&padding=60`;
+  const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
+  return sharp(data).jpeg({ quality: 85 }).toBuffer();
+}
+
+module.exports = { renderBunchingMap, renderSpeedmap };
