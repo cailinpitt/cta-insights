@@ -1,0 +1,21 @@
+{
+  "name": "cta-bot",
+  "version": "0.0.1",
+  "description": "Bluesky bot that posts visualizations from CTA train and bus tracker APIs",
+  "main": "index.js",
+  "dependencies": {
+    "@atproto/api": "^0.18.16",
+    "axios": "^1.15.0",
+    "dotenv": "^16.4.7",
+    "fs-extra": "^8.1.0",
+    "lodash": "^4.18.1",
+    "minimist": "^1.2.3",
+    "sharp": "^0.34.5"
+  },
+  "scripts": {
+    "bunching": "node bin/bunching.js",
+    "bunching:dry": "node bin/bunching.js --dry-run"
+  },
+  "author": "Cailin Pitt <cailinpitt1@gmail.com> (https://cailinpitt.com)",
+  "license": "ISC"
+}
