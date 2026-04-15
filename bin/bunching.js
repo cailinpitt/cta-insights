@@ -12,6 +12,7 @@ const { loadPattern } = require('../src/patterns');
 const { renderBunchingMap } = require('../src/map');
 const { login, postWithImage } = require('../src/bluesky');
 const { isOnCooldown, markPosted } = require('../src/state');
+const { pruneOldAssets } = require('../src/cleanup');
 
 function findNearestStop(pattern, pdist) {
   const stops = pattern.points.filter((p) => p.type === 'S' && p.stopName);
@@ -46,6 +47,7 @@ function buildAltText(bunch, pattern, stop) {
 }
 
 async function main() {
+  pruneOldAssets();
   const routes = Object.keys(routeNames);
   console.log(`Fetching vehicles for ${routes.length} routes...`);
   const vehicles = await getVehicles(routes);

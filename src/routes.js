@@ -7,6 +7,7 @@ module.exports = {
   '77': 'Belmont',
   '49': 'Western',
   '72': 'North',
+  '76': 'Diversey',
   '9':  'Ashland',
   '8':  'Halsted',
   '151': 'Sheridan',

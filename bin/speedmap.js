@@ -11,6 +11,7 @@ const { collect, computeSamples, pickTargetPid, binSamples, summarize } = requir
 const { loadPattern } = require('../src/patterns');
 const { renderSpeedmap } = require('../src/map');
 const { login, postWithImage } = require('../src/bluesky');
+const { pruneOldAssets } = require('../src/cleanup');
 
 const NUM_BINS = 40;
 const POLL_INTERVAL_MS = 30 * 1000;
@@ -38,6 +39,7 @@ function buildAltText(route, pattern, summary) {
 }
 
 async function main() {
+  pruneOldAssets();
   const route = argv.route ? String(argv.route) : _.sample(Object.keys(routeNames));
   const durationMin = argv.duration ? Number(argv.duration) : DEFAULT_DURATION_MIN;
   const durationMs = durationMin * 60 * 1000;
