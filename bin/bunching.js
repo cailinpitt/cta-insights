@@ -64,24 +64,40 @@ async function main() {
     console.log(`  route ${b.route} pid ${b.pid} — ${b.vehicles.length} buses, span ${b.spanFt} ft, maxGap ${b.maxGapFt} ft`);
   }
 
-  // Walk candidates best-first, skipping any that are on cooldown or fail the
-  // end-of-line layover check (which needs the pattern's total length so can
-  // only be evaluated after fetching the pattern).
+  // Walk candidates best-first, skipping any that are on cooldown or whose
+  // nearest-stop label is a pattern endpoint (terminal layover). The previous
+  // 500 ft pdist-based check missed bunches 500-1500 ft from the terminal that
+  // still labeled as "near [terminal]" because the penultimate stop is far away.
   let bunch = null;
   let pattern = null;
+  let chosenStop = null;
   for (const candidate of bunches) {
-    if (!argv['dry-run'] && isOnCooldown(candidate.pid)) {
-      console.log(`  skip pid ${candidate.pid}: on cooldown`);
-      continue;
+    // Check both pid-level and route-level cooldown. The route cooldown prevents
+    // the same route from posting in opposite directions minutes apart, which
+    // feels spammy even though they're technically different pids.
+    const routeKey = `route:${candidate.route}`;
+    if (!argv['dry-run']) {
+      if (isOnCooldown(candidate.pid)) {
+        console.log(`  skip pid ${candidate.pid}: on cooldown`);
+        continue;
+      }
+      if (isOnCooldown(routeKey)) {
+        console.log(`  skip pid ${candidate.pid}: route ${candidate.route} on cooldown`);
+        continue;
+      }
     }
     const candidatePattern = await loadPattern(candidate.pid);
-    const lastBus = candidate.vehicles[candidate.vehicles.length - 1];
-    if (candidatePattern.lengthFt - lastBus.pdist < TERMINAL_PDIST_FT) {
-      console.log(`  skip pid ${candidate.pid}: end-of-line layover near pdist ${candidatePattern.lengthFt}`);
+    const midPdist = (candidate.vehicles[0].pdist + candidate.vehicles[candidate.vehicles.length - 1].pdist) / 2;
+    const stop = findNearestStop(candidatePattern, midPdist);
+    const stops = candidatePattern.points.filter((p) => p.type === 'S' && p.stopName);
+    const isTerminalStop = stop === stops[0] || stop === stops[stops.length - 1];
+    if (isTerminalStop) {
+      console.log(`  skip pid ${candidate.pid}: nearest stop "${stop.stopName}" is a terminal`);
       continue;
     }
     bunch = candidate;
     pattern = candidatePattern;
+    chosenStop = stop;
     break;
   }
 
@@ -92,8 +108,7 @@ async function main() {
 
   console.log(`Posting: route ${bunch.route} pid ${bunch.pid} — ${bunch.vehicles.length} buses, ${bunch.spanFt} ft`);
 
-  const midPdist = (bunch.vehicles[0].pdist + bunch.vehicles[bunch.vehicles.length - 1].pdist) / 2;
-  const stop = findNearestStop(pattern, midPdist);
+  const stop = chosenStop;
 
   console.log('Rendering map...');
   const image = await renderBunchingMap(bunch, pattern);
@@ -112,6 +127,7 @@ async function main() {
   const agent = await login();
   const url = await postWithImage(agent, text, image, alt);
   markPosted(bunch.pid);
+  markPosted(`route:${bunch.route}`);
   console.log(`Posted: ${url}`);
 }
 
