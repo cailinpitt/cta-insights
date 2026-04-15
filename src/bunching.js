@@ -40,8 +40,10 @@ function detectBunching(vehicles, now = new Date()) {
         j++;
       }
       const cluster = sorted.slice(i, j + 1);
-      // Skip terminal layovers: all buses stacked at the start of the pattern.
-      if (cluster[cluster.length - 1].pdist < TERMINAL_PDIST_FT) {
+      // Skip start-terminal layovers: if *any* bus in the cluster is still
+      // within TERMINAL_PDIST_FT of pdist 0, the whole cluster is the terminal
+      // lineup (including buses that have just pulled out a few hundred feet).
+      if (cluster[0].pdist < TERMINAL_PDIST_FT) {
         i = j + 1;
         continue;
       }

@@ -6,8 +6,8 @@ const Path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
 
 const { getVehicles } = require('../src/cta');
-const routeNames = require('../src/routes');
-const { detectBunching } = require('../src/bunching');
+const { names: routeNames, bunching: bunchingRoutes } = require('../src/routes');
+const { detectBunching, TERMINAL_PDIST_FT } = require('../src/bunching');
 const { loadPattern } = require('../src/patterns');
 const { renderBunchingMap } = require('../src/map');
 const { login, postWithImage } = require('../src/bluesky');
@@ -48,7 +48,7 @@ function buildAltText(bunch, pattern, stop) {
 
 async function main() {
   pruneOldAssets();
-  const routes = Object.keys(routeNames);
+  const routes = bunchingRoutes;
   console.log(`Fetching vehicles for ${routes.length} routes...`);
   const vehicles = await getVehicles(routes);
   console.log(`Got ${vehicles.length} vehicles`);
@@ -68,6 +68,16 @@ async function main() {
   }
 
   const pattern = await loadPattern(bunch.pid);
+
+  // End-of-line layover filter: symmetric to the start-terminal check in detectBunching,
+  // but requires the pattern's total length so it can only run here. If *any* bus in the
+  // cluster is within TERMINAL_PDIST_FT of the end, the cluster is the end-terminal queue.
+  const lastBus = bunch.vehicles[bunch.vehicles.length - 1];
+  if (pattern.lengthFt - lastBus.pdist < TERMINAL_PDIST_FT) {
+    console.log(`End-of-line layover near pdist ${pattern.lengthFt}, skipping`);
+    return;
+  }
+
   const midPdist = (bunch.vehicles[0].pdist + bunch.vehicles[bunch.vehicles.length - 1].pdist) / 2;
   const stop = findNearestStop(pattern, midPdist);
 

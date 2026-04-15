@@ -6,7 +6,7 @@ const Path = require('path');
 const _ = require('lodash');
 const argv = require('minimist')(process.argv.slice(2));
 
-const routeNames = require('../src/routes');
+const { names: routeNames, speedmap: speedmapRoutes } = require('../src/routes');
 const { collect, computeSamples, pickTargetPid, binSamples, summarize } = require('../src/speedmap');
 const { loadPattern } = require('../src/patterns');
 const { renderSpeedmap } = require('../src/map');
@@ -40,12 +40,12 @@ function buildAltText(route, pattern, summary) {
 
 async function main() {
   pruneOldAssets();
-  const route = argv.route ? String(argv.route) : _.sample(Object.keys(routeNames));
+  const route = argv.route ? String(argv.route) : _.sample(speedmapRoutes);
   const durationMin = argv.duration ? Number(argv.duration) : DEFAULT_DURATION_MIN;
   const durationMs = durationMin * 60 * 1000;
 
   if (!routeNames[route]) {
-    console.error(`Route ${route} is not in the watchlist`);
+    console.error(`Route ${route} is not a known route`);
     process.exit(1);
   }
 
