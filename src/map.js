@@ -2,7 +2,7 @@ const axios = require('axios');
 const sharp = require('sharp');
 const { encode } = require('./polyline');
 const { cumulativeDistances, haversineFt } = require('./geo');
-const { colorForSpeed } = require('./speedmap');
+const { colorForBusSpeed, colorForTrainSpeed } = require('./speedmap');
 const { fitZoom, project } = require('./projection');
 
 const STYLE = 'mapbox/dark-v11';
@@ -113,7 +113,7 @@ async function renderSpeedmap(pattern, binSpeeds) {
   for (let i = 0; i < slices.length; i++) {
     if (slices[i].length < 2) continue;
     const encoded = encodeURIComponent(encode(slices[i].map((p) => [p.lat, p.lon])));
-    const color = colorForSpeed(binSpeeds[i]);
+    const color = colorForBusSpeed(binSpeeds[i]);
     overlays.push(`path-${SPEEDMAP_SEGMENT_STROKE}+${color}(${encoded})`);
   }
 
@@ -268,4 +268,46 @@ async function renderTrainBunching(bunch, lineColors, trainLines, stations) {
     .toBuffer();
 }
 
-module.exports = { renderBunchingMap, renderSpeedmap, renderSnapshot, renderTrainBunching };
+/**
+ * Slice a trainLines polyline (array of [lat, lon]) into N ordered groups by
+ * cumulative distance. Same bridging logic as slicePatternIntoSegments but
+ * works on [lat, lon] tuples instead of {lat, lon} objects.
+ */
+function sliceLineIntoSegments(linePoints, cumDist, numBins) {
+  const total = cumDist[cumDist.length - 1];
+  const segLen = total / numBins;
+
+  const slices = Array.from({ length: numBins }, () => []);
+  for (let i = 0; i < linePoints.length; i++) {
+    const idx = Math.min(numBins - 1, Math.floor(cumDist[i] / segLen));
+    slices[idx].push(linePoints[i]);
+  }
+  for (let i = 0; i < slices.length - 1; i++) {
+    if (slices[i + 1].length > 0) slices[i].push(slices[i + 1][0]);
+  }
+  return slices;
+}
+
+async function renderTrainSpeedmap(linePoints, cumDist, binSpeeds, lineColor) {
+  const slices = sliceLineIntoSegments(linePoints, cumDist, binSpeeds.length);
+
+  // Full-route halo in the line's own color at low opacity, then colored speed segments on top.
+  const fullEncoded = encodeURIComponent(encode(linePoints));
+  const overlays = [`path-${SPEEDMAP_HALO_STROKE}+${ROUTE_HALO_COLOR}(${fullEncoded})`];
+
+  for (let i = 0; i < slices.length; i++) {
+    if (slices[i].length < 2) continue;
+    const encoded = encodeURIComponent(encode(slices[i]));
+    const color = colorForTrainSpeed(binSpeeds[i]);
+    overlays.push(`path-${SPEEDMAP_SEGMENT_STROKE}+${color}(${encoded})`);
+  }
+
+  const token = process.env.MAPBOX_TOKEN;
+  if (!token) throw new Error('MAPBOX_TOKEN missing');
+
+  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlays.join(',')}/auto/${WIDTH}x${HEIGHT}@2x?access_token=${token}&padding=60`;
+  const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
+  return sharp(data).jpeg({ quality: 85 }).toBuffer();
+}
+
+module.exports = { renderBunchingMap, renderSpeedmap, renderSnapshot, renderTrainBunching, renderTrainSpeedmap };

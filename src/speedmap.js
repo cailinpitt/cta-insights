@@ -7,11 +7,19 @@ const MAX_DT_MS = 3 * 60 * 1000; // Ignore vehicle tick pairs > 3 min apart (lik
  * Speed color ramp. Returns a 3/6-char hex (no leading #) for Mapbox path overlays.
  * null speed (no data) returns a muted gray so empty segments still show the route.
  */
-function colorForSpeed(mph) {
+function colorForBusSpeed(mph) {
   if (mph == null) return '444';   // no data — dim gray
   if (mph < 5) return 'ff2a2a';    // red
   if (mph < 10) return 'ff8c1a';   // orange
   if (mph < 15) return 'ffd21a';   // yellow
+  return '2ad17f';                 // green
+}
+
+function colorForTrainSpeed(mph) {
+  if (mph == null) return '444';   // no data — dim gray
+  if (mph < 5) return 'ff2a2a';    // red
+  if (mph < 15) return 'ff8c1a';   // orange
+  if (mph < 25) return 'ffd21a';   // yellow
   return '2ad17f';                 // green
 }
 
@@ -114,16 +122,19 @@ function binSamples(samples, patternLengthFt, numBins) {
 /**
  * Summary stats for post text / alt text.
  */
-function summarize(speeds) {
+function summarize(speeds, thresholds = { orange: 5, yellow: 10, green: 15 }) {
   const valid = speeds.filter((s) => s != null);
   if (valid.length === 0) return { avg: null, red: 0, orange: 0, yellow: 0, green: 0 };
   const avg = valid.reduce((a, v) => a + v, 0) / valid.length;
   const red = valid.filter((s) => s < 5).length;
-  const orange = valid.filter((s) => s >= 5 && s < 10).length;
-  const yellow = valid.filter((s) => s >= 10 && s < 15).length;
-  const green = valid.filter((s) => s >= 15).length;
+  const orange = valid.filter((s) => s >= 5 && s < thresholds.yellow).length;
+  const yellow = valid.filter((s) => s >= thresholds.yellow && s < thresholds.green).length;
+  const green = valid.filter((s) => s >= thresholds.green).length;
   return { avg, red, orange, yellow, green };
 }
+
+const BUS_THRESHOLDS = { orange: 5, yellow: 10, green: 15 };
+const TRAIN_THRESHOLDS = { orange: 5, yellow: 15, green: 25 };
 
 module.exports = {
   collect,
@@ -131,5 +142,8 @@ module.exports = {
   pickTargetPid,
   binSamples,
   summarize,
-  colorForSpeed,
+  colorForBusSpeed,
+  colorForTrainSpeed,
+  BUS_THRESHOLDS,
+  TRAIN_THRESHOLDS,
 };

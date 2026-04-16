@@ -23,14 +23,14 @@ function buildPostText(bunch) {
   const lineName = LINE_NAMES[bunch.line];
   const dest = bunch.trains[0].destination;
   const station = bunch.trains[0].nextStation;
-  return `🚆 ${lineName} Line bunched\n2 trains to ${dest} within ${formatDistance(bunch.distanceFt)} near ${station}`;
+  return `🚆 ${lineName} Line — to ${dest}\n2 trains within ${formatDistance(bunch.distanceFt)} near ${station}`;
 }
 
 function buildAltText(bunch) {
   const lineName = LINE_NAMES[bunch.line];
   const dest = bunch.trains[0].destination;
   const station = bunch.trains[0].nextStation;
-  return `Map showing two ${lineName} Line trains bound for ${dest} clustered within ${formatDistance(bunch.distanceFt)} of each other near ${station}.`;
+  return `Map of the ${lineName} Line near ${station} showing 2 trains to ${dest} within ${formatDistance(bunch.distanceFt)} of each other.`;
 }
 
 async function main() {

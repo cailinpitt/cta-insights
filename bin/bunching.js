@@ -34,16 +34,18 @@ function formatDistance(ft) {
 }
 
 function buildPostText(bunch, pattern, stop) {
-  const name = `${bunch.route} ${routeNames[bunch.route] || ''}`.trim();
+  const routeName = routeNames[bunch.route];
+  const title = routeName ? `Route ${bunch.route} (${routeName})` : `Route ${bunch.route}`;
   const count = bunch.vehicles.length;
   const dir = pattern.direction;
   const gap = formatDistance(bunch.spanFt);
-  return `🚌 ${name} is bunched\n${count} ${dir} buses within ${gap} near ${stop.stopName}`;
+  return `🚌 ${title} — ${dir}\n${count} buses within ${gap} near ${stop.stopName}`;
 }
 
 function buildAltText(bunch, pattern, stop) {
-  const name = `${bunch.route} ${routeNames[bunch.route] || ''}`.trim();
-  return `Map of ${name} bus route near ${stop.stopName} showing ${bunch.vehicles.length} ${pattern.direction.toLowerCase()} buses clustered within ${formatDistance(bunch.spanFt)} of each other.`;
+  const routeName = routeNames[bunch.route];
+  const title = routeName ? `Route ${bunch.route} (${routeName})` : `Route ${bunch.route}`;
+  return `Map of ${title} near ${stop.stopName} showing ${bunch.vehicles.length} ${pattern.direction.toLowerCase()} buses within ${formatDistance(bunch.spanFt)} of each other.`;
 }
 
 async function main() {

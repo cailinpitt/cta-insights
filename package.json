@@ -20,7 +20,9 @@
     "snapshot": "node bin/snapshot.js",
     "snapshot:dry": "node bin/snapshot.js --dry-run",
     "train-bunching": "node bin/trainBunching.js",
-    "train-bunching:dry": "node bin/trainBunching.js --dry-run"
+    "train-bunching:dry": "node bin/trainBunching.js --dry-run",
+    "train-speedmap": "node bin/trainSpeedmap.js",
+    "train-speedmap:dry": "node bin/trainSpeedmap.js --dry-run"
   },
   "author": "Cailin Pitt <cailinpitt1@gmail.com> (https://cailinpitt.com)",
   "license": "ISC"
