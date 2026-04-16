@@ -80,11 +80,11 @@ async function main() {
     const routeKey = `route:${candidate.route}`;
     if (!argv['dry-run']) {
       if (isOnCooldown(candidate.pid)) {
-        console.log(`  skip pid ${candidate.pid}: on cooldown`);
+        console.log(`  skip pid ${candidate.pid} (route ${candidate.route}): on cooldown`);
         continue;
       }
       if (isOnCooldown(routeKey)) {
-        console.log(`  skip pid ${candidate.pid}: route ${candidate.route} on cooldown`);
+        console.log(`  skip pid ${candidate.pid}: route ${candidate.route} is on cooldown`);
         continue;
       }
     }
