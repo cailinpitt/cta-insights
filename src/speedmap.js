@@ -17,9 +17,9 @@ function colorForBusSpeed(mph) {
 
 function colorForTrainSpeed(mph) {
   if (mph == null) return '444';   // no data — dim gray
-  if (mph < 5) return 'ff2a2a';    // red
-  if (mph < 15) return 'ff8c1a';   // orange
-  if (mph < 25) return 'ffd21a';   // yellow
+  if (mph < 10) return 'ff2a2a';   // red
+  if (mph < 25) return 'ff8c1a';   // orange
+  if (mph < 40) return 'ffd21a';   // yellow
   return '2ad17f';                 // green
 }
 
@@ -134,7 +134,7 @@ function summarize(speeds, thresholds = { orange: 5, yellow: 10, green: 15 }) {
 }
 
 const BUS_THRESHOLDS = { orange: 5, yellow: 10, green: 15 };
-const TRAIN_THRESHOLDS = { orange: 5, yellow: 15, green: 25 };
+const TRAIN_THRESHOLDS = { orange: 10, yellow: 25, green: 40 };
 
 module.exports = {
   collect,

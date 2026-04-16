@@ -70,7 +70,7 @@ async function renderBunchingMap(bunch, pattern) {
   const token = process.env.MAPBOX_TOKEN;
   if (!token) throw new Error('MAPBOX_TOKEN missing');
 
-  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlays.join(',')}/auto/${WIDTH}x${HEIGHT}@2x?access_token=${token}&padding=60`;
+  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlays.join(',')}/auto/${WIDTH}x${HEIGHT}@2x?access_token=${token}&padding=30`;
 
   const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
 
@@ -120,7 +120,7 @@ async function renderSpeedmap(pattern, binSpeeds) {
   const token = process.env.MAPBOX_TOKEN;
   if (!token) throw new Error('MAPBOX_TOKEN missing');
 
-  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlays.join(',')}/auto/${WIDTH}x${HEIGHT}@2x?access_token=${token}&padding=60`;
+  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlays.join(',')}/auto/${WIDTH}x${HEIGHT}@2x?access_token=${token}&padding=30`;
   const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
   return sharp(data).jpeg({ quality: 85 }).toBuffer();
 }

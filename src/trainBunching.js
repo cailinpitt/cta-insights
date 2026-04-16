@@ -1,6 +1,7 @@
 const { haversineFt } = require('./geo');
 
 const TRAIN_BUNCHING_FT = 2000; // ~0.38 mi, tighter than normal rush-hour headway
+const MIN_DISTANCE_FT = 200;    // ignore pairs closer than this — likely same station or API glitch
 
 /**
  * Detect the tightest bunched pair of trains on the same line heading the same
@@ -29,7 +30,7 @@ function detectTrainBunching(trains) {
     for (let i = 0; i < group.length; i++) {
       for (let j = i + 1; j < group.length; j++) {
         const dist = haversineFt(group[i], group[j]);
-        if (dist > TRAIN_BUNCHING_FT) continue;
+        if (dist < MIN_DISTANCE_FT || dist > TRAIN_BUNCHING_FT) continue;
         if (!best || dist < best.distanceFt) {
           const [line, trDr] = key.split('_');
           best = {
@@ -46,4 +47,4 @@ function detectTrainBunching(trains) {
   return best;
 }
 
-module.exports = { detectTrainBunching, TRAIN_BUNCHING_FT };
+module.exports = { detectTrainBunching, TRAIN_BUNCHING_FT, MIN_DISTANCE_FT };

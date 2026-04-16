@@ -38,17 +38,17 @@ function buildPostText(line, trDr, summary, startTime, endTime) {
     `🚦 ${lineName} Line speedmap\n` +
     `${window} · average speed ${avg}\n\n` +
     `Each colored segment shows how fast trains were moving:\n` +
-    `🟥 under 5 mph — stopped or crawling\n` +
-    `🟧 5–15 mph — slow\n` +
-    `🟨 15–25 mph — moderate\n` +
-    `🟩 25+ mph — moving well`
+    `🟥 under 10 mph — stopped or crawling\n` +
+    `🟧 10–25 mph — slow\n` +
+    `🟨 25–40 mph — moderate\n` +
+    `🟩 40+ mph — moving well`
   );
 }
 
 function buildAltText(line, summary) {
   const lineName = LINE_NAMES[line];
   const avg = summary.avg == null ? 'unavailable' : `${summary.avg.toFixed(1)} mph`;
-  return `Speedmap of the CTA ${lineName} Line over a one-hour window, with route segments colored by average train speed. Overall average: ${avg}. Red segments indicate stopped or crawling trains under 5 mph, orange under 15, yellow under 25, green 25 and above.`;
+  return `Speedmap of the CTA ${lineName} Line over a one-hour window, with route segments colored by average train speed. Overall average: ${avg}. Red segments indicate stopped or crawling trains under 10 mph, orange under 25, yellow under 40, green 40 and above.`;
 }
 
 async function main() {
