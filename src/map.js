@@ -245,7 +245,6 @@ async function renderSnapshot(trains, lineColors, trainLines = null, stations = 
   return sharp(data).jpeg({ quality: 85 }).toBuffer();
 }
 
-const TRAIN_BUNCH_CONTEXT_FT = 8000; // feet of line shown around the bunch
 const TRAIN_BUNCH_NEAREST_STATIONS = 2; // how many stations to label
 const TRAIN_BUNCH_BBOX_PADDING_DEG = 0.003; // ~300m — zoom out a little past the trains
 
@@ -253,20 +252,39 @@ function xmlEscape(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Pin anchor offset: Mapbox pin-l tip is at the coordinate; the pin body
-// (colored circle) sits ~28px above the tip in the rendered 1200px image.
-const PIN_BODY_OFFSET_Y = -28;
+// Train pin radius. Set well above Mapbox pin-s (stations) so trains read as
+// the primary focal point. Halo/arrow offsets are derived from this.
+const TRAIN_MARKER_RADIUS = 32;
 
-function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, widthPx, heightPx) {
+// Twemoji 🚆 (U+1F686) paths, 36x36 viewBox. Inlined so librsvg can render
+// the emoji without needing a color emoji font on the host system.
+const TWEMOJI_TRAIN_INNER = '<path fill="#A7A9AC" d="M2 36h32L23 19H13z"/><path fill="#58595B" d="M5 36h26L21 19h-6z"/><path fill="#808285" d="M8 36h20l-9-17h-2z"/><path fill="#A7A9AC" d="M28 35c0 .553-.447 1-1 1H9c-.552 0-1-.447-1-1 0-.553.448-1 1-1h18c.553 0 1 .447 1 1zm-2-4c0 .553-.447 1-1 1H11c-.552 0-1-.447-1-1 0-.553.448-1 1-1h14c.553 0 1 .447 1 1z"/><path fill="#58595B" d="M27.076 25.3L23 19H13l-4.076 6.3c1.889 2.517 4.798 4.699 9.076 4.699 4.277 0 7.188-2.183 9.076-4.699z"/><path fill="#A7A9AC" d="M18 0C9 0 6 3 6 9v8c0 1.999 3 11 12 11s12-9.001 12-11V9c0-6-3-9-12-9z"/><path fill="#E6E7E8" d="M8 11C8 2 12.477 1 18 1s10 1 10 10c0 6-4.477 11-10 11-5.523-.001-10-5-10-11z"/><path fill="#FFAC33" d="M18 21.999c1.642 0 3.185-.45 4.553-1.228C21.77 19.729 20.03 19 18 19s-3.769.729-4.552 1.772c1.366.777 2.911 1.227 4.552 1.227z"/><path d="M19 4.997v4.965c3.488-.232 6-1.621 6-2.463V5.833c0-.791-3.692-.838-6-.836zm-2 0c-2.308-.002-6 .044-6 .836V7.5c0 .842 2.512 2.231 6 2.463V4.997z" fill="#55ACEE"/><path fill="#269" d="M6 10s0 3 4 9c0 0-4-2-4-6v-3zm24 0s0 3-4 9c0 0 4-2 4-6v-3z"/>';
+
+function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, lineColor, widthPx, heightPx) {
   const fontSize = 18;
   const labelHeight = fontSize + 8;
   const gap = 4; // minimum vertical gap between labels
 
+  // Strip trailing line-only parentheticals ("Chicago (Red)" -> "Chicago") since
+  // bunching maps show a single line. Branch/variant parens like
+  // "(Blue - Forest Park Branch)" or "(Subway)" are preserved because they
+  // still disambiguate stations on the same line.
+  const LINE_ONLY_PARENS = /\s*\((?:Red|Blue|Green|Brown|Purple|Pink|Orange|Yellow|\/|\s)+\)\s*$/;
+
   // Compute initial label positions, then nudge overlapping ones apart.
-  const labels = stationsWithPixels.map(({ station, x, y }) => {
-    const label = xmlEscape(station.name);
+  // If a train is sitting at the station, anchor the label to the train's
+  // projected y (not the station's) so the label sits below the train marker
+  // + halo even when the train is offset from the station centroid.
+  const STATION_LABEL_OFFSET = 18;
+  const TRAIN_HALO_EXTRA = 8;
+  const LABEL_CLEAR_GAP = 10;
+  const labels = stationsWithPixels.map(({ station, x, y, hasTrain, trainY }) => {
+    const label = xmlEscape(station.name.replace(LINE_ONLY_PARENS, ''));
     const approxWidth = label.length * 10 + 16;
-    return { label, x, rectY: y + 18, approxWidth };
+    const rectY = hasTrain
+      ? trainY + TRAIN_MARKER_RADIUS + TRAIN_HALO_EXTRA + LABEL_CLEAR_GAP
+      : y + STATION_LABEL_OFFSET;
+    return { label, x, rectY, approxWidth };
   });
 
   labels.sort((a, b) => a.rectY - b.rectY);
@@ -278,22 +296,35 @@ function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, 
     }
   }
 
-  // White ring halos around trains that are at a station.
+  // White ring halo for trains sitting at a station. Sits just outside the
+  // train marker so the train stays the focal point but is visually flagged.
   const halos = atStationPixels.map(({ x, y }) => {
-    const cx = x;
-    const cy = y + PIN_BODY_OFFSET_Y;
-    return `<circle cx="${cx}" cy="${cy}" r="26" fill="none" stroke="#fff" stroke-width="3"/>`;
+    return `<circle cx="${x}" cy="${y}" r="${TRAIN_MARKER_RADIUS + 8}" fill="none" stroke="#fff" stroke-width="4"/>`;
   });
 
-  // Direction arrows above each train pin using Unicode arrows.
-  const ARROWS = ['\u2191', '\u2197', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196'];
-  const arrows = trainPixels.map(({ x, y, bearingDeg }) => {
-    const idx = Math.round(bearingDeg / 45) % 8;
-    const arrow = ARROWS[idx];
-    const cx = x;
-    const cy = y + PIN_BODY_OFFSET_Y - 36;
-    return `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif" font-size="44" font-weight="bold" fill="#fff" stroke="#000" stroke-width="3" paint-order="stroke">${arrow}</text>`;
+  // Custom train markers. Larger than Mapbox's pin-s station markers and
+  // filled with the line color so bunching visually reads as that line.
+  const iconSize = TRAIN_MARKER_RADIUS * 1.6;
+  const trainMarkers = trainPixels.map(({ x, y }) => {
+    const iconX = x - iconSize / 2;
+    const iconY = y - iconSize / 2;
+    return [
+      `<circle cx="${x}" cy="${y}" r="${TRAIN_MARKER_RADIUS}" fill="#${lineColor}" stroke="#fff" stroke-width="4"/>`,
+      `<svg x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" viewBox="0 0 36 36">${TWEMOJI_TRAIN_INNER}</svg>`,
+    ].join('');
   });
+
+  // One big direction-of-travel arrow in the top-right corner, matching the
+  // bus bunching map style. Both trains share trDr so any bearing works.
+  const ARROWS = ['\u2191', '\u2197', '\u2192', '\u2198', '\u2193', '\u2199', '\u2190', '\u2196'];
+  const arrows = [];
+  if (trainPixels.length > 0) {
+    const idx = Math.round(trainPixels[0].bearingDeg / 45) % 8;
+    const arrow = ARROWS[idx];
+    const ax = widthPx - 220;
+    const ay = 180;
+    arrows.push(`<text x="${ax}" y="${ay}" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif" font-size="200" font-weight="bold" fill="#fff" stroke="#000" stroke-width="10" paint-order="stroke">${arrow}</text>`);
+  }
 
   const labelElements = labels.map(({ label, x, rectY, approxWidth }) => {
     const rectX = x - approxWidth / 2;
@@ -304,7 +335,7 @@ function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, 
     <text x="${textX}" y="${textY}" fill="#fff" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="600">${label}</text>`;
   });
 
-  const elements = [...halos, ...arrows, ...labelElements].join('\n');
+  const elements = [...halos, ...trainMarkers, ...arrows, ...labelElements].join('\n');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}">${elements}</svg>`;
 }
 
@@ -366,39 +397,45 @@ async function renderTrainBunching(bunch, lineColors, trainLines, stations) {
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
   // Use integer zoom. Mapbox may round or snap fractional zooms during render,
-  // which would decouple our projection math from the actual image.
-  const rawZoom = fitZoom(bbox, SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT, 120);
-  const zoom = Math.max(10, Math.min(17, Math.floor(rawZoom)));
+  // which would decouple our projection math from the actual image. Ceil (not
+  // floor) so we zoom in tighter around the bunch — otherwise far-off stations
+  // get pulled in and the label stack gets cluttered.
+  const rawZoom = fitZoom(bbox, SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT, 60);
+  const zoom = Math.max(10, Math.min(17, Math.ceil(rawZoom)));
 
-  // Clip line polylines to the local area. Instead of filtering individual
-  // points (which breaks the line at curves), find the index range of points
-  // near the trains and slice with a buffer to keep the track contiguous.
+  // Draw the full line segments so the route runs off the edges of the frame
+  // instead of terminating just beyond the trains. The bbox/zoom above still
+  // drives framing, so the visible portion is unchanged.
   const overlays = [];
   const lineSegments = trainLines?.[bunch.line] || [];
   for (const seg of lineSegments) {
-    let minIdx = seg.length;
-    let maxIdx = -1;
-    for (let i = 0; i < seg.length; i++) {
-      const [lat, lon] = seg[i];
-      if (bunch.trains.some((t) => haversineFt({ lat, lon }, t) < TRAIN_BUNCH_CONTEXT_FT)) {
-        if (i < minIdx) minIdx = i;
-        if (i > maxIdx) maxIdx = i;
-      }
-    }
-    if (maxIdx < 0) continue;
-    // Pad the slice by a few points so the track extends smoothly past the trains.
-    const pad = 3;
-    const sliceStart = Math.max(0, minIdx - pad);
-    const sliceEnd = Math.min(seg.length, maxIdx + pad + 1);
-    const slice = seg.slice(sliceStart, sliceEnd);
-    if (slice.length < 2) continue;
-    overlays.push(`path-7+${color}-0.7(${encodeURIComponent(encode(slice))})`);
+    if (seg.length < 2) continue;
+    overlays.push(`path-7+${color}-0.7(${encodeURIComponent(encode(seg))})`);
   }
+
+  // Include every on-line station whose pixel position lands inside the image,
+  // rather than just the stations bracketing the bunch. The bracket list above
+  // still drives the bbox, so framing is unchanged. For stations where a
+  // bunched train is sitting, record that train's projected y so the label
+  // layer can anchor the label below the *train marker*, not the station —
+  // the two can be a few hundred feet apart when the train hasn't quite
+  // reached the platform centroid, and the station-anchored label ends up
+  // overlapping the train pin.
+  const visibleStations = onLineStations
+    .map((s) => {
+      const pixels = project(s.lat, s.lon, centerLat, centerLon, zoom, SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT);
+      const nearbyTrain = bunch.trains.find((t) => haversineFt({ lat: s.lat, lon: s.lon }, t) < 500);
+      const trainY = nearbyTrain
+        ? project(nearbyTrain.lat, nearbyTrain.lon, centerLat, centerLon, zoom, SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT).y
+        : null;
+      return { station: s, ...pixels, hasTrain: !!nearbyTrain, trainY };
+    })
+    .filter(({ x, y }) => x >= 0 && x <= SNAPSHOT_WIDTH && y >= 0 && y <= SNAPSHOT_HEIGHT);
+
   // Track which trains are at a station for the SVG halo layer.
   const trainAtStation = new Set();
-  for (const s of nearestStations) {
-    const coveredByTrain = bunch.trains.some((t) => haversineFt({ lat: s.lat, lon: s.lon }, t) < 500);
-    if (!coveredByTrain) {
+  for (const { station: s, hasTrain } of visibleStations) {
+    if (!hasTrain) {
       overlays.push(`pin-s+ffffff(${s.lon.toFixed(5)},${s.lat.toFixed(5)})`);
     } else {
       bunch.trains.forEach((t) => {
@@ -406,9 +443,8 @@ async function renderTrainBunching(bunch, lineColors, trainLines, stations) {
       });
     }
   }
-  for (const t of bunch.trains) {
-    overlays.push(`pin-l-rail-metro+${color}(${t.lon.toFixed(5)},${t.lat.toFixed(5)})`);
-  }
+  // Train markers are drawn via SVG composite (see buildTrainOverlaySvg) so
+  // they can be sized larger than Mapbox's pin-l.
 
   const token = process.env.MAPBOX_TOKEN;
   if (!token) throw new Error('MAPBOX_TOKEN missing');
@@ -453,10 +489,7 @@ async function renderTrainBunching(bunch, lineColors, trainLines, stations) {
   }
 
   // Composite station name labels, at-station halos, and direction arrows.
-  const stationsWithPixels = nearestStations.map((station) => ({
-    station,
-    ...project(station.lat, station.lon, centerLat, centerLon, zoom, SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT),
-  }));
+  const stationsWithPixels = visibleStations;
   const atStationPixels = bunch.trains
     .filter((t) => trainAtStation.has(t.rn))
     .map((t) => project(t.lat, t.lon, centerLat, centerLon, zoom, SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT));
@@ -464,7 +497,7 @@ async function renderTrainBunching(bunch, lineColors, trainLines, stations) {
     ...project(t.lat, t.lon, centerLat, centerLon, zoom, SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT),
     bearingDeg: trackBearingAt(t),
   }));
-  const svg = buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT);
+  const svg = buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, color, SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT);
 
   return sharp(data)
     .resize(SNAPSHOT_WIDTH, SNAPSHOT_HEIGHT)
