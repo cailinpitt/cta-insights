@@ -8,7 +8,7 @@ const argv = require('minimist')(process.argv.slice(2));
 const { getAllTrainPositions, LINE_COLORS, LINE_NAMES } = require('../src/trainApi');
 const { detectTrainBunching } = require('../src/trainBunching');
 const { renderTrainBunching } = require('../src/map');
-const { login, postWithImage } = require('../src/bluesky');
+const { loginTrain, postWithImage } = require('../src/bluesky');
 const { isOnCooldown, markPosted } = require('../src/state');
 const { pruneOldAssets } = require('../src/cleanup');
 const trainLines = require('../src/data/trainLines.json');
@@ -71,7 +71,7 @@ async function main() {
     return;
   }
 
-  const agent = await login();
+  const agent = await loginTrain();
   const url = await postWithImage(agent, text, image, alt);
   markPosted(cooldownKey);
   console.log(`Posted: ${url}`);

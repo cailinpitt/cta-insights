@@ -9,7 +9,7 @@ const { getAllTrainPositions, LINE_COLORS, LINE_NAMES, ALL_LINES } = require('..
 const { renderSnapshot } = require('../src/map');
 const trainLines = require('../src/data/trainLines.json');
 const trainStations = require('../src/data/trainStations.json');
-const { login, postWithImage } = require('../src/bluesky');
+const { loginTrain, postWithImage } = require('../src/bluesky');
 const { pruneOldAssets } = require('../src/cleanup');
 
 function formatTimeCT(date) {
@@ -68,7 +68,7 @@ async function main() {
     return;
   }
 
-  const agent = await login();
+  const agent = await loginTrain();
   const url = await postWithImage(agent, text, image, alt);
   console.log(`Posted: ${url}`);
 }

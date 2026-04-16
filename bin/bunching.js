@@ -10,7 +10,7 @@ const { names: routeNames, bunching: bunchingRoutes } = require('../src/routes')
 const { detectAllBunching, TERMINAL_PDIST_FT } = require('../src/bunching');
 const { loadPattern } = require('../src/patterns');
 const { renderBunchingMap } = require('../src/map');
-const { login, postWithImage } = require('../src/bluesky');
+const { loginBus, postWithImage } = require('../src/bluesky');
 const { isOnCooldown, markPosted } = require('../src/state');
 const { pruneOldAssets } = require('../src/cleanup');
 
@@ -140,7 +140,7 @@ async function main() {
     return;
   }
 
-  const agent = await login();
+  const agent = await loginBus();
   const url = await postWithImage(agent, text, image, alt);
   markPosted(bunch.pid);
   markPosted(`route:${bunch.route}`);

@@ -10,7 +10,7 @@ const { names: routeNames, speedmap: speedmapRoutes } = require('../src/routes')
 const { collect, computeSamples, pickTargetPid, binSamples, summarize } = require('../src/speedmap');
 const { loadPattern } = require('../src/patterns');
 const { renderSpeedmap } = require('../src/map');
-const { login, postWithImage } = require('../src/bluesky');
+const { loginBus, postWithImage } = require('../src/bluesky');
 const { pruneOldAssets } = require('../src/cleanup');
 
 const NUM_BINS = 40;
@@ -92,7 +92,7 @@ async function main() {
     return;
   }
 
-  const agent = await login();
+  const agent = await loginBus();
   const url = await postWithImage(agent, text, image, alt);
   console.log(`Posted: ${url}`);
 }
