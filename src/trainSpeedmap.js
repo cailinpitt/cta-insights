@@ -11,15 +11,34 @@ function sleep(ms) {
 /**
  * Snap a lat/lon point onto the nearest segment of a polyline (array of
  * [lat, lon] pairs) and return its cumulative distance along that polyline.
+ *
+ * Projects perpendicularly onto each segment rather than snapping to the
+ * nearest vertex. With sparse polylines (e.g. CTA train lines, ~80 vertices
+ * across 20 mi) vertex-snapping puts the result anywhere from hundreds to
+ * thousands of feet off, which silently corrupts both bunching detection
+ * (false positives when two distant trains happen to snap to vertices with
+ * similar cumDist) and speedmap binning.
  */
 function snapToLine(lat, lon, linePoints, cumDist) {
   let bestDist = Infinity;
   let bestCum = 0;
-  for (let i = 0; i < linePoints.length; i++) {
-    const d = haversineFt({ lat, lon }, { lat: linePoints[i][0], lon: linePoints[i][1] });
+  for (let i = 0; i < linePoints.length - 1; i++) {
+    const ax = linePoints[i][1];
+    const ay = linePoints[i][0];
+    const bx = linePoints[i + 1][1];
+    const by = linePoints[i + 1][0];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    let t = 0;
+    if (lenSq > 0) t = Math.max(0, Math.min(1, ((lon - ax) * dx + (lat - ay) * dy) / lenSq));
+    const projLat = ay + t * dy;
+    const projLon = ax + t * dx;
+    const d = haversineFt({ lat, lon }, { lat: projLat, lon: projLon });
     if (d < bestDist) {
       bestDist = d;
-      bestCum = cumDist[i];
+      const segLen = cumDist[i + 1] - cumDist[i];
+      bestCum = cumDist[i] + t * segLen;
     }
   }
   return bestCum;
