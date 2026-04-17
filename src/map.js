@@ -110,28 +110,17 @@ async function renderBunchingMap(bunch, pattern) {
 
   const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
 
-  // Compute track bearing at each bus using the nearest route segment.
+  // Compute a single route-wide direction bearing from the slice endpoints.
+  // Averaging over the whole slice (~3000 ft) avoids a short orthogonal
+  // waypoint jog in the CTA pattern dominating the arrow, which previously
+  // produced 90°-off arrows on otherwise straight streets.
   const slicePoints = slice.map((p) => ({ lat: p.lat, lon: p.lon }));
-  function busTrackBearing(v) {
-    let bestDist = Infinity;
-    let bestA = null;
-    let bestB = null;
-    for (let i = 0; i < slicePoints.length - 1; i++) {
-      const a = slicePoints[i];
-      const b = slicePoints[i + 1];
-      const dx = b.lon - a.lon;
-      const dy = b.lat - a.lat;
-      const lenSq = dx * dx + dy * dy;
-      let t = 0;
-      if (lenSq > 0) t = Math.max(0, Math.min(1, ((v.lon - a.lon) * dx + (v.lat - a.lat) * dy) / lenSq));
-      const proj = { lat: a.lat + t * dy, lon: a.lon + t * dx };
-      const d = haversineFt(v, proj);
-      if (d < bestDist) { bestDist = d; bestA = a; bestB = b; }
-    }
-    const fwd = bearing(bestA, bestB);
+  function routeDirectionBearing(headingSample) {
+    if (slicePoints.length < 2) return headingSample;
+    const fwd = bearing(slicePoints[0], slicePoints[slicePoints.length - 1]);
     const rev = (fwd + 180) % 360;
-    const diffFwd = Math.abs(((v.heading - fwd + 540) % 360) - 180);
-    const diffRev = Math.abs(((v.heading - rev + 540) % 360) - 180);
+    const diffFwd = Math.abs(((headingSample - fwd + 540) % 360) - 180);
+    const diffRev = Math.abs(((headingSample - rev + 540) % 360) - 180);
     return diffFwd <= diffRev ? fwd : rev;
   }
 
@@ -154,7 +143,7 @@ async function renderBunchingMap(bunch, pattern) {
   // Big direction-of-travel arrow anchored in the top-right corner so it reads
   // as a route-wide indicator rather than being tied to a specific bus.
   const leadBus = bunch.vehicles.reduce((a, b) => (b.pdist > a.pdist ? b : a), bunch.vehicles[0]);
-  const bearingDeg = busTrackBearing(leadBus);
+  const bearingDeg = routeDirectionBearing(leadBus.heading);
   const arrowElements = [buildDirectionArrow(WIDTH - 220, 180, bearingDeg)];
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${markerElements.join('\n')}${arrowElements.join('\n')}</svg>`;
