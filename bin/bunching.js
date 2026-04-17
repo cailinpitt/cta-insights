@@ -10,7 +10,8 @@ const { names: routeNames, bunching: bunchingRoutes } = require('../src/routes')
 const { detectAllBunching, TERMINAL_PDIST_FT } = require('../src/bunching');
 const { loadPattern } = require('../src/patterns');
 const { renderBunchingMap } = require('../src/map');
-const { loginBus, postWithImage } = require('../src/bluesky');
+const { captureBunchingVideo } = require('../src/bunchingVideo');
+const { loginBus, postWithImage, postWithVideo } = require('../src/bluesky');
 const { isOnCooldown, markPosted } = require('../src/state');
 const { pruneOldAssets } = require('../src/cleanup');
 
@@ -46,6 +47,29 @@ function buildAltText(bunch, pattern, stop) {
   const routeName = routeNames[bunch.route];
   const title = routeName ? `Route ${bunch.route} (${routeName})` : `Route ${bunch.route}`;
   return `Map of ${title} near ${stop.stopName} showing ${bunch.vehicles.length} ${pattern.direction.toLowerCase()} buses within ${formatDistance(bunch.spanFt)} of each other.`;
+}
+
+function formatMinSec(totalSec) {
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function buildVideoPostText(result) {
+  const elapsed = formatMinSec(result.elapsedSec);
+  const lines = [`⏱️ Timelapse of the above — ${elapsed} of real time`];
+  if (result.finalSpanFt != null) {
+    const delta = result.finalSpanFt - result.initialSpanFt;
+    const trend = delta > 50 ? 'pulling apart' : delta < -50 ? 'tightening' : 'holding';
+    lines.push(`Spread: ${formatDistance(result.initialSpanFt)} → ${formatDistance(result.finalSpanFt)} (${trend})`);
+  }
+  return lines.join('\n');
+}
+
+function buildVideoAltText(bunch, pattern, stop, result) {
+  const routeName = routeNames[bunch.route];
+  const title = routeName ? `Route ${bunch.route} (${routeName})` : `Route ${bunch.route}`;
+  return `Timelapse map of ${title} near ${stop.stopName} showing ${bunch.vehicles.length} ${pattern.direction.toLowerCase()} buses moving over ${formatMinSec(result.elapsedSec)}.`;
 }
 
 async function main() {
@@ -139,14 +163,51 @@ async function main() {
     Fs.ensureDirSync(Path.dirname(outPath));
     Fs.writeFileSync(outPath, image);
     console.log(`\n--- DRY RUN ---\n${text}\n\nAlt: ${alt}\nImage: ${outPath}`);
+    if (argv.video) {
+      const ticks = argv.ticks ? parseInt(argv.ticks, 10) : undefined;
+      const tickMs = argv['tick-ms'] ? parseInt(argv['tick-ms'], 10) : undefined;
+      const interpolate = argv.interpolate ? parseInt(argv.interpolate, 10) : undefined;
+      console.log(`\nCapturing video (ticks=${ticks || 'default'}, tickMs=${tickMs || 'default'}, interpolate=${interpolate || 'default'})...`);
+      const result = await captureBunchingVideo(bunch, pattern, { ticks, tickMs, interpolate });
+      if (!result) {
+        console.log('Video capture produced <2 frames, skipped');
+      } else {
+        const videoPath = Path.join(__dirname, '..', 'assets', `bunching-${bunch.pid}-${Date.now()}.mp4`);
+        Fs.writeFileSync(videoPath, result.buffer);
+        console.log(`Video: ${videoPath}`);
+        console.log(`  ticks=${result.ticksCaptured}, elapsed=${result.elapsedSec}s, span ${result.initialSpanFt}ft → ${result.finalSpanFt ?? '?'}ft`);
+      }
+    }
     return;
   }
 
   const agent = await loginBus();
-  const url = await postWithImage(agent, text, image, alt);
+  const primary = await postWithImage(agent, text, image, alt);
   markPosted(bunch.pid);
   markPosted(`route:${bunch.route}`);
-  console.log(`Posted: ${url}`);
+  console.log(`Posted: ${primary.url}`);
+
+  // Capture a timelapse of the bunch over the next few minutes and reply to
+  // the primary post with it. Failures here are non-fatal: the primary alert
+  // already went out, so we log and move on.
+  try {
+    console.log('Capturing bunching timelapse...');
+    const video = await captureBunchingVideo(bunch, pattern);
+    if (!video) {
+      console.log('Timelapse capture produced <2 frames, skipping reply');
+      return;
+    }
+    const videoText = buildVideoPostText(video);
+    const videoAlt = buildVideoAltText(bunch, pattern, stop, video);
+    const replyRef = {
+      root: { uri: primary.uri, cid: primary.cid },
+      parent: { uri: primary.uri, cid: primary.cid },
+    };
+    const reply = await postWithVideo(agent, videoText, video.buffer, videoAlt, replyRef);
+    console.log(`Timelapse reply: ${reply.url}`);
+  } catch (e) {
+    console.warn(`Timelapse reply failed: ${e.message}`);
+  }
 }
 
 main().catch((e) => {

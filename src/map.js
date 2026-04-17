@@ -74,24 +74,24 @@ function slicePatternAroundBunch(pattern, bunch) {
   return pattern.points.filter((_, i) => cum[i] >= minCum && cum[i] <= maxCum);
 }
 
-async function renderBunchingMap(bunch, pattern) {
-  // Slice still drives zoom/bbox (so framing is unchanged), but we encode the
-  // full pattern for the drawn polyline. That way the route line extends off
-  // the edges of the image instead of terminating at the slice boundary.
+const BUS_MARKER_RADIUS = 34;
+
+// Compute the static framing for a bunching render: bbox, center, zoom, polyline
+// overlays, and the route-direction arrow. Accepts an optional `extraVehicles`
+// list so video captures can pre-expand the bbox to cover all frames, keeping
+// the viewport stable as buses move.
+function computeBunchingView(bunch, pattern, extraVehicles = []) {
   const slice = slicePatternAroundBunch(pattern, bunch);
   const polyline = encode(pattern.points.map((p) => [p.lat, p.lon]));
-
-  const overlays = [];
-  // Draw halo first, then core, so core renders on top. Pins render on top of both.
   const encoded = encodeURIComponent(polyline);
-  overlays.push(`path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`);
-  overlays.push(`path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`);
-  // Markers are drawn as a custom SVG composite after fetching the base map, so
-  // we can make them larger than Mapbox's pin-l limit.
+  const overlays = [
+    `path-${ROUTE_HALO_STROKE}+${ROUTE_HALO_COLOR}(${encoded})`,
+    `path-${ROUTE_CORE_STROKE}+${ROUTE_CORE_COLOR}(${encoded})`,
+  ];
 
-  // Compute explicit center/zoom so we can project bus positions for SVG arrows.
-  const allLats = [...slice.map((p) => p.lat), ...bunch.vehicles.map((v) => v.lat)];
-  const allLons = [...slice.map((p) => p.lon), ...bunch.vehicles.map((v) => v.lon)];
+  const framingVehicles = [...bunch.vehicles, ...extraVehicles];
+  const allLats = [...slice.map((p) => p.lat), ...framingVehicles.map((v) => v.lat)];
+  const allLons = [...slice.map((p) => p.lon), ...framingVehicles.map((v) => v.lon)];
   const bbox = {
     minLat: Math.min(...allLats),
     maxLat: Math.max(...allLats),
@@ -103,34 +103,36 @@ async function renderBunchingMap(bunch, pattern) {
   const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 60);
   const zoom = Math.max(10, Math.min(17, Math.floor(rawZoom)));
 
-  const token = process.env.MAPBOX_TOKEN;
-  if (!token) throw new Error('MAPBOX_TOKEN missing');
-
-  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlays.join(',')}/${centerLon.toFixed(5)},${centerLat.toFixed(5)},${zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
-
-  const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
-
-  // Compute a single route-wide direction bearing from the slice endpoints.
-  // Averaging over the whole slice (~3000 ft) avoids a short orthogonal
-  // waypoint jog in the CTA pattern dominating the arrow, which previously
-  // produced 90°-off arrows on otherwise straight streets.
+  // Route-wide direction bearing from the slice endpoints (smoothed over ~3000
+  // ft). This avoids a short orthogonal waypoint jog dominating the arrow,
+  // which previously produced 90°-off arrows on straight streets.
   const slicePoints = slice.map((p) => ({ lat: p.lat, lon: p.lon }));
-  function routeDirectionBearing(headingSample) {
-    if (slicePoints.length < 2) return headingSample;
+  const leadBus = bunch.vehicles.reduce((a, b) => (b.pdist > a.pdist ? b : a), bunch.vehicles[0]);
+  let bearingDeg = leadBus.heading;
+  if (slicePoints.length >= 2) {
     const fwd = bearing(slicePoints[0], slicePoints[slicePoints.length - 1]);
     const rev = (fwd + 180) % 360;
-    const diffFwd = Math.abs(((headingSample - fwd + 540) % 360) - 180);
-    const diffRev = Math.abs(((headingSample - rev + 540) % 360) - 180);
-    return diffFwd <= diffRev ? fwd : rev;
+    const diffFwd = Math.abs(((leadBus.heading - fwd + 540) % 360) - 180);
+    const diffRev = Math.abs(((leadBus.heading - rev + 540) % 360) - 180);
+    bearingDeg = diffFwd <= diffRev ? fwd : rev;
   }
 
-  // Custom bus markers: larger than Mapbox pin-l, drawn via SVG composite.
-  // Uses the Twemoji bus glyph (36x36 viewBox) so the emoji renders via librsvg
-  // without relying on system emoji fonts, which sharp's text pipeline doesn't
-  // reliably support across platforms.
-  const BUS_MARKER_RADIUS = 34;
-  const markerElements = bunch.vehicles.map((v) => {
-    const { x, y } = project(v.lat, v.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
+  return { overlays, centerLat, centerLon, zoom, bearingDeg };
+}
+
+async function fetchBunchingBaseMap(view) {
+  const token = process.env.MAPBOX_TOKEN;
+  if (!token) throw new Error('MAPBOX_TOKEN missing');
+  const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${view.overlays.join(',')}/${view.centerLon.toFixed(5)},${view.centerLat.toFixed(5)},${view.zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
+  const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000 });
+  return data;
+}
+
+// Composite bus markers and the direction arrow onto a pre-fetched base map.
+// The base map and arrow are static across a video; only marker positions vary.
+async function renderBunchingFrame(view, baseMap, vehicles) {
+  const markerElements = vehicles.map((v) => {
+    const { x, y } = project(v.lat, v.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
     const iconSize = BUS_MARKER_RADIUS * 1.6;
     const iconX = x - iconSize / 2;
     const iconY = y - iconSize / 2;
@@ -139,21 +141,19 @@ async function renderBunchingMap(bunch, pattern) {
       `<svg x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" viewBox="0 0 36 36">${TWEMOJI_BUS_INNER}</svg>`,
     ].join('');
   });
-
-  // Big direction-of-travel arrow anchored in the top-right corner so it reads
-  // as a route-wide indicator rather than being tied to a specific bus.
-  const leadBus = bunch.vehicles.reduce((a, b) => (b.pdist > a.pdist ? b : a), bunch.vehicles[0]);
-  const bearingDeg = routeDirectionBearing(leadBus.heading);
-  const arrowElements = [buildDirectionArrow(WIDTH - 220, 180, bearingDeg)];
-
+  const arrowElements = [buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)];
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${markerElements.join('\n')}${arrowElements.join('\n')}</svg>`;
-
-  // Bluesky image limit is 1MB; composite arrows then convert to JPEG.
-  return sharp(data)
+  return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
     .jpeg({ quality: 85 })
     .toBuffer();
+}
+
+async function renderBunchingMap(bunch, pattern) {
+  const view = computeBunchingView(bunch, pattern);
+  const baseMap = await fetchBunchingBaseMap(view);
+  return renderBunchingFrame(view, baseMap, bunch.vehicles);
 }
 
 const SPEEDMAP_SEGMENT_STROKE = 8;
@@ -690,4 +690,13 @@ async function renderTrainSpeedmap(branches, lineColor) {
   return sharp(data).jpeg({ quality: 85 }).toBuffer();
 }
 
-module.exports = { renderBunchingMap, renderSpeedmap, renderSnapshot, renderTrainBunching, renderTrainSpeedmap };
+module.exports = {
+  renderBunchingMap,
+  computeBunchingView,
+  fetchBunchingBaseMap,
+  renderBunchingFrame,
+  renderSpeedmap,
+  renderSnapshot,
+  renderTrainBunching,
+  renderTrainSpeedmap,
+};
