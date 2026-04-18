@@ -21,12 +21,26 @@ The bus bot tracks a subset of CTA routes — see `src/routes.js` for the list. 
 ## Examples
 
 ### Bus bunching
+
+> 🚌 Route 151 (Sheridan) — Southbound
+> 3 buses within 889 ft near Michigan & Erie
+
 ![Bus bunching example — 3 buses on Route 151 within 889 ft near Michigan & Erie](docs/images/bus-bunching.jpg)
 
 ### Bus gap
+
+> 🕳️ Route 147 (Outer Lake Shore Express) — Southbound
+> 35 min gap near Foster & Marine Drive — typically every 9 min
+
 ![Bus gap example — 35 min gap on Route 147 near Foster & Marine Drive](docs/images/bus-gap.jpg)
 
 ### L system snapshot
+
+> 🚆 CTA L right now
+> 3:35 PM CT · 63 trains system-wide
+>
+> Red 14 · Blue 19 · Brown 9 · Green 11 · Orange 3 · Purple 1 · Pink 6 · Yellow 0
+
 ![L system snapshot — live positions of all active CTA L trains](docs/images/snapshot.jpg)
 
 ## Setup
