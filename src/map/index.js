@@ -4,4 +4,5 @@ module.exports = {
   ...require('./speedmap'),
   ...require('./snapshot'),
   ...require('./gaps'),
+  ...require('./trainGaps'),
 };

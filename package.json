@@ -25,6 +25,8 @@
     "snapshot:dry": "node bin/snapshot.js --dry-run",
     "train-bunching": "node bin/trainBunching.js",
     "train-bunching:dry": "node bin/trainBunching.js --dry-run",
+    "train-gaps": "node bin/trainGaps.js",
+    "train-gaps:dry": "node bin/trainGaps.js --dry-run",
     "train-speedmap": "node bin/trainSpeedmap.js",
     "train-speedmap:dry": "node bin/trainSpeedmap.js --dry-run"
   },

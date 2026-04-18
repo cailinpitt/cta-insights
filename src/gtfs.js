@@ -103,4 +103,62 @@ function expectedHeadwayMin(route, pattern, now = new Date()) {
   return null;
 }
 
-module.exports = { loadIndex, expectedHeadwayMin, resolveDirection, dayTypeFor, chicagoHour };
+// Train Tracker line codes (lowercase) → GTFS route_id in the index. These
+// are the only eight rail "routes" CTA publishes and the mapping is static.
+const TRAIN_LINE_TO_GTFS = {
+  red: 'Red', blue: 'Blue', brn: 'Brn', g: 'G',
+  org: 'Org', p: 'P', pink: 'Pink', y: 'Y',
+};
+
+/**
+ * Expected headway in minutes for a rail line heading toward `destination` at
+ * the given instant.
+ *
+ * `destination` is a {lat, lon} object (typically the destination station's
+ * coords from trainStations.json). We pick the GTFS direction whose terminal
+ * is closest to that point — this handles bi-directional lines (Red/Blue/
+ * Green) correctly. Loop lines (Brown/Orange/Purple/Pink/Yellow) only have
+ * one indexed direction, so the match is trivial.
+ *
+ * Returns null if the line isn't indexed or no destination is given.
+ */
+function expectedTrainHeadwayMin(line, destination, now = new Date()) {
+  const index = loadIndex();
+  const gtfsId = TRAIN_LINE_TO_GTFS[line];
+  if (!gtfsId) return null;
+  const byDir = index.lines && index.lines[gtfsId];
+  if (!byDir) return null;
+
+  let dirInfo = null;
+  const dirs = Object.values(byDir);
+  if (dirs.length === 1) {
+    dirInfo = dirs[0];
+  } else if (destination && destination.lat != null) {
+    let bestDist = Infinity;
+    for (const info of dirs) {
+      if (info.terminalLat == null) continue;
+      const d = haversineFt({ lat: info.terminalLat, lon: info.terminalLon }, destination);
+      if (d < bestDist) { bestDist = d; dirInfo = info; }
+    }
+  }
+  if (!dirInfo) return null;
+
+  const dayType = dayTypeFor(now);
+  const candidates = [dayType, dayType === 'saturday' || dayType === 'sunday' ? 'weekend' : null].filter(Boolean);
+  for (const dt of candidates) {
+    const hw = dirInfo.headways[dt];
+    if (!hw) continue;
+    const hour = chicagoHour(now);
+    if (hw[hour] != null) return hw[hour];
+    let bestDelta = 25;
+    let bestVal = null;
+    for (const [h, v] of Object.entries(hw)) {
+      const delta = Math.min(Math.abs(parseInt(h, 10) - hour), 24 - Math.abs(parseInt(h, 10) - hour));
+      if (delta < bestDelta) { bestDelta = delta; bestVal = v; }
+    }
+    if (bestVal != null) return bestVal;
+  }
+  return null;
+}
+
+module.exports = { loadIndex, expectedHeadwayMin, expectedTrainHeadwayMin, resolveDirection, dayTypeFor, chicagoHour };

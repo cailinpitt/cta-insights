@@ -15,9 +15,10 @@ const GTFS_URL = 'https://www.transitchicago.com/downloads/sch_data/google_trans
 const ZIP_PATH = '/tmp/cta-gtfs.zip';
 const OUT_PATH = Path.join(__dirname, '..', 'data', 'gtfs', 'index.json');
 
-// Restrict indexing to bus routes the bot actually polls. Keeps the index
-// small and skips rail routes we don't gap-check yet.
+// Restrict bus indexing to the routes the bot actually polls. Keeps the
+// index small. Rail indexing is always all-lines — there are only eight.
 const { bunching: BUS_ROUTES } = require('../src/routes');
+const RAIL_ROUTES = ['Red', 'Blue', 'Brn', 'G', 'Org', 'P', 'Pink', 'Y'];
 
 async function downloadGtfs() {
   if (Fs.existsSync(ZIP_PATH)) {
@@ -128,10 +129,16 @@ async function main() {
   console.log('Reading trips.txt...');
   const trips = parseCsv(await readFromZip('trips.txt'));
   const busRouteSet = new Set(BUS_ROUTES);
-  // tripMeta: trip_id → { route, dir, dayType, headsign }
+  const railRouteSet = new Set(RAIL_ROUTES);
+  // tripMeta: trip_id → { route, dir, dayType, headsign, mode }
+  // mode: 'bus' or 'rail'. Drives which output bucket (`routes` vs `lines`)
+  // the eventual headway lands in.
   const tripMeta = new Map();
   for (const t of trips) {
-    if (!busRouteSet.has(t.route_id)) continue;
+    let mode = null;
+    if (busRouteSet.has(t.route_id)) mode = 'bus';
+    else if (railRouteSet.has(t.route_id)) mode = 'rail';
+    if (!mode) continue;
     const dt = serviceDayType.get(t.service_id);
     if (!dt) continue;
     tripMeta.set(t.trip_id, {
@@ -140,9 +147,12 @@ async function main() {
       dayType: dt,
       serviceId: t.service_id,
       headsign: t.trip_headsign || t.direction || '',
+      mode,
     });
   }
-  console.log(`  ${tripMeta.size} bus trips in scope`);
+  const busCount = [...tripMeta.values()].filter((m) => m.mode === 'bus').length;
+  const railCount = tripMeta.size - busCount;
+  console.log(`  ${busCount} bus trips, ${railCount} rail trips in scope`);
 
   console.log('Streaming stop_times.txt...');
   // Per trip, track first-stop departure time (stop_sequence === min) and
@@ -263,8 +273,13 @@ async function main() {
     }
   }
 
+  // Bucket keys are mode-agnostic; split into routes (bus) vs lines (rail)
+  // at output time so the runtime lookup can key on whichever makes sense.
+  const routeMode = new Map(); // route_id → 'bus' | 'rail' (derived from tripMeta)
+  for (const meta of tripMeta.values()) routeMode.set(meta.route, meta.mode);
+
   // For each bucket, compute median of consecutive departure gaps (minutes).
-  const out = { generatedAt: Date.now(), routes: {} };
+  const out = { generatedAt: Date.now(), routes: {}, lines: {} };
   for (const [key, times] of buckets) {
     if (times.length < 2) continue;
     const [route, dir, dayType, hourStr] = key.split('|');
@@ -274,25 +289,27 @@ async function main() {
     for (let i = 1; i < sorted.length; i++) gaps.push((sorted[i] - sorted[i - 1]) / 60);
     const medMin = median(gaps);
     if (medMin == null) continue;
-    if (!out.routes[route]) out.routes[route] = {};
-    if (!out.routes[route][dir]) {
+    const bucket = routeMode.get(route) === 'rail' ? out.lines : out.routes;
+    if (!bucket[route]) bucket[route] = {};
+    if (!bucket[route][dir]) {
       const sample = lastStopSample.get(`${route}|${dir}`) || {};
-      out.routes[route][dir] = {
+      bucket[route][dir] = {
         headsign: sample.headsign || '',
         terminalLat: sample.lat ?? null,
         terminalLon: sample.lon ?? null,
         headways: {},
       };
     }
-    if (!out.routes[route][dir].headways[dayType]) out.routes[route][dir].headways[dayType] = {};
-    out.routes[route][dir].headways[dayType][hour] = Math.round(medMin * 10) / 10;
+    if (!bucket[route][dir].headways[dayType]) bucket[route][dir].headways[dayType] = {};
+    bucket[route][dir].headways[dayType][hour] = Math.round(medMin * 10) / 10;
   }
 
   Fs.ensureDirSync(Path.dirname(OUT_PATH));
   Fs.writeJsonSync(OUT_PATH, out);
   const bytes = Fs.statSync(OUT_PATH).size;
   const routeCount = Object.keys(out.routes).length;
-  console.log(`Wrote ${OUT_PATH} (${(bytes / 1024).toFixed(1)} KB, ${routeCount} routes)`);
+  const lineCount = Object.keys(out.lines).length;
+  console.log(`Wrote ${OUT_PATH} (${(bytes / 1024).toFixed(1)} KB, ${routeCount} bus routes, ${lineCount} rail lines)`);
 }
 
 main().catch((e) => {
