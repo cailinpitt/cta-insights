@@ -86,7 +86,7 @@ async function main() {
     return;
   }
 
-  console.log(`Bunching: ${bunch.line} trDr=${bunch.trDr} — 2 trains ${Math.round(bunch.distanceFt)}ft apart`);
+  console.log(`Bunching: ${LINE_NAMES[bunch.line]} Line toward ${bunch.trains[0].destination} — 2 trains ${Math.round(bunch.distanceFt)}ft apart`);
   console.log(`  rns: ${bunch.trains.map((t) => t.rn).join(', ')}`);
 
   // Two cooldown layers, mirroring the bus bunching model:
@@ -131,7 +131,7 @@ async function main() {
   const alt = buildAltText(bunch);
 
   if (argv['dry-run']) {
-    const outPath = Path.join(__dirname, '..', 'assets', `train-bunching-${bunch.line}-${Date.now()}.jpg`);
+    const outPath = Path.join(__dirname, '..', 'assets', `train-bunching-${LINE_NAMES[bunch.line].toLowerCase()}-${Date.now()}.jpg`);
     Fs.ensureDirSync(Path.dirname(outPath));
     Fs.writeFileSync(outPath, image);
     console.log(`\n--- DRY RUN ---\n${text}\n\nAlt: ${alt}\nImage: ${outPath}`);
@@ -144,7 +144,7 @@ async function main() {
       if (!result) {
         console.log('Video capture produced <2 frames, skipped');
       } else {
-        const videoPath = Path.join(__dirname, '..', 'assets', `train-bunching-${bunch.line}-${Date.now()}.mp4`);
+        const videoPath = Path.join(__dirname, '..', 'assets', `train-bunching-${LINE_NAMES[bunch.line].toLowerCase()}-${Date.now()}.mp4`);
         Fs.writeFileSync(videoPath, result.buffer);
         console.log(`Video: ${videoPath}`);
         console.log(`  ticks=${result.ticksCaptured}, elapsed=${result.elapsedSec}s, gap ${result.initialDistFt}ft → ${result.finalDistFt ?? '?'}ft`);

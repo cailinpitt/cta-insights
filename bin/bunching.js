@@ -197,7 +197,7 @@ async function main() {
   const alt = buildAltText(bunch, pattern, stop);
 
   if (argv['dry-run']) {
-    const outPath = Path.join(__dirname, '..', 'assets', `bunching-${bunch.pid}-${Date.now()}.jpg`);
+    const outPath = Path.join(__dirname, '..', 'assets', `bunching-${bunch.route}-${pattern.direction.toLowerCase()}-${bunch.pid}-${Date.now()}.jpg`);
     Fs.ensureDirSync(Path.dirname(outPath));
     Fs.writeFileSync(outPath, image);
     console.log(`\n--- DRY RUN ---\n${text}\n\nAlt: ${alt}\nImage: ${outPath}`);
@@ -210,7 +210,7 @@ async function main() {
       if (!result) {
         console.log('Video capture produced <2 frames, skipped');
       } else {
-        const videoPath = Path.join(__dirname, '..', 'assets', `bunching-${bunch.pid}-${Date.now()}.mp4`);
+        const videoPath = Path.join(__dirname, '..', 'assets', `bunching-${bunch.route}-${pattern.direction.toLowerCase()}-${bunch.pid}-${Date.now()}.mp4`);
         Fs.writeFileSync(videoPath, result.buffer);
         console.log(`Video: ${videoPath}`);
         console.log(`  ticks=${result.ticksCaptured}, elapsed=${result.elapsedSec}s, span ${result.initialSpanFt}ft → ${result.finalSpanFt ?? '?'}ft`);

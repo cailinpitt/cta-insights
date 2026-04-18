@@ -173,7 +173,7 @@ async function main() {
   const alt = buildAltText(line, finalDirs, durationMin);
 
   if (argv['dry-run']) {
-    const outPath = Path.join(__dirname, '..', 'assets', `train-speedmap-${line}-${Date.now()}.jpg`);
+    const outPath = Path.join(__dirname, '..', 'assets', `train-speedmap-${LINE_NAMES[line].toLowerCase()}-${Date.now()}.jpg`);
     Fs.ensureDirSync(Path.dirname(outPath));
     Fs.writeFileSync(outPath, image);
     console.log(`\n--- DRY RUN ---\n${text}\n\nAlt: ${alt}\nImage: ${outPath}`);
