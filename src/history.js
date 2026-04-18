@@ -47,6 +47,23 @@ function db() {
     CREATE INDEX IF NOT EXISTS idx_speedmap_kind_route_ts
       ON speedmap_runs(kind, route, ts);
 
+    CREATE TABLE IF NOT EXISTS gap_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      route TEXT NOT NULL,
+      direction TEXT,
+      gap_ft INTEGER NOT NULL,
+      gap_min REAL NOT NULL,
+      expected_min REAL NOT NULL,
+      ratio REAL NOT NULL,
+      near_stop TEXT,
+      posted INTEGER NOT NULL DEFAULT 0,
+      post_uri TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_gap_kind_route_ts
+      ON gap_events(kind, route, ts);
+
     CREATE TABLE IF NOT EXISTS cooldowns (
       key TEXT PRIMARY KEY,
       ts INTEGER NOT NULL
@@ -63,6 +80,7 @@ function rolloffOld(now = Date.now()) {
   const cutoff = now - ROLLOFF_DAYS * DAY_MS;
   db().prepare('DELETE FROM bunching_events WHERE ts < ?').run(cutoff);
   db().prepare('DELETE FROM speedmap_runs WHERE ts < ?').run(cutoff);
+  db().prepare('DELETE FROM gap_events WHERE ts < ?').run(cutoff);
 }
 
 // Midnight Chicago time of the day containing `ts`, returned as a UTC epoch ms.
@@ -201,6 +219,57 @@ function speedmapCallouts({ kind, route, avgMph }, now = Date.now()) {
   return out;
 }
 
+function recordGap({
+  kind, route, direction, gapFt, gapMin, expectedMin, ratio, nearStop, posted, postUri,
+}, now = Date.now()) {
+  db().prepare(`
+    INSERT INTO gap_events
+      (ts, kind, route, direction, gap_ft, gap_min, expected_min, ratio, near_stop, posted, post_uri)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    now, kind, route, direction || null,
+    Math.round(gapFt),
+    Math.round(gapMin * 10) / 10,
+    Math.round(expectedMin * 10) / 10,
+    Math.round(ratio * 100) / 100,
+    nearStop || null,
+    posted ? 1 : 0,
+    postUri || null,
+  );
+}
+
+/**
+ * Callouts for a gap detection about to post. Mirrors bunchingCallouts:
+ * "Nth gap today" for frequency, "worst reported in N days" for severity.
+ * Severity here uses the ratio (observed/expected) — that normalizes across
+ * high-frequency and low-frequency routes.
+ */
+function gapCallouts({ kind, route, routeLabel, ratio }, now = Date.now()) {
+  const out = [];
+  const startOfDay = chicagoStartOfDay(now);
+  const todayCount = db().prepare(`
+    SELECT COUNT(*) AS c FROM gap_events
+    WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ?
+  `).get(kind, route, startOfDay).c;
+  const nth = todayCount + 1;
+  if (nth >= 2) {
+    const label = routeLabel ? `${routeLabel} gap` : 'gap';
+    out.push(`${ordinal(nth)} ${label} reported today`);
+  }
+
+  const windowDays = 30;
+  const windowStart = now - windowDays * DAY_MS;
+  const row = db().prepare(`
+    SELECT MAX(ratio) AS maxRatio, COUNT(*) AS c
+    FROM gap_events
+    WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ? AND ts < ?
+  `).get(kind, route, windowStart, startOfDay);
+  if (row.c >= 3 && ratio > row.maxRatio) {
+    out.push(`worst reported on this route in ${windowDays} days`);
+  }
+  return out;
+}
+
 function ordinal(n) {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
@@ -216,8 +285,10 @@ module.exports = {
   rolloffOld,
   recordBunching,
   recordSpeedmap,
+  recordGap,
   bunchingCallouts,
   speedmapCallouts,
+  gapCallouts,
   formatCallouts,
   getDb,
 };

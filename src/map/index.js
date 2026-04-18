@@ -3,4 +3,5 @@ module.exports = {
   ...require('./trainBunching'),
   ...require('./speedmap'),
   ...require('./snapshot'),
+  ...require('./gaps'),
 };
