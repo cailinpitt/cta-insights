@@ -63,8 +63,11 @@ function detectAllGaps(vehicles, expectedHeadwayForPid, patternForPid, now = new
       gaps.push({
         pid,
         route: a.route,
-        leading: a,           // downstream bus (farther along the route)
-        trailing: b,          // upstream bus (closer to start)
+        // sorted ascending by pdist → a is upstream (behind), b is downstream
+        // (ahead). A rider standing near `leading` has just watched it pass and
+        // is now waiting for `trailing`.
+        leading: b,
+        trailing: a,
         gapFt,
         gapMin,
         expectedMin,

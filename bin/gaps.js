@@ -5,7 +5,7 @@ const Fs = require('fs-extra');
 const Path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getVehicles } = require('../src/cta');
+const { getVehicles, getPredictions } = require('../src/cta');
 const { names: routeNames, gaps: gapRoutes } = require('../src/routes');
 const { detectAllGaps } = require('../src/gaps');
 const { loadPattern } = require('../src/patterns');
@@ -140,6 +140,56 @@ async function main() {
 
   if (!gap) {
     console.log('All candidates filtered (cooldown or terminal), nothing to post');
+    return;
+  }
+
+  // Refine gapMin with CTA BusTime predictions. Rider framing: standing at a
+  // stop just past the leading bus, how long until the trailing bus arrives?
+  //
+  // BusTime only predicts ~30 min out, so big gaps (the ones we care about
+  // most) never return a direct prediction at the leading bus's stop. Instead
+  // we pull all predictions for the trailing bus, find its *farthest* predicted
+  // stop that's still on this pattern, and add the remaining distance from
+  // there to the leading bus at a typical 10 mph. This anchors the estimate on
+  // BusTime's real-time ETA and uses the crude constant only for the tail.
+  try {
+    const leadingStop = findNearestStop(pattern, gap.leading.pdist);
+    const preds = await getPredictions({ vid: gap.trailing.vid });
+    // Map stpid → pattern stop with a pdist so we can measure distance.
+    const stopsByStpid = new Map();
+    for (const pt of pattern.points) {
+      if (pt.type === 'S' && pt.stopId) stopsByStpid.set(String(pt.stopId), pt);
+    }
+    function predMinutes(raw) {
+      if (raw === 'DUE') return 1;
+      if (/^\d+$/.test(String(raw))) return parseInt(raw, 10);
+      return null;
+    }
+    const onPattern = preds
+      .map((p) => ({ pred: p, stop: stopsByStpid.get(String(p.stpid)), min: predMinutes(p.prdctdn) }))
+      .filter((x) => x.stop && x.min != null && x.stop.pdist < gap.leading.pdist);
+
+    if (onPattern.length > 0) {
+      // Pick the stop with the largest pdist (closest to leading bus) so the
+      // extrapolation tail is as short as possible.
+      const anchor = onPattern.reduce((best, x) => (x.stop.pdist > best.stop.pdist ? x : best));
+      const remainingFt = gap.leading.pdist - anchor.stop.pdist;
+      const tailMin = remainingFt / 880; // 10 mph ≈ 880 ft/min
+      const refined = anchor.min + tailMin;
+      console.log(`Prediction refinement: ${gap.gapMin.toFixed(1)} min (distance) → ${refined.toFixed(1)} min (anchor: ${anchor.min} min at ${anchor.stop.stopName} + ${tailMin.toFixed(1)} min to ${leadingStop.stopName})`);
+      gap.gapMin = refined;
+      gap.ratio = refined / gap.expectedMin;
+    } else {
+      console.log(`No usable predictions for vid ${gap.trailing.vid} on this pattern; keeping distance estimate`);
+    }
+  } catch (e) {
+    console.warn(`Prediction refinement failed: ${e.message}; keeping distance estimate`);
+  }
+
+  // Re-check thresholds in case the refined ETA moved us below the bar.
+  const { RATIO_THRESHOLD, ABSOLUTE_MIN_MIN } = require('../src/gaps');
+  if (gap.gapMin < ABSOLUTE_MIN_MIN || gap.ratio < RATIO_THRESHOLD) {
+    console.log(`After refinement, gap no longer meets threshold (${gap.gapMin} min, ${gap.ratio.toFixed(2)}x); skipping`);
     return;
   }
 

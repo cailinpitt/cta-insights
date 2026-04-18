@@ -81,4 +81,23 @@ async function getPattern(pid) {
   };
 }
 
-module.exports = { getVehicles, getPattern };
+/**
+ * Fetch BusTime predictions. `vid` filters to a specific vehicle, `stpid`
+ * narrows to a stop. Returned fields include:
+ *   vid, stpid, stpnm, rt, prdtm ("20260418 15:52:13"), prdctdn ("DUE"|"N"|"DLY"),
+ *   typ ("A" arrival | "D" departure), dly (boolean).
+ *
+ * prdctdn is a string — may be "DUE" or "DLY" instead of a number. Caller
+ * should parse defensively.
+ */
+async function getPredictions({ stpid, vid, rt, top }) {
+  const params = {};
+  if (stpid) params.stpid = Array.isArray(stpid) ? stpid.join(',') : stpid;
+  if (vid) params.vid = Array.isArray(vid) ? vid.join(',') : vid;
+  if (rt) params.rt = Array.isArray(rt) ? rt.join(',') : rt;
+  if (top) params.top = top;
+  const body = await get('getpredictions', params);
+  return body.prd || [];
+}
+
+module.exports = { getVehicles, getPattern, getPredictions };
