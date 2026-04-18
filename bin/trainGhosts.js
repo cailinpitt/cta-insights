@@ -5,6 +5,7 @@ const argv = require('minimist')(process.argv.slice(2));
 
 const { LINE_NAMES, ALL_LINES } = require('../src/trainApi');
 const { detectTrainGhosts } = require('../src/trainGhosts');
+const { buildRollupPost } = require('../src/ghosts');
 const { expectedTrainHeadwayMin, expectedTrainTripMinutes } = require('../src/gtfs');
 const { getTrainObservations, rolloffOldObservations } = require('../src/observations');
 const { loginTrain, postText } = require('../src/bluesky');
@@ -41,9 +42,7 @@ function formatLine(event) {
 }
 
 function buildPostText(events) {
-  const header = '👻 Ghost trains, past hour';
-  const lines = events.map(formatLine);
-  return `${header}\n${lines.join('\n')}`;
+  return buildRollupPost('👻 Ghost trains, past hour', events.map(formatLine));
 }
 
 async function main() {
@@ -70,6 +69,10 @@ async function main() {
   }
 
   const text = buildPostText(events);
+  if (!text) {
+    console.log('No lines fit under the post limit, skipping');
+    return;
+  }
 
   if (argv['dry-run']) {
     console.log(`\n--- DRY RUN ---\n${text}`);

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { detectBusGhosts, MIN_SNAPSHOTS } = require('../src/ghosts');
+const { detectBusGhosts, buildRollupPost, MIN_SNAPSHOTS } = require('../src/ghosts');
 
 // Build a synthetic observation stream: `snapshots` polling timestamps, and at
 // each one, `vidsPerSnapshot` distinct vids sharing `pid`. Used to shape
@@ -119,6 +119,36 @@ test('skips routes where headway or duration is null', async () => {
     expectedHeadway: () => 10, expectedDuration: () => null,
   });
   assert.equal(noDuration.length, 0);
+});
+
+test('buildRollupPost keeps all lines when they fit under the limit', () => {
+  const lines = ['a', 'b', 'c'];
+  const text = buildRollupPost('head', lines, 100);
+  assert.equal(text, 'head\na\nb\nc');
+});
+
+test('buildRollupPost appends "…and N more routes" when truncating', () => {
+  const lines = Array.from({ length: 10 }, (_, i) => `line number ${i} padded to fit`);
+  const text = buildRollupPost('HEAD', lines, 120);
+  assert.ok(text.length <= 120, `expected <= 120, got ${text.length}`);
+  assert.match(text, /…and \d+ more routes?/);
+  const dropped = Number(text.match(/…and (\d+) more/)[1]);
+  const kept = lines.length - dropped;
+  for (let i = 0; i < kept; i++) assert.ok(text.includes(lines[i]));
+});
+
+test('buildRollupPost returns null when no line fits', () => {
+  const text = buildRollupPost('HEAD', ['a-very-long-single-line'], 10);
+  assert.equal(text, null);
+});
+
+test('buildRollupPost uses singular "route" when exactly 1 is dropped', () => {
+  // 3 lines × 40 chars. Full rollup = 1+1+40+1+40+1+40 = 124. 2-line + tail =
+  // 1+1+40+1+40+"\n…and 1 more route"(18) = 101. Budget 120 forces 1-drop.
+  const lines = ['A'.repeat(40), 'B'.repeat(40), 'C'.repeat(40)];
+  const text = buildRollupPost('H', lines, 120);
+  assert.ok(text.endsWith('…and 1 more route'), `got: ${text}`);
+  assert.ok(!text.endsWith('routes'));
 });
 
 test('sorts events by missing count descending', async () => {

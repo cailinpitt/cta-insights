@@ -4,7 +4,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const argv = require('minimist')(process.argv.slice(2));
 
 const { names: routeNames, ghosts: ghostRoutes } = require('../src/routes');
-const { detectBusGhosts } = require('../src/ghosts');
+const { detectBusGhosts, buildRollupPost } = require('../src/ghosts');
 const { loadPattern } = require('../src/patterns');
 const { expectedHeadwayMin, expectedTripMinutes } = require('../src/gtfs');
 const { getBusObservations, rolloffOldObservations } = require('../src/observations');
@@ -30,9 +30,7 @@ function formatLine(event) {
 }
 
 function buildPostText(events) {
-  const header = '👻 Ghost buses, past hour';
-  const lines = events.map(formatLine);
-  return `${header}\n${lines.join('\n')}`;
+  return buildRollupPost('👻 Ghost buses, past hour', events.map(formatLine));
 }
 
 async function main() {
@@ -59,6 +57,10 @@ async function main() {
   }
 
   const text = buildPostText(events);
+  if (!text) {
+    console.log('No lines fit under the post limit, skipping');
+    return;
+  }
 
   if (argv['dry-run']) {
     console.log(`\n--- DRY RUN ---\n${text}`);
