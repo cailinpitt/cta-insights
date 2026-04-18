@@ -17,7 +17,13 @@ const BBOX = { minLat: 41.60, maxLat: 42.10, minLon: -87.95, maxLon: -87.50 };
 const OUT_PATH = Path.join(__dirname, '..', 'data', 'signals', 'chicago.json');
 
 async function main() {
-  const q = `[out:json][timeout:120];(node["highway"="traffic_signals"](${BBOX.minLat},${BBOX.minLon},${BBOX.maxLat},${BBOX.maxLon}););out;`;
+  // Two OSM tagging conventions for signalized intersections: a standalone
+  // `highway=traffic_signals` node, or `crossing=traffic_signals` on each
+  // pedestrian crossing node. Many Chicago intersections (e.g. Irving Park
+  // & Kostner) only have the crossing-style tags, so we pull both. Dedupe
+  // at render time collapses the multiple crossing nodes per intersection.
+  const bbox = `${BBOX.minLat},${BBOX.minLon},${BBOX.maxLat},${BBOX.maxLon}`;
+  const q = `[out:json][timeout:120];(node["highway"="traffic_signals"](${bbox});node["crossing"="traffic_signals"](${bbox}););out;`;
 
   for (const url of OVERPASS_URLS) {
     console.log(`Trying ${url}...`);
