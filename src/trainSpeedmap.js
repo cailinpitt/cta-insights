@@ -294,6 +294,28 @@ function pickTargetDir(samplesByDir) {
   return best?.trDr;
 }
 
+// Inverse of `snapToLine`: given a cumulative-distance position along the
+// polyline, return the {lat, lon} on the line at that distance. Used to
+// render a train at its snapped/clamped position rather than raw GPS.
+function pointAlongLine(linePoints, cumDist, dist) {
+  if (linePoints.length === 0) return null;
+  if (dist <= cumDist[0]) return { lat: linePoints[0][0], lon: linePoints[0][1] };
+  const last = linePoints.length - 1;
+  if (dist >= cumDist[last]) return { lat: linePoints[last][0], lon: linePoints[last][1] };
+  let lo = 0;
+  let hi = last;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cumDist[mid] <= dist) lo = mid;
+    else hi = mid;
+  }
+  const span = cumDist[hi] - cumDist[lo];
+  const t = span === 0 ? 0 : (dist - cumDist[lo]) / span;
+  const a = linePoints[lo];
+  const b = linePoints[hi];
+  return { lat: a[0] + t * (b[0] - a[0]), lon: a[1] + t * (b[1] - a[1]) };
+}
+
 module.exports = {
   collectTrains,
   computeTrainSamples,
@@ -301,5 +323,6 @@ module.exports = {
   buildLinePolyline,
   buildLineBranches,
   snapToLine,
+  pointAlongLine,
   offsetPolyline,
 };

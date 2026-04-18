@@ -11,6 +11,7 @@ const {
   renderTrainBunchingFrame,
 } = require('./map');
 const { haversineFt } = require('./geo');
+const { buildLinePolyline, snapToLine, pointAlongLine } = require('./trainSpeedmap');
 
 const execP = promisify(exec);
 
@@ -60,6 +61,27 @@ async function captureTrainBunchingVideo(bunch, lineColors, trainLines, stations
   }
 
   if (snapshots.length < 2) return null;
+
+  // Raw CTA positions mix GPS with next-station predictions, producing two
+  // artifacts the interpolator amplifies: lateral jitter off the track, and
+  // occasional backwards jumps that can visually flip the order of two trains.
+  // Fix both by snapping each reported position to the line polyline and then
+  // clamping the along-track distance per rn to be monotonically non-decreasing.
+  // Render positions are reconstructed from the clamped along-track value.
+  const { points: linePts, cumDist: lineCum } = buildLinePolyline(trainLines, bunch.line);
+  if (linePts.length >= 2) {
+    const maxTrackByRn = new Map();
+    for (const snap of snapshots) {
+      for (const t of snap.trains) {
+        const raw = snapToLine(t.lat, t.lon, linePts, lineCum);
+        const prev = maxTrackByRn.get(t.rn);
+        const clamped = prev == null ? raw : Math.max(prev, raw);
+        maxTrackByRn.set(t.rn, clamped);
+        const snapped = pointAlongLine(linePts, lineCum, clamped);
+        if (snapped) { t.lat = snapped.lat; t.lon = snapped.lon; }
+      }
+    }
+  }
 
   const extraTrains = snapshots.slice(1).flatMap((s) => s.trains);
   const view = computeTrainBunchingView(bunch, lineColors, trainLines, stations, extraTrains);

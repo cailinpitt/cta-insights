@@ -6,6 +6,8 @@ const { promisify } = require('util');
 
 const { getVehicles } = require('./cta');
 const { computeBunchingView, fetchBunchingBaseMap, renderBunchingFrame } = require('./map');
+const { cumulativeDistances } = require('./geo');
+const { snapToLine, pointAlongLine } = require('./trainSpeedmap');
 
 const execP = promisify(exec);
 
@@ -58,6 +60,26 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
   }
 
   if (snapshots.length < 2) return null;
+
+  // Raw CTA positions have lateral GPS jitter and occasional backwards jumps
+  // (prediction/GPS swaps). Snap each reported position onto the route pattern
+  // polyline, then clamp along-track distance per vid to be monotonically
+  // non-decreasing. Same fix as the train video — see trainBunchingVideo.js.
+  const linePts = pattern.points.map((p) => [p.lat, p.lon]);
+  const lineCum = cumulativeDistances(pattern.points);
+  if (linePts.length >= 2) {
+    const maxTrackByVid = new Map();
+    for (const snap of snapshots) {
+      for (const v of snap.vehicles) {
+        const raw = snapToLine(v.lat, v.lon, linePts, lineCum);
+        const prev = maxTrackByVid.get(v.vid);
+        const clamped = prev == null ? raw : Math.max(prev, raw);
+        maxTrackByVid.set(v.vid, clamped);
+        const snapped = pointAlongLine(linePts, lineCum, clamped);
+        if (snapped) { v.lat = snapped.lat; v.lon = snapped.lon; }
+      }
+    }
+  }
 
   const extraVehicles = snapshots.slice(1).flatMap((s) => s.vehicles);
   const view = computeBunchingView(bunch, pattern, extraVehicles);
