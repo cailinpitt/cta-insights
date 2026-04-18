@@ -20,7 +20,7 @@ const GAP_SEGMENT_STROKE = 10;
  */
 function computeTrainGapView(gap, lineColors, trainLines, stations) {
   const bunch = { line: gap.line, trDr: gap.trDr, trains: [gap.leading, gap.trailing] };
-  const view = computeTrainBunchingView(bunch, lineColors, trainLines, stations);
+  const view = computeTrainBunchingView(bunch, lineColors, trainLines, stations, [], { fitBbox: true });
 
   const { points, cumDist } = buildLinePolyline(trainLines, gap.line);
   const lo = Math.min(gap.leadingTrackDist, gap.trailingTrackDist);

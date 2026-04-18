@@ -86,7 +86,7 @@ function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}">${elements}</svg>`;
 }
 
-function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extraTrains = []) {
+function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extraTrains = [], opts = {}) {
   const color = lineColors[bunch.line] || 'ffffff';
 
   const { points: linePts, cumDist: lineCumDist } = buildLinePolyline(trainLines, bunch.line);
@@ -141,11 +141,12 @@ function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extra
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
   // Integer zoom. Mapbox may round fractional zooms, decoupling our projection
-  // math from the actual image. For a still image we ceil so the frame sits
-  // tighter; for a video capture (extraTrains non-empty) we floor — the bbox
-  // already covers every sampled position, so ceil would clip trains at edges.
+  // math from the actual image. For a tight still-image bunch we ceil so the
+  // frame sits tighter; for a video capture (extraTrains non-empty) or a gap
+  // (opts.fitBbox) we floor — the bbox already spans what must stay on-screen,
+  // so ceiling would clip trains sitting at the edges.
   const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 60);
-  const round = extraTrains.length > 0 ? Math.floor : Math.ceil;
+  const round = extraTrains.length > 0 || opts.fitBbox ? Math.floor : Math.ceil;
   const zoom = Math.max(10, Math.min(17, round(rawZoom)));
 
   // Full line segments so the route runs off the edges of the frame.
