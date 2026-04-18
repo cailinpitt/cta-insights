@@ -147,7 +147,11 @@ function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extra
   // so ceiling would clip trains sitting at the edges.
   const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 60);
   const round = extraTrains.length > 0 || opts.fitBbox ? Math.floor : Math.ceil;
-  const zoom = Math.max(10, Math.min(17, round(rawZoom)));
+  // Wide gaps (e.g. a Blue Line gap spanning Rosemont → past Harlem) need a
+  // lower floor than a typical bunch — clamping to 10 re-clipped the trains
+  // we were trying to keep on-screen.
+  const minZoom = opts.fitBbox ? 8 : 10;
+  const zoom = Math.max(minZoom, Math.min(17, round(rawZoom)));
 
   // Full line segments so the route runs off the edges of the frame.
   const overlays = [];
