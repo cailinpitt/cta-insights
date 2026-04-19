@@ -3,7 +3,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 
 const argv = require('minimist')(process.argv.slice(2));
 
-const { LINE_NAMES, ALL_LINES } = require('../src/trainApi');
+const { LINE_NAMES, LINE_EMOJI, ALL_LINES } = require('../src/trainApi');
 const { detectTrainGhosts } = require('../src/trainGhosts');
 const { buildRollupPost } = require('../src/ghosts');
 const { expectedTrainHeadwayMin, expectedTrainTripMinutes } = require('../src/gtfs');
@@ -35,10 +35,11 @@ function findStationByDestination(line, destination) {
 
 function formatLine(event) {
   const lineName = LINE_NAMES[event.line];
+  const emoji = LINE_EMOJI[event.line];
   const missing = Math.round(event.missing);
   const expected = Math.round(event.expectedActive);
   const dest = event.destination ? ` → ${event.destination}` : '';
-  return `${lineName} Line${dest} · ${missing} of ${expected} missing`;
+  return `${emoji} ${lineName} Line${dest} · ${missing} of ${expected} missing`;
 }
 
 function buildPostText(events) {

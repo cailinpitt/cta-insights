@@ -21,6 +21,12 @@ const LINE_NAMES = {
   org: 'Orange', p: 'Purple', pink: 'Pink', y: 'Yellow',
 };
 
+// Unicode has no pink square; 🩷 (pink heart) is the closest color-block stand-in.
+const LINE_EMOJI = {
+  red: '🟥', blue: '🟦', brn: '🟫', g: '🟩',
+  org: '🟧', p: '🟪', pink: '🩷', y: '🟨',
+};
+
 function parseTrain(line, raw) {
   return {
     line,
@@ -71,4 +77,4 @@ async function getAllTrainPositions(lines = ALL_LINES) {
   return trains;
 }
 
-module.exports = { getAllTrainPositions, LINE_COLORS, LINE_NAMES, ALL_LINES };
+module.exports = { getAllTrainPositions, LINE_COLORS, LINE_NAMES, LINE_EMOJI, ALL_LINES };
