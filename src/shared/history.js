@@ -265,7 +265,7 @@ function gapCallouts({ kind, route, routeLabel, ratio }, now = Date.now()) {
     WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ? AND ts < ?
   `).get(kind, route, windowStart, startOfDay);
   if (row.c >= 3 && ratio > row.maxRatio) {
-    out.push(`worst reported on this route in ${windowDays} days`);
+    out.push(`biggest gap vs schedule on this route in ${windowDays} days`);
   }
   return out;
 }

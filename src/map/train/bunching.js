@@ -3,6 +3,7 @@ const { encode } = require('../../shared/polyline');
 const { haversineFt, bearing } = require('../../shared/geo');
 const { fitZoom, project } = require('../../shared/projection');
 const { buildLinePolyline, snapToLine } = require('../../train/speedmap');
+const { shortStationName } = require('../../train/api');
 const {
   STYLE, WIDTH, HEIGHT,
   TWEMOJI_TRAIN_INNER, TWEMOJI_HOUSE_INNER,
@@ -47,12 +48,6 @@ function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, 
   const labelHeight = fontSize + 8;
   const gap = 4; // minimum vertical gap between labels
 
-  // Strip any trailing parenthetical since bunching maps already show a single
-  // line — both line-only tags ("Chicago (Red)") and branch tags
-  // ("Western (Blue - Forest Park Branch)") are redundant context here, and
-  // the branch form is long enough to dominate the label row.
-  const TRAILING_PARENS = /\s*\([^)]*\)\s*$/;
-
   // Compute initial label positions, then nudge overlapping ones apart.
   // If a train is sitting at the station, anchor the label to the train's
   // projected y (not the station's) so the label sits below the train marker
@@ -61,7 +56,7 @@ function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, 
   const TRAIN_HALO_EXTRA = 8;
   const LABEL_CLEAR_GAP = 10;
   const labels = stationsWithPixels.map(({ station, x, y, hasTrain, trainY }) => {
-    const label = xmlEscape(station.name.replace(TRAILING_PARENS, ''));
+    const label = xmlEscape(shortStationName(station.name));
     const approxWidth = label.length * 10 + 16;
     const rectY = hasTrain
       ? trainY + TRAIN_MARKER_RADIUS + TRAIN_HALO_EXTRA + LABEL_CLEAR_GAP

@@ -1,11 +1,11 @@
-const { LINE_NAMES } = require('./api');
+const { LINE_NAMES, shortStationName } = require('./api');
 const { formatCallouts } = require('../shared/history');
 const { formatDistance, formatMinSec, elapsedMinutesLabel } = require('../shared/format');
 
 function buildPostText(bunch, callouts = []) {
   const lineName = LINE_NAMES[bunch.line];
   const dest = bunch.trains[0].destination;
-  const station = bunch.trains[0].nextStation;
+  const station = shortStationName(bunch.trains[0].nextStation);
   const count = bunch.trains.length;
   const base = `🚆 ${lineName} Line — to ${dest}\n${count} trains within ${formatDistance(bunch.spanFt)} near ${station}`;
   const tail = formatCallouts(callouts);
@@ -15,7 +15,7 @@ function buildPostText(bunch, callouts = []) {
 function buildAltText(bunch) {
   const lineName = LINE_NAMES[bunch.line];
   const dest = bunch.trains[0].destination;
-  const station = bunch.trains[0].nextStation;
+  const station = shortStationName(bunch.trains[0].nextStation);
   const count = bunch.trains.length;
   return `Map of the ${lineName} Line near ${station} showing ${count} trains to ${dest} within ${formatDistance(bunch.spanFt)} of each other.`;
 }
@@ -34,7 +34,7 @@ function buildVideoPostText(result) {
 function buildVideoAltText(bunch, result) {
   const lineName = LINE_NAMES[bunch.line];
   const dest = bunch.trains[0].destination;
-  const station = bunch.trains[0].nextStation;
+  const station = shortStationName(bunch.trains[0].nextStation);
   const count = bunch.trains.length;
   return `Timelapse map of the ${lineName} Line near ${station} showing ${count} trains to ${dest} moving over ${formatMinSec(result.elapsedSec)}.`;
 }

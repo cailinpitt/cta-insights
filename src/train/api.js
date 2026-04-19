@@ -77,4 +77,14 @@ async function getAllTrainPositions(lines = ALL_LINES) {
   return trains;
 }
 
-module.exports = { getAllTrainPositions, LINE_COLORS, LINE_NAMES, LINE_EMOJI, ALL_LINES };
+// Strip the trailing parenthetical from a station name. Station data carries
+// line/branch tags (e.g. "Western (Blue - Forest Park Branch)") to disambiguate
+// same-named stops across the system, but bunching/gap posts and maps already
+// display the line, so the tag reads as clutter. Branch ambiguity (two
+// "Western" on the Blue Line) is rare enough to tolerate in exchange.
+const TRAILING_PARENS = /\s*\([^)]*\)\s*$/;
+function shortStationName(name) {
+  return name ? name.replace(TRAILING_PARENS, '') : name;
+}
+
+module.exports = { getAllTrainPositions, LINE_COLORS, LINE_NAMES, LINE_EMOJI, ALL_LINES, shortStationName };
