@@ -1,10 +1,10 @@
 const sharp = require('sharp');
-const { encode } = require('../shared/polyline');
-const { fitZoom } = require('../shared/projection');
+const { encode } = require('../../shared/polyline');
+const { fitZoom } = require('../../shared/projection');
 const {
   STYLE, WIDTH, HEIGHT,
   requireMapboxToken, fetchMapboxStatic,
-} = require('./common');
+} = require('../common');
 
 // Chicago Loop elevated tracks bbox (Lake/Van Buren/Wells/Wabash) with a few
 // blocks of padding so surrounding stations fit.

@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { detectAllTrainGaps, TYPICAL_TRAIN_SPEED_FT_PER_MIN, ABSOLUTE_MIN_MIN } = require('../src/train/gaps');
-const { train, straightLine, pointAtFt } = require('./helpers');
+const { detectAllTrainGaps, TYPICAL_TRAIN_SPEED_FT_PER_MIN, ABSOLUTE_MIN_MIN } = require('../../src/train/gaps');
+const { train, straightLine, pointAtFt } = require('../helpers');
 
 const LINE_FT = 100000;
 const trainLines = { red: [straightLine(LINE_FT)] };

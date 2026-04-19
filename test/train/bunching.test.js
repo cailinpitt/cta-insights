@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { detectTrainBunching, TRAIN_BUNCHING_FT, MIN_DISTANCE_FT } = require('../src/train/bunching');
-const { train, straightLine, pointAtFt } = require('./helpers');
+const { detectTrainBunching, TRAIN_BUNCHING_FT, MIN_DISTANCE_FT } = require('../../src/train/bunching');
+const { train, straightLine, pointAtFt } = require('../helpers');
 
 const LINE_FT = 50000;
 const trainLines = { red: [straightLine(LINE_FT)] };

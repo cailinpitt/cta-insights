@@ -1,18 +1,18 @@
 #!/usr/bin/env node
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 
 const Fs = require('fs-extra');
 const Path = require('path');
 const _ = require('lodash');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { names: routeNames, speedmap: speedmapRoutes } = require('../src/bus/routes');
-const { collect, computeSamples, pickTargetPid, binSamples, summarize } = require('../src/bus/speedmap');
-const { loadPattern } = require('../src/bus/patterns');
-const { renderSpeedmap } = require('../src/map');
-const { loginBus, postWithImage } = require('../src/bus/bluesky');
-const { pruneOldAssets } = require('../src/shared/cleanup');
-const history = require('../src/shared/history');
+const { names: routeNames, speedmap: speedmapRoutes } = require('../../src/bus/routes');
+const { collect, computeSamples, pickTargetPid, binSamples, summarize } = require('../../src/bus/speedmap');
+const { loadPattern } = require('../../src/bus/patterns');
+const { renderSpeedmap } = require('../../src/map');
+const { loginBus, postWithImage } = require('../../src/bus/bluesky');
+const { pruneOldAssets } = require('../../src/shared/cleanup');
+const history = require('../../src/shared/history');
 
 const NUM_BINS = 40;
 const POLL_INTERVAL_MS = 30 * 1000;

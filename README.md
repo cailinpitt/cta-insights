@@ -102,6 +102,6 @@ Recommended crontab additions:
 */5 * * * * cd /path/to/cta-bot && /usr/bin/node scripts/observeGhosts.js >> cron/observe-ghosts-cron.log 2>&1
 
 # Hourly ghost rollups (offset from other jobs to avoid stomping)
-7 * * * * cd /path/to/cta-bot && /usr/bin/node bin/ghosts.js >> cron/ghosts-cron.log 2>&1
-8 * * * * cd /path/to/cta-bot && /usr/bin/node bin/trainGhosts.js >> cron/train-ghosts-cron.log 2>&1
+7 * * * * cd /path/to/cta-bot && /usr/bin/node bin/bus/ghosts.js >> cron/ghosts-cron.log 2>&1
+8 * * * * cd /path/to/cta-bot && /usr/bin/node bin/train/ghosts.js >> cron/train-ghosts-cron.log 2>&1
 ```

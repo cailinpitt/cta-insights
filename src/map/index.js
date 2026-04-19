@@ -1,8 +1,8 @@
 module.exports = {
-  ...require('./bunching'),
-  ...require('./trainBunching'),
-  ...require('./speedmap'),
-  ...require('./snapshot'),
-  ...require('./gaps'),
-  ...require('./trainGaps'),
+  ...require('./bus/bunching'),
+  ...require('./train/bunching'),
+  ...require('./bus/speedmap'),
+  ...require('./train/snapshot'),
+  ...require('./bus/gaps'),
+  ...require('./train/gaps'),
 };

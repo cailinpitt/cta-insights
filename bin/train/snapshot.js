@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 
 const Fs = require('fs-extra');
 const Path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getAllTrainPositions, LINE_COLORS } = require('../src/train/api');
-const { renderSnapshot } = require('../src/map');
-const trainLines = require('../src/train/data/trainLines.json');
-const { loginTrain, postWithImage } = require('../src/train/bluesky');
-const { pruneOldAssets } = require('../src/shared/cleanup');
-const { buildPostText, buildAltText } = require('../src/train/snapshot');
+const { getAllTrainPositions, LINE_COLORS } = require('../../src/train/api');
+const { renderSnapshot } = require('../../src/map');
+const trainLines = require('../../src/train/data/trainLines.json');
+const { loginTrain, postWithImage } = require('../../src/train/bluesky');
+const { pruneOldAssets } = require('../../src/shared/cleanup');
+const { buildPostText, buildAltText } = require('../../src/train/snapshot');
 
 async function main() {
   pruneOldAssets();

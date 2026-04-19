@@ -1,10 +1,10 @@
-const { encode } = require('../shared/polyline');
-const { buildLinePolyline } = require('../train/speedmap');
+const { encode } = require('../../shared/polyline');
+const { buildLinePolyline } = require('../../train/speedmap');
 const {
   computeTrainBunchingView,
   fetchTrainBunchingBaseMap,
   renderTrainBunchingFrame,
-} = require('./trainBunching');
+} = require('./bunching');
 
 // Red overlay for the stretch of track between the two bounding trains — the
 // "where riders are waiting" segment. Matches the bus gap map.

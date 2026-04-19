@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { detectAllBunching, detectBunching, BUNCHING_THRESHOLD_FT } = require('../src/bus/bunching');
-const { bus, FRESH } = require('./helpers');
+const { detectAllBunching, detectBunching, BUNCHING_THRESHOLD_FT } = require('../../src/bus/bunching');
+const { bus, FRESH } = require('../helpers');
 
 test('detects a pair within the threshold', () => {
   const vs = [bus({ vid: 'a', pdist: 5000 }), bus({ vid: 'b', pdist: 5500 })];

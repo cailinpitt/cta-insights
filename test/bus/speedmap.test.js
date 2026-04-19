@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { computeSamples, pickTargetPid, binSamples, summarize } = require('../src/bus/speedmap');
+const { computeSamples, pickTargetPid, binSamples, summarize } = require('../../src/bus/speedmap');
 
 // Build the nested Map<vid, Map<pid, points>> shape the module expects.
 function tracks(entries) {

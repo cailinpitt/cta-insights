@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { filterSignalsOnRoute, dedupeNearbySignals, annotateSignalOrientations } = require('../src/bus/trafficSignals');
-const { pointAtFt } = require('./helpers');
+const { filterSignalsOnRoute, dedupeNearbySignals, annotateSignalOrientations } = require('../../src/bus/trafficSignals');
+const { pointAtFt } = require('../helpers');
 
 // A straight N-S route: 10 points along lon=-87.65, spanning 10000 ft.
 const route = [];

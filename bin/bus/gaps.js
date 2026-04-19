@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 
 const Fs = require('fs-extra');
 const Path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getVehicles, getPredictions } = require('../src/bus/api');
-const { names: routeNames, gaps: gapRoutes } = require('../src/bus/routes');
-const { detectAllGaps } = require('../src/bus/gaps');
-const { loadPattern } = require('../src/bus/patterns');
-const { renderGapMap } = require('../src/map');
-const { loginBus, postWithImage } = require('../src/bus/bluesky');
-const { isOnCooldown, acquireCooldown } = require('../src/shared/state');
-const { pruneOldAssets } = require('../src/shared/cleanup');
-const { expectedHeadwayMin } = require('../src/shared/gtfs');
-const history = require('../src/shared/history');
+const { getVehicles, getPredictions } = require('../../src/bus/api');
+const { names: routeNames, gaps: gapRoutes } = require('../../src/bus/routes');
+const { detectAllGaps } = require('../../src/bus/gaps');
+const { loadPattern } = require('../../src/bus/patterns');
+const { renderGapMap } = require('../../src/map');
+const { loginBus, postWithImage } = require('../../src/bus/bluesky');
+const { isOnCooldown, acquireCooldown } = require('../../src/shared/state');
+const { pruneOldAssets } = require('../../src/shared/cleanup');
+const { expectedHeadwayMin } = require('../../src/shared/gtfs');
+const history = require('../../src/shared/history');
 
 function findNearestStop(pattern, pdist) {
   const stops = pattern.points.filter((p) => p.type === 'S' && p.stopName);
@@ -187,7 +187,7 @@ async function main() {
   }
 
   // Re-check thresholds in case the refined ETA moved us below the bar.
-  const { RATIO_THRESHOLD, ABSOLUTE_MIN_MIN } = require('../src/bus/gaps');
+  const { RATIO_THRESHOLD, ABSOLUTE_MIN_MIN } = require('../../src/bus/gaps');
   if (gap.gapMin < ABSOLUTE_MIN_MIN || gap.ratio < RATIO_THRESHOLD) {
     console.log(`After refinement, gap no longer meets threshold (${gap.gapMin} min, ${gap.ratio.toFixed(2)}x); skipping`);
     return;

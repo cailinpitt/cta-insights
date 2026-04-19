@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 
 const Fs = require('fs-extra');
 const Path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getAllTrainPositions, LINE_COLORS, LINE_NAMES } = require('../src/train/api');
-const { detectTrainBunching } = require('../src/train/bunching');
-const { renderTrainBunching } = require('../src/map');
-const { captureTrainBunchingVideo } = require('../src/train/bunchingVideo');
-const { loginTrain, postWithImage, postWithVideo } = require('../src/train/bluesky');
-const { isOnCooldown, acquireCooldown } = require('../src/shared/state');
-const { pruneOldAssets } = require('../src/shared/cleanup');
-const history = require('../src/shared/history');
-const trainLines = require('../src/train/data/trainLines.json');
-const trainStations = require('../src/train/data/trainStations.json');
+const { getAllTrainPositions, LINE_COLORS, LINE_NAMES } = require('../../src/train/api');
+const { detectTrainBunching } = require('../../src/train/bunching');
+const { renderTrainBunching } = require('../../src/map');
+const { captureTrainBunchingVideo } = require('../../src/train/bunchingVideo');
+const { loginTrain, postWithImage, postWithVideo } = require('../../src/train/bluesky');
+const { isOnCooldown, acquireCooldown } = require('../../src/shared/state');
+const { pruneOldAssets } = require('../../src/shared/cleanup');
+const history = require('../../src/shared/history');
+const trainLines = require('../../src/train/data/trainLines.json');
+const trainStations = require('../../src/train/data/trainStations.json');
 
 function formatDistance(ft) {
   if (ft < 1000) return `${Math.round(ft)} ft`;

@@ -1,13 +1,13 @@
 const sharp = require('sharp');
-const { encode } = require('../shared/polyline');
-const { cumulativeDistances, haversineFt, bearing } = require('../shared/geo');
-const { fitZoom, project } = require('../shared/projection');
+const { encode } = require('../../shared/polyline');
+const { cumulativeDistances, haversineFt, bearing } = require('../../shared/geo');
+const { fitZoom, project } = require('../../shared/projection');
 const {
   STYLE, WIDTH, HEIGHT,
   ROUTE_HALO_COLOR, ROUTE_HALO_STROKE, ROUTE_CORE_COLOR, ROUTE_CORE_STROKE,
   TWEMOJI_BUS_INNER,
   buildDirectionArrow, requireMapboxToken, fetchMapboxStatic,
-} = require('./common');
+} = require('../common');
 
 const BUS_COLOR = 'ff2a6d';         // hot pink/red reads well on dark
 const CONTEXT_PAD_FT = 1500;        // feet of route context on each side of the bunch

@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 
 const Fs = require('fs-extra');
 const Path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getVehicles } = require('../src/bus/api');
-const { names: routeNames, bunching: bunchingRoutes } = require('../src/bus/routes');
-const { detectAllBunching, TERMINAL_PDIST_FT } = require('../src/bus/bunching');
-const { loadPattern } = require('../src/bus/patterns');
-const { renderBunchingMap, computeBunchingView } = require('../src/map');
-const { fetchSignalsInBbox, filterSignalsOnRoute, dedupeNearbySignals, annotateSignalOrientations } = require('../src/bus/trafficSignals');
-const { captureBunchingVideo } = require('../src/bus/bunchingVideo');
-const { loginBus, postWithImage, postWithVideo } = require('../src/bus/bluesky');
-const { isOnCooldown, acquireCooldown } = require('../src/shared/state');
-const { pruneOldAssets } = require('../src/shared/cleanup');
-const history = require('../src/shared/history');
+const { getVehicles } = require('../../src/bus/api');
+const { names: routeNames, bunching: bunchingRoutes } = require('../../src/bus/routes');
+const { detectAllBunching, TERMINAL_PDIST_FT } = require('../../src/bus/bunching');
+const { loadPattern } = require('../../src/bus/patterns');
+const { renderBunchingMap, computeBunchingView } = require('../../src/map');
+const { fetchSignalsInBbox, filterSignalsOnRoute, dedupeNearbySignals, annotateSignalOrientations } = require('../../src/bus/trafficSignals');
+const { captureBunchingVideo } = require('../../src/bus/bunchingVideo');
+const { loginBus, postWithImage, postWithVideo } = require('../../src/bus/bluesky');
+const { isOnCooldown, acquireCooldown } = require('../../src/shared/state');
+const { pruneOldAssets } = require('../../src/shared/cleanup');
+const history = require('../../src/shared/history');
 
 function findNearestStop(pattern, pdist) {
   const stops = pattern.points.filter((p) => p.type === 'S' && p.stopName);

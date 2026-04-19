@@ -1,14 +1,14 @@
 const sharp = require('sharp');
-const { encode } = require('../shared/polyline');
-const { cumulativeDistances } = require('../shared/geo');
-const { colorForBusSpeed, colorForTrainSpeed } = require('../bus/speedmap');
-const { offsetPolyline } = require('../train/speedmap');
+const { encode } = require('../../shared/polyline');
+const { cumulativeDistances } = require('../../shared/geo');
+const { colorForBusSpeed, colorForTrainSpeed } = require('../../bus/speedmap');
+const { offsetPolyline } = require('../../train/speedmap');
 const {
   STYLE, WIDTH, HEIGHT,
   ROUTE_HALO_COLOR,
   SPEEDMAP_SEGMENT_STROKE, SPEEDMAP_HALO_STROKE,
   sliceIntoSegments, requireMapboxToken, fetchMapboxStatic,
-} = require('./common');
+} = require('../common');
 
 // Perpendicular offset for each direction's ribbon. At the typical speedmap
 // zoom (~10-25 mi line across 1200px) this is ~3-5px on each side of the

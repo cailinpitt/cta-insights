@@ -1,13 +1,13 @@
 const sharp = require('sharp');
-const { encode } = require('../shared/polyline');
-const { haversineFt, bearing } = require('../shared/geo');
-const { fitZoom, project } = require('../shared/projection');
-const { buildLinePolyline, snapToLine } = require('../train/speedmap');
+const { encode } = require('../../shared/polyline');
+const { haversineFt, bearing } = require('../../shared/geo');
+const { fitZoom, project } = require('../../shared/projection');
+const { buildLinePolyline, snapToLine } = require('../../train/speedmap');
 const {
   STYLE, WIDTH, HEIGHT,
   TWEMOJI_TRAIN_INNER,
   buildDirectionArrow, xmlEscape, requireMapboxToken, fetchMapboxStatic,
-} = require('./common');
+} = require('../common');
 
 const TRAIN_BUNCH_BBOX_PADDING_DEG = 0.003; // ~300m — zoom out a little past the trains
 

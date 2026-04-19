@@ -1,19 +1,19 @@
 #!/usr/bin/env node
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 
 const Fs = require('fs-extra');
 const Path = require('path');
 const _ = require('lodash');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { LINE_NAMES, LINE_COLORS, ALL_LINES } = require('../src/train/api');
-const { collectTrains, computeTrainSamples, buildLineBranches } = require('../src/train/speedmap');
-const { binSamples, summarize, TRAIN_THRESHOLDS } = require('../src/bus/speedmap');
-const { renderTrainSpeedmap } = require('../src/map');
-const { loginTrain, postWithImage } = require('../src/train/bluesky');
-const { pruneOldAssets } = require('../src/shared/cleanup');
-const history = require('../src/shared/history');
-const trainLines = require('../src/train/data/trainLines.json');
+const { LINE_NAMES, LINE_COLORS, ALL_LINES } = require('../../src/train/api');
+const { collectTrains, computeTrainSamples, buildLineBranches } = require('../../src/train/speedmap');
+const { binSamples, summarize, TRAIN_THRESHOLDS } = require('../../src/bus/speedmap');
+const { renderTrainSpeedmap } = require('../../src/map');
+const { loginTrain, postWithImage } = require('../../src/train/bluesky');
+const { pruneOldAssets } = require('../../src/shared/cleanup');
+const history = require('../../src/shared/history');
+const trainLines = require('../../src/train/data/trainLines.json');
 
 const NUM_BINS = 40;
 const POLL_INTERVAL_MS = 30 * 1000;
