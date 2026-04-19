@@ -1,4 +1,4 @@
-const { buildLinePolyline, snapToLine } = require('./trainSpeedmap');
+const { buildLinePolyline, snapToLine } = require('./speedmap');
 
 // Trains cruise faster than buses — typical average between stations on the
 // rapid-transit lines is ~25 mph with dwell time mixed in ≈ 2200 ft/min. Only

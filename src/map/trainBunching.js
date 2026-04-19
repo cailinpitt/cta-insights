@@ -2,7 +2,7 @@ const sharp = require('sharp');
 const { encode } = require('../shared/polyline');
 const { haversineFt, bearing } = require('../shared/geo');
 const { fitZoom, project } = require('../shared/projection');
-const { buildLinePolyline, snapToLine } = require('../trainSpeedmap');
+const { buildLinePolyline, snapToLine } = require('../train/speedmap');
 const {
   STYLE, WIDTH, HEIGHT,
   TWEMOJI_TRAIN_INNER,

@@ -2,7 +2,7 @@ const sharp = require('sharp');
 const { encode } = require('../shared/polyline');
 const { cumulativeDistances } = require('../shared/geo');
 const { colorForBusSpeed, colorForTrainSpeed } = require('../bus/speedmap');
-const { offsetPolyline } = require('../trainSpeedmap');
+const { offsetPolyline } = require('../train/speedmap');
 const {
   STYLE, WIDTH, HEIGHT,
   ROUTE_HALO_COLOR,

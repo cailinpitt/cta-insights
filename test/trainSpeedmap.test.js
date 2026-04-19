@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   snapToLine, pointAlongLine, buildLineBranches, buildLinePolyline,
   computeTrainSamples, pickTargetDir,
-} = require('../src/trainSpeedmap');
+} = require('../src/train/speedmap');
 const { straightLine, pointAtFt } = require('./helpers');
 
 const LINE_FT = 50000;

@@ -1,4 +1,4 @@
-const { LINE_NAMES, ALL_LINES } = require('./trainApi');
+const { LINE_NAMES, ALL_LINES } = require('./api');
 
 function formatTimeCT(date) {
   return date.toLocaleTimeString('en-US', {

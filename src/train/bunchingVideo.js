@@ -4,14 +4,14 @@ const Path = require('path');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 
-const { getAllTrainPositions } = require('./trainApi');
+const { getAllTrainPositions } = require('./api');
 const {
   computeTrainBunchingView,
   fetchTrainBunchingBaseMap,
   renderTrainBunchingFrame,
-} = require('./map');
-const { haversineFt } = require('./shared/geo');
-const { buildLinePolyline, snapToLine, pointAlongLine } = require('./trainSpeedmap');
+} = require('../map');
+const { haversineFt } = require('../shared/geo');
+const { buildLinePolyline, snapToLine, pointAlongLine } = require('./speedmap');
 
 const execP = promisify(exec);
 

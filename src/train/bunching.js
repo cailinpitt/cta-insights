@@ -1,5 +1,5 @@
-const { haversineFt } = require('./shared/geo');
-const { buildLinePolyline, snapToLine } = require('./trainSpeedmap');
+const { haversineFt } = require('../shared/geo');
+const { buildLinePolyline, snapToLine } = require('./speedmap');
 
 const TRAIN_BUNCHING_FT = 2000; // ~0.38 mi, tighter than normal rush-hour headway
 const MIN_DISTANCE_FT = 200;    // ignore pairs closer than this — likely same station or API glitch

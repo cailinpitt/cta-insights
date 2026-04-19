@@ -3,13 +3,13 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 
 const argv = require('minimist')(process.argv.slice(2));
 
-const { LINE_NAMES, LINE_EMOJI, ALL_LINES } = require('../src/trainApi');
-const { detectTrainGhosts } = require('../src/trainGhosts');
+const { LINE_NAMES, LINE_EMOJI, ALL_LINES } = require('../src/train/api');
+const { detectTrainGhosts } = require('../src/train/ghosts');
 const { buildRollupPost } = require('../src/bus/ghosts');
 const { expectedTrainHeadwayMin, expectedTrainTripMinutes, isTrainLoopLine } = require('../src/shared/gtfs');
 const { getTrainObservations, rolloffOldObservations } = require('../src/shared/observations');
 const { loginTrain, postText } = require('../src/bluesky');
-const trainStations = require('../src/data/trainStations.json');
+const trainStations = require('../src/train/data/trainStations.json');
 
 const WINDOW_MS = 60 * 60 * 1000;
 

@@ -1,5 +1,5 @@
 const { encode } = require('../shared/polyline');
-const { buildLinePolyline } = require('../trainSpeedmap');
+const { buildLinePolyline } = require('../train/speedmap');
 const {
   computeTrainBunchingView,
   fetchTrainBunchingBaseMap,

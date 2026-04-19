@@ -7,7 +7,7 @@ const { promisify } = require('util');
 const { getVehicles } = require('./api');
 const { computeBunchingView, fetchBunchingBaseMap, renderBunchingFrame } = require('../map');
 const { cumulativeDistances } = require('../shared/geo');
-const { snapToLine, pointAlongLine } = require('../trainSpeedmap');
+const { snapToLine, pointAlongLine } = require('../train/speedmap');
 
 const execP = promisify(exec);
 

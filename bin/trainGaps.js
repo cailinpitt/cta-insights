@@ -5,16 +5,16 @@ const Fs = require('fs-extra');
 const Path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getAllTrainPositions, LINE_COLORS, LINE_NAMES } = require('../src/trainApi');
-const { detectAllTrainGaps } = require('../src/trainGaps');
+const { getAllTrainPositions, LINE_COLORS, LINE_NAMES } = require('../src/train/api');
+const { detectAllTrainGaps } = require('../src/train/gaps');
 const { renderTrainGap } = require('../src/map');
 const { loginTrain, postWithImage } = require('../src/bluesky');
 const { isOnCooldown, acquireCooldown } = require('../src/shared/state');
 const { pruneOldAssets } = require('../src/shared/cleanup');
 const { expectedTrainHeadwayMin } = require('../src/shared/gtfs');
 const history = require('../src/shared/history');
-const trainLines = require('../src/data/trainLines.json');
-const trainStations = require('../src/data/trainStations.json');
+const trainLines = require('../src/train/data/trainLines.json');
+const trainStations = require('../src/train/data/trainStations.json');
 
 // Destination strings from Train Tracker don't always match trainStations.json
 // verbatim (e.g. "95th/Dan Ryan" vs "95th"). Match on the train's own line so
