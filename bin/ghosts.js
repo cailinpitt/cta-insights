@@ -6,8 +6,8 @@ const argv = require('minimist')(process.argv.slice(2));
 const { names: routeNames, ghosts: ghostRoutes } = require('../src/routes');
 const { detectBusGhosts, buildRollupPost } = require('../src/ghosts');
 const { loadPattern } = require('../src/patterns');
-const { expectedHeadwayMin, expectedTripMinutes } = require('../src/gtfs');
-const { getBusObservations, rolloffOldObservations } = require('../src/observations');
+const { expectedHeadwayMin, expectedTripMinutes } = require('../src/shared/gtfs');
+const { getBusObservations, rolloffOldObservations } = require('../src/shared/observations');
 const { loginBus, postText } = require('../src/bluesky');
 
 const WINDOW_MS = 60 * 60 * 1000;

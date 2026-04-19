@@ -13,9 +13,9 @@ const { renderBunchingMap, computeBunchingView } = require('../src/map');
 const { fetchSignalsInBbox, filterSignalsOnRoute, dedupeNearbySignals, annotateSignalOrientations } = require('../src/trafficSignals');
 const { captureBunchingVideo } = require('../src/bunchingVideo');
 const { loginBus, postWithImage, postWithVideo } = require('../src/bluesky');
-const { isOnCooldown, acquireCooldown } = require('../src/state');
-const { pruneOldAssets } = require('../src/cleanup');
-const history = require('../src/history');
+const { isOnCooldown, acquireCooldown } = require('../src/shared/state');
+const { pruneOldAssets } = require('../src/shared/cleanup');
+const history = require('../src/shared/history');
 
 function findNearestStop(pattern, pdist) {
   const stops = pattern.points.filter((p) => p.type === 'S' && p.stopName);

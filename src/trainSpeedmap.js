@@ -1,5 +1,5 @@
 const { getAllTrainPositions } = require('./trainApi');
-const { haversineFt, cumulativeDistances } = require('./geo');
+const { haversineFt, cumulativeDistances } = require('./shared/geo');
 
 
 const FEET_PER_DEG_LAT = 364567;

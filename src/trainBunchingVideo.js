@@ -10,7 +10,7 @@ const {
   fetchTrainBunchingBaseMap,
   renderTrainBunchingFrame,
 } = require('./map');
-const { haversineFt } = require('./geo');
+const { haversineFt } = require('./shared/geo');
 const { buildLinePolyline, snapToLine, pointAlongLine } = require('./trainSpeedmap');
 
 const execP = promisify(exec);

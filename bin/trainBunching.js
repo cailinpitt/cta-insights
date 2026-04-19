@@ -10,9 +10,9 @@ const { detectTrainBunching } = require('../src/trainBunching');
 const { renderTrainBunching } = require('../src/map');
 const { captureTrainBunchingVideo } = require('../src/trainBunchingVideo');
 const { loginTrain, postWithImage, postWithVideo } = require('../src/bluesky');
-const { isOnCooldown, acquireCooldown } = require('../src/state');
-const { pruneOldAssets } = require('../src/cleanup');
-const history = require('../src/history');
+const { isOnCooldown, acquireCooldown } = require('../src/shared/state');
+const { pruneOldAssets } = require('../src/shared/cleanup');
+const history = require('../src/shared/history');
 const trainLines = require('../src/data/trainLines.json');
 const trainStations = require('../src/data/trainStations.json');
 

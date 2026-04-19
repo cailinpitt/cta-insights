@@ -1,4 +1,4 @@
-const { haversineFt } = require('./geo');
+const { haversineFt } = require('./shared/geo');
 const { buildLinePolyline, snapToLine } = require('./trainSpeedmap');
 
 const TRAIN_BUNCHING_FT = 2000; // ~0.38 mi, tighter than normal rush-hour headway

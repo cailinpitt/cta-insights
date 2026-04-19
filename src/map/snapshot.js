@@ -1,6 +1,6 @@
 const sharp = require('sharp');
-const { encode } = require('../polyline');
-const { fitZoom } = require('../projection');
+const { encode } = require('../shared/polyline');
+const { fitZoom } = require('../shared/projection');
 const {
   STYLE, WIDTH, HEIGHT,
   requireMapboxToken, fetchMapboxStatic,

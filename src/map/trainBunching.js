@@ -1,7 +1,7 @@
 const sharp = require('sharp');
-const { encode } = require('../polyline');
-const { haversineFt, bearing } = require('../geo');
-const { fitZoom, project } = require('../projection');
+const { encode } = require('../shared/polyline');
+const { haversineFt, bearing } = require('../shared/geo');
+const { fitZoom, project } = require('../shared/projection');
 const { buildLinePolyline, snapToLine } = require('../trainSpeedmap');
 const {
   STYLE, WIDTH, HEIGHT,

@@ -11,8 +11,8 @@ const { collectTrains, computeTrainSamples, buildLineBranches } = require('../sr
 const { binSamples, summarize, TRAIN_THRESHOLDS } = require('../src/speedmap');
 const { renderTrainSpeedmap } = require('../src/map');
 const { loginTrain, postWithImage } = require('../src/bluesky');
-const { pruneOldAssets } = require('../src/cleanup');
-const history = require('../src/history');
+const { pruneOldAssets } = require('../src/shared/cleanup');
+const history = require('../src/shared/history');
 const trainLines = require('../src/data/trainLines.json');
 
 const NUM_BINS = 40;

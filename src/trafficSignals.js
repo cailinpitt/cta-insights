@@ -1,6 +1,6 @@
 const Fs = require('fs-extra');
 const Path = require('path');
-const { haversineFt } = require('./geo');
+const { haversineFt } = require('./shared/geo');
 
 const CACHE_PATH = Path.join(__dirname, '..', 'data', 'signals', 'chicago.json');
 

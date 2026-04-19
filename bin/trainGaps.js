@@ -9,10 +9,10 @@ const { getAllTrainPositions, LINE_COLORS, LINE_NAMES } = require('../src/trainA
 const { detectAllTrainGaps } = require('../src/trainGaps');
 const { renderTrainGap } = require('../src/map');
 const { loginTrain, postWithImage } = require('../src/bluesky');
-const { isOnCooldown, acquireCooldown } = require('../src/state');
-const { pruneOldAssets } = require('../src/cleanup');
-const { expectedTrainHeadwayMin } = require('../src/gtfs');
-const history = require('../src/history');
+const { isOnCooldown, acquireCooldown } = require('../src/shared/state');
+const { pruneOldAssets } = require('../src/shared/cleanup');
+const { expectedTrainHeadwayMin } = require('../src/shared/gtfs');
+const history = require('../src/shared/history');
 const trainLines = require('../src/data/trainLines.json');
 const trainStations = require('../src/data/trainStations.json');
 

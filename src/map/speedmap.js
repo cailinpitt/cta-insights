@@ -1,6 +1,6 @@
 const sharp = require('sharp');
-const { encode } = require('../polyline');
-const { cumulativeDistances } = require('../geo');
+const { encode } = require('../shared/polyline');
+const { cumulativeDistances } = require('../shared/geo');
 const { colorForBusSpeed, colorForTrainSpeed } = require('../speedmap');
 const { offsetPolyline } = require('../trainSpeedmap');
 const {

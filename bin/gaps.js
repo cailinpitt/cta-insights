@@ -11,10 +11,10 @@ const { detectAllGaps } = require('../src/gaps');
 const { loadPattern } = require('../src/patterns');
 const { renderGapMap } = require('../src/map');
 const { loginBus, postWithImage } = require('../src/bluesky');
-const { isOnCooldown, acquireCooldown } = require('../src/state');
-const { pruneOldAssets } = require('../src/cleanup');
-const { expectedHeadwayMin } = require('../src/gtfs');
-const history = require('../src/history');
+const { isOnCooldown, acquireCooldown } = require('../src/shared/state');
+const { pruneOldAssets } = require('../src/shared/cleanup');
+const { expectedHeadwayMin } = require('../src/shared/gtfs');
+const history = require('../src/shared/history');
 
 function findNearestStop(pattern, pdist) {
   const stops = pattern.points.filter((p) => p.type === 'S' && p.stopName);

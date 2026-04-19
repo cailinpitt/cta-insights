@@ -9,7 +9,7 @@ const { getAllTrainPositions, LINE_COLORS } = require('../src/trainApi');
 const { renderSnapshot } = require('../src/map');
 const trainLines = require('../src/data/trainLines.json');
 const { loginTrain, postWithImage } = require('../src/bluesky');
-const { pruneOldAssets } = require('../src/cleanup');
+const { pruneOldAssets } = require('../src/shared/cleanup');
 const { buildPostText, buildAltText } = require('../src/trainSnapshot');
 
 async function main() {

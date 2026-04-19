@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { recordBusObservations } = require('./observations');
+const { recordBusObservations } = require('./shared/observations');
 
 const BUS_BASE = 'http://www.ctabustracker.com/bustime/api/v3';
 

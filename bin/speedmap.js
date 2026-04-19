@@ -11,8 +11,8 @@ const { collect, computeSamples, pickTargetPid, binSamples, summarize } = requir
 const { loadPattern } = require('../src/patterns');
 const { renderSpeedmap } = require('../src/map');
 const { loginBus, postWithImage } = require('../src/bluesky');
-const { pruneOldAssets } = require('../src/cleanup');
-const history = require('../src/history');
+const { pruneOldAssets } = require('../src/shared/cleanup');
+const history = require('../src/shared/history');
 
 const NUM_BINS = 40;
 const POLL_INTERVAL_MS = 30 * 1000;

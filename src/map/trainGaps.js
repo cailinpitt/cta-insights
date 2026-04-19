@@ -1,4 +1,4 @@
-const { encode } = require('../polyline');
+const { encode } = require('../shared/polyline');
 const { buildLinePolyline } = require('../trainSpeedmap');
 const {
   computeTrainBunchingView,
