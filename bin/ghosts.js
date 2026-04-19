@@ -26,7 +26,7 @@ function formatLine(event) {
   const dir = abbreviateDirection(event.direction);
   const missing = Math.round(event.missing);
   const expected = Math.round(event.expectedActive);
-  return `${title} ${dir} · ${missing} of ${expected} missing`;
+  return `🚌 ${title} ${dir} · ${missing} of ${expected} missing`;
 }
 
 function buildPostText(events) {
