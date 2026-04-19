@@ -64,8 +64,11 @@ async function main() {
   let chosenStop = null;
   for (const candidate of gaps) {
     const candidatePattern = patternCache.get(candidate.pid);
-    const midPdist = (candidate.leading.pdist + candidate.trailing.pdist) / 2;
-    const stop = findNearestStop(candidatePattern, midPdist);
+    // Anchor the stop at the leading bus's position: that's where a rider just
+    // watched the leading bus pass and the reported gap minutes = how long they
+    // wait for the trailing bus. Using the geographic midpoint misleads — a
+    // rider at the midpoint only waits ~half the posted gap.
+    const stop = findNearestStop(candidatePattern, candidate.leading.pdist);
 
     // Skip if stop resolution landed on a terminal — same reasoning as bunching.
     const stops = candidatePattern.points.filter((p) => p.type === 'S' && p.stopName);
