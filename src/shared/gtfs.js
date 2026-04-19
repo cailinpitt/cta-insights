@@ -34,6 +34,35 @@ function chicagoHour(now = new Date()) {
   return parseInt(h, 10);
 }
 
+// Service-day transition is fuzzy around 4 AM: CTA encodes a trip that runs
+// at 1:15 AM Sunday as "25:15:00" under Saturday's service_id, so at 1 AM
+// Sunday wall-clock the right bucket is Saturday's. We always consult both
+// yesterday's and today's dayType — the only question is which to prefer.
+// Before 4 AM: prefer prior (today's service hasn't really started).
+// After 4 AM: prefer today (but fall back to prior if today has no entry and
+// yesterday's service is still running mid-route).
+const LATE_NIGHT_CUTOFF_HOUR = 4;
+
+// Resolve an hourly value from a {dayType: {hour: value}} map. Returns null
+// if neither today's nor yesterday's bucket has an entry for the current hour
+// — that means "no scheduled service," which callers should treat as "skip,"
+// not "interpolate from another hour."
+function hourlyLookup(byDayType, now) {
+  if (!byDayType) return null;
+  const hour = chicagoHour(now);
+  const todayDt = dayTypeFor(now);
+  const priorDt = dayTypeFor(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+
+  const candidates = hour < LATE_NIGHT_CUTOFF_HOUR ? [priorDt, todayDt] : [todayDt, priorDt];
+  if (candidates.some((dt) => dt === 'saturday' || dt === 'sunday')) candidates.push('weekend');
+
+  for (const dt of candidates) {
+    const byHour = byDayType[dt];
+    if (byHour && byHour[hour] != null) return byHour[hour];
+  }
+  return null;
+}
+
 /**
  * Resolve a pattern to a GTFS direction_id ("0" or "1") by comparing the
  * pattern's last point (the route's end terminal) to each direction's last
@@ -68,9 +97,8 @@ function resolveDirection(pattern) {
 }
 
 /**
- * Expected headway in minutes for a route+pattern at a given instant. Falls
- * back to the nearest indexed hour if the exact hour is missing (e.g. 3am on
- * a route that only runs 4am–1am).
+ * Expected headway in minutes for a route+pattern at a given instant.
+ * Returns null when the route has no scheduled service at the current hour.
  */
 function expectedHeadwayMin(route, pattern, now = new Date()) {
   const index = loadIndex();
@@ -80,27 +108,7 @@ function expectedHeadwayMin(route, pattern, now = new Date()) {
   if (!dir) return null;
   const dirInfo = byDir[dir];
   if (!dirInfo) return null;
-  const dayType = dayTypeFor(now);
-  // Accept "weekend" bucket as fallback if saturday/sunday-specific data is missing.
-  const candidates = [dayType, dayType === 'saturday' || dayType === 'sunday' ? 'weekend' : null].filter(Boolean);
-  for (const dt of candidates) {
-    const hw = dirInfo.headways[dt];
-    if (!hw) continue;
-    const hour = chicagoHour(now);
-    if (hw[hour] != null) return hw[hour];
-    // Fallback: pick nearest populated hour (wrap-around 24h).
-    let bestDelta = 25;
-    let bestVal = null;
-    for (const [h, v] of Object.entries(hw)) {
-      const delta = Math.min(Math.abs(parseInt(h, 10) - hour), 24 - Math.abs(parseInt(h, 10) - hour));
-      if (delta < bestDelta) {
-        bestDelta = delta;
-        bestVal = v;
-      }
-    }
-    if (bestVal != null) return bestVal;
-  }
-  return null;
+  return hourlyLookup(dirInfo.headways, now);
 }
 
 // Train Tracker line codes (lowercase) → GTFS route_id in the index. These
@@ -142,31 +150,15 @@ function expectedTrainHeadwayMin(line, destination, now = new Date()) {
     }
   }
   if (!dirInfo) return null;
-
-  const dayType = dayTypeFor(now);
-  const candidates = [dayType, dayType === 'saturday' || dayType === 'sunday' ? 'weekend' : null].filter(Boolean);
-  for (const dt of candidates) {
-    const hw = dirInfo.headways[dt];
-    if (!hw) continue;
-    const hour = chicagoHour(now);
-    if (hw[hour] != null) return hw[hour];
-    let bestDelta = 25;
-    let bestVal = null;
-    for (const [h, v] of Object.entries(hw)) {
-      const delta = Math.min(Math.abs(parseInt(h, 10) - hour), 24 - Math.abs(parseInt(h, 10) - hour));
-      if (delta < bestDelta) { bestDelta = delta; bestVal = v; }
-    }
-    if (bestVal != null) return bestVal;
-  }
-  return null;
+  return hourlyLookup(dirInfo.headways, now);
 }
 
 /**
  * Expected trip duration (minutes) for a route+pattern at a given instant.
  * Used by ghost detection: `duration / headway` ≈ number of buses that should
  * be simultaneously active on the route+direction, which is what distinct
- * vehicle counts over an hour actually measure. Same dayType/hour fallback as
- * `expectedHeadwayMin`.
+ * vehicle counts over an hour actually measure. Same dayType/hour resolution
+ * as `expectedHeadwayMin`.
  */
 function expectedTripMinutes(route, pattern, now = new Date()) {
   const index = loadIndex();
@@ -176,22 +168,7 @@ function expectedTripMinutes(route, pattern, now = new Date()) {
   if (!dir) return null;
   const dirInfo = byDir[dir];
   if (!dirInfo || !dirInfo.durations) return null;
-  const dayType = dayTypeFor(now);
-  const candidates = [dayType, dayType === 'saturday' || dayType === 'sunday' ? 'weekend' : null].filter(Boolean);
-  for (const dt of candidates) {
-    const dur = dirInfo.durations[dt];
-    if (!dur) continue;
-    const hour = chicagoHour(now);
-    if (dur[hour] != null) return dur[hour];
-    let bestDelta = 25;
-    let bestVal = null;
-    for (const [h, v] of Object.entries(dur)) {
-      const delta = Math.min(Math.abs(parseInt(h, 10) - hour), 24 - Math.abs(parseInt(h, 10) - hour));
-      if (delta < bestDelta) { bestDelta = delta; bestVal = v; }
-    }
-    if (bestVal != null) return bestVal;
-  }
-  return null;
+  return hourlyLookup(dirInfo.durations, now);
 }
 
 /**
@@ -218,23 +195,7 @@ function expectedTrainTripMinutes(line, destination, now = new Date()) {
     }
   }
   if (!dirInfo || !dirInfo.durations) return null;
-
-  const dayType = dayTypeFor(now);
-  const candidates = [dayType, dayType === 'saturday' || dayType === 'sunday' ? 'weekend' : null].filter(Boolean);
-  for (const dt of candidates) {
-    const dur = dirInfo.durations[dt];
-    if (!dur) continue;
-    const hour = chicagoHour(now);
-    if (dur[hour] != null) return dur[hour];
-    let bestDelta = 25;
-    let bestVal = null;
-    for (const [h, v] of Object.entries(dur)) {
-      const delta = Math.min(Math.abs(parseInt(h, 10) - hour), 24 - Math.abs(parseInt(h, 10) - hour));
-      if (delta < bestDelta) { bestDelta = delta; bestVal = v; }
-    }
-    if (bestVal != null) return bestVal;
-  }
-  return null;
+  return hourlyLookup(dirInfo.durations, now);
 }
 
 // Loop lines (Brown/Orange/Pink/Purple/Yellow) ship a single GTFS direction_id
@@ -250,4 +211,4 @@ function isTrainLoopLine(line) {
   return Object.keys(byDir).length === 1;
 }
 
-module.exports = { loadIndex, expectedHeadwayMin, expectedTrainHeadwayMin, expectedTripMinutes, expectedTrainTripMinutes, isTrainLoopLine, resolveDirection, dayTypeFor, chicagoHour };
+module.exports = { loadIndex, expectedHeadwayMin, expectedTrainHeadwayMin, expectedTripMinutes, expectedTrainTripMinutes, isTrainLoopLine, resolveDirection, dayTypeFor, chicagoHour, hourlyLookup };

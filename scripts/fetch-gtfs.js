@@ -203,46 +203,58 @@ async function main() {
   const stops = parseCsv(await readFromZip('stops.txt'));
   const byStopId = new Map(stops.map((s) => [s.stop_id, s]));
 
-  // CTA ships several overlapping service_ids per day_type (e.g. 67701, 67801,
-  // 109001 all serve Mon–Fri over different date ranges). Merging all of them
-  // into one bucket triple-counts the same schedule and collapses gaps to 0.
-  // Pick the dominant service_id — the one with the most trips for each
-  // (route, dir, dayType) — as a proxy for "the regular schedule" and ignore
-  // the rest.
-  const serviceTripCounts = new Map(); // key: route|dir|dayType|serviceId → count
-  for (const meta of tripMeta.values()) {
-    const k = `${meta.route}|${meta.dir}|${meta.dayType}|${meta.serviceId}`;
+  // CTA ships several overlapping service_ids per day_type. Two patterns:
+  //
+  //   1. Seasonal duplicates (e.g. 67701/67801/109001 all serve Mon–Fri over
+  //      different date ranges with identical trips). Merging them triple-counts
+  //      and collapses gaps.
+  //   2. Disjoint coverage (e.g. a daytime service_id covering 4 AM–1 AM and a
+  //      separate "Owl" service_id covering overnight hours).
+  //
+  // Picking one dominant service_id per (route, dir, dayType) handles case 1
+  // but silently drops Owl service in case 2 — which caused ghost detection to
+  // think 24-hour routes had "no schedule" overnight. Resolving dominance
+  // *per hour* handles both: daytime hours pick the daytime service (owl has
+  // 0 trips), overnight hours pick the owl service (daytime has 0 trips), and
+  // seasonal duplicates still collapse to one winner because they share hours.
+  const serviceTripCounts = new Map(); // key: route|dir|dayType|hour|serviceId → count
+  for (const [tripId, meta] of tripMeta) {
+    const dep = firstDeparture.get(tripId);
+    if (dep == null) continue;
+    const hour = Math.floor(dep / 3600) % 24;
+    const k = `${meta.route}|${meta.dir}|${meta.dayType}|${hour}|${meta.serviceId}`;
     serviceTripCounts.set(k, (serviceTripCounts.get(k) || 0) + 1);
   }
-  const dominantService = new Map(); // key: route|dir|dayType → serviceId
+  const dominantService = new Map(); // key: route|dir|dayType|hour → serviceId
   for (const [k, c] of serviceTripCounts) {
-    const [route, dir, dayType, serviceId] = k.split('|');
-    const rdt = `${route}|${dir}|${dayType}`;
-    const prev = dominantService.get(rdt);
-    if (!prev || c > prev.count) dominantService.set(rdt, { serviceId, count: c });
+    const [route, dir, dayType, hour, serviceId] = k.split('|');
+    const rdth = `${route}|${dir}|${dayType}|${hour}`;
+    const prev = dominantService.get(rdth);
+    if (!prev || c > prev.count) dominantService.set(rdth, { serviceId, count: c });
   }
 
-  // A single route+direction can have trips starting at multiple origins:
-  // the main terminal (where the rider-facing PDF schedule starts) and garage
-  // pullouts or short-turn origins. Mixing them overstates frequency at the
-  // main terminal. Pick the dominant first-stop per (route, dir, dayType) —
-  // the origin with the most trips — matching what the CTA's published
-  // schedule shows.
-  const originCounts = new Map(); // key: route|dir|dayType|stopId → count
+  // Same per-hour dominance for origin stop. Main terminal dominates during
+  // rider-facing hours; owl-specific short-turn origins (if any) can dominate
+  // overnight. Garage pullouts from non-dominant origins get filtered out.
+  const originCounts = new Map(); // key: route|dir|dayType|hour|stopId → count
   for (const [tripId, meta] of tripMeta) {
-    const dominant = dominantService.get(`${meta.route}|${meta.dir}|${meta.dayType}`);
+    const dep = firstDeparture.get(tripId);
+    if (dep == null) continue;
+    const hour = Math.floor(dep / 3600) % 24;
+    const rdth = `${meta.route}|${meta.dir}|${meta.dayType}|${hour}`;
+    const dominant = dominantService.get(rdth);
     if (!dominant || dominant.serviceId !== meta.serviceId) continue;
     const origin = firstStopId.get(tripId);
     if (!origin) continue;
-    const k = `${meta.route}|${meta.dir}|${meta.dayType}|${origin}`;
+    const k = `${rdth}|${origin}`;
     originCounts.set(k, (originCounts.get(k) || 0) + 1);
   }
-  const dominantOrigin = new Map(); // key: route|dir|dayType → stopId
+  const dominantOrigin = new Map(); // key: route|dir|dayType|hour → stopId
   for (const [k, c] of originCounts) {
-    const [route, dir, dayType, stopId] = k.split('|');
-    const rdt = `${route}|${dir}|${dayType}`;
-    const prev = dominantOrigin.get(rdt);
-    if (!prev || c > prev.count) dominantOrigin.set(rdt, { stopId, count: c });
+    const [route, dir, dayType, hour, stopId] = k.split('|');
+    const rdth = `${route}|${dir}|${dayType}|${hour}`;
+    const prev = dominantOrigin.get(rdth);
+    if (!prev || c > prev.count) dominantOrigin.set(rdth, { stopId, count: c });
   }
 
   const buckets = new Map();
@@ -256,13 +268,14 @@ async function main() {
   const lastStopSample = new Map();
 
   for (const [tripId, meta] of tripMeta) {
-    const dominant = dominantService.get(`${meta.route}|${meta.dir}|${meta.dayType}`);
-    if (!dominant || dominant.serviceId !== meta.serviceId) continue;
-    const origin = dominantOrigin.get(`${meta.route}|${meta.dir}|${meta.dayType}`);
-    if (!origin || firstStopId.get(tripId) !== origin.stopId) continue;
     const dep = firstDeparture.get(tripId);
     if (dep == null) continue;
     const hour = Math.floor(dep / 3600) % 24;
+    const rdth = `${meta.route}|${meta.dir}|${meta.dayType}|${hour}`;
+    const dominant = dominantService.get(rdth);
+    if (!dominant || dominant.serviceId !== meta.serviceId) continue;
+    const origin = dominantOrigin.get(rdth);
+    if (!origin || firstStopId.get(tripId) !== origin.stopId) continue;
     const key = bucketKey(meta.route, meta.dir, meta.dayType, hour);
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(dep);
