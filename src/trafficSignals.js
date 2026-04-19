@@ -78,4 +78,45 @@ function dedupeNearbySignals(signals, minFt = 150) {
   return kept;
 }
 
-module.exports = { fetchSignalsInBbox, filterSignalsOnRoute, dedupeNearbySignals };
+/**
+ * Attach an `orientation` ('horizontal' | 'vertical') to each signal based on
+ * the local route tangent at its nearest polyline point, and snap its lat/lon
+ * to that nearest point. Real traffic lights are mounted perpendicular to
+ * the direction of travel, so a route running east–west gets vertical signal
+ * housings and a north–south route gets horizontal ones. Snapping keeps
+ * signals visually centered on the bus line — OSM tags them at intersection
+ * corners, which drift off-axis and look misaligned on a straight route.
+ * Longitude is scaled by cos(lat) so the comparison is in true ground
+ * distance, not raw degrees.
+ */
+function annotateSignalOrientations(signals, routePoints) {
+  return signals.map((s) => {
+    let bestDist = Infinity;
+    let bestSeg = null;
+    let bestT = 0;
+    for (let i = 0; i < routePoints.length - 1; i++) {
+      const a = routePoints[i];
+      const b = routePoints[i + 1];
+      const dx = b.lon - a.lon;
+      const dy = b.lat - a.lat;
+      const lenSq = dx * dx + dy * dy;
+      let t = 0;
+      if (lenSq > 0) t = Math.max(0, Math.min(1, ((s.lon - a.lon) * dx + (s.lat - a.lat) * dy) / lenSq));
+      const d = haversineFt(s, { lat: a.lat + t * dy, lon: a.lon + t * dx });
+      if (d < bestDist) { bestDist = d; bestSeg = { a, b }; bestT = t; }
+    }
+    if (!bestSeg) return { ...s, orientation: 'horizontal' };
+    const cosLat = Math.cos((s.lat * Math.PI) / 180);
+    const segDxGround = (bestSeg.b.lon - bestSeg.a.lon) * cosLat;
+    const segDyGround = bestSeg.b.lat - bestSeg.a.lat;
+    const routeIsHorizontal = Math.abs(segDxGround) >= Math.abs(segDyGround);
+    return {
+      ...s,
+      lat: bestSeg.a.lat + bestT * (bestSeg.b.lat - bestSeg.a.lat),
+      lon: bestSeg.a.lon + bestT * (bestSeg.b.lon - bestSeg.a.lon),
+      orientation: routeIsHorizontal ? 'vertical' : 'horizontal',
+    };
+  });
+}
+
+module.exports = { fetchSignalsInBbox, filterSignalsOnRoute, dedupeNearbySignals, annotateSignalOrientations };

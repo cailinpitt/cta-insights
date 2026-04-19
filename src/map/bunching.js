@@ -101,21 +101,35 @@ async function fetchBunchingBaseMap(view) {
 // pre-fetched base map. The base map, signals, and arrow are static across a
 // video; only marker positions vary.
 async function renderBunchingFrame(view, baseMap, vehicles, signals = []) {
-  // Signals render below buses — small horizontal-traffic-light glyphs that
-  // read clearly without competing with the primary markers. Drawn inline
-  // (not via Unicode) so librsvg renders the same shape on every host.
-  const SIGNAL_W = 36;
-  const SIGNAL_H = 16;
+  // Signals render below buses — small traffic-light glyphs that read clearly
+  // without competing with the primary markers. Drawn inline (not via Unicode)
+  // so librsvg renders the same shape on every host. Housings rotate to sit
+  // perpendicular to the route: horizontal (E-W) streets get vertical signals,
+  // N-S streets get horizontal ones — matching how real lights face drivers.
+  const SIGNAL_LONG = 36;
+  const SIGNAL_SHORT = 16;
   const signalElements = signals.map((s) => {
     const { x, y } = project(s.lat, s.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
     if (x < 0 || x > WIDTH || y < 0 || y > HEIGHT) return '';
-    const left = x - SIGNAL_W / 2;
-    const top = y - SIGNAL_H / 2;
+    const vertical = s.orientation === 'vertical';
+    const w = vertical ? SIGNAL_SHORT : SIGNAL_LONG;
+    const h = vertical ? SIGNAL_LONG : SIGNAL_SHORT;
+    const left = x - w / 2;
+    const top = y - h / 2;
+    const redOff = 7;
+    const yellowOff = 18;
+    const greenOff = 29;
     return [
-      `<rect x="${left}" y="${top}" width="${SIGNAL_W}" height="${SIGNAL_H}" rx="4" ry="4" fill="#1c1c1c" stroke="#fff" stroke-width="1.5"/>`,
-      `<circle cx="${left + 7}" cy="${y}" r="4" fill="#e53935"/>`,
-      `<circle cx="${left + 18}" cy="${y}" r="4" fill="#fdd835"/>`,
-      `<circle cx="${left + 29}" cy="${y}" r="4" fill="#43a047"/>`,
+      `<rect x="${left}" y="${top}" width="${w}" height="${h}" rx="4" ry="4" fill="#1c1c1c" stroke="#fff" stroke-width="1.5"/>`,
+      vertical
+        ? `<circle cx="${x}" cy="${top + redOff}" r="4" fill="#e53935"/>`
+        : `<circle cx="${left + redOff}" cy="${y}" r="4" fill="#e53935"/>`,
+      vertical
+        ? `<circle cx="${x}" cy="${top + yellowOff}" r="4" fill="#fdd835"/>`
+        : `<circle cx="${left + yellowOff}" cy="${y}" r="4" fill="#fdd835"/>`,
+      vertical
+        ? `<circle cx="${x}" cy="${top + greenOff}" r="4" fill="#43a047"/>`
+        : `<circle cx="${left + greenOff}" cy="${y}" r="4" fill="#43a047"/>`,
     ].join('');
   });
   const markerElements = vehicles.map((v) => {

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { filterSignalsOnRoute, dedupeNearbySignals } = require('../src/trafficSignals');
+const { filterSignalsOnRoute, dedupeNearbySignals, annotateSignalOrientations } = require('../src/trafficSignals');
 const { pointAtFt } = require('./helpers');
 
 // A straight N-S route: 10 points along lon=-87.65, spanning 10000 ft.
@@ -42,4 +42,25 @@ test('dedupeNearbySignals preserves signals beyond minFt', () => {
   const c = pointAtFt(10000, 6000); // 2000 ft further
   const kept = dedupeNearbySignals([a, b, c], 150);
   assert.equal(kept.length, 3);
+});
+
+test('annotateSignalOrientations marks E-W routes vertical and N-S routes horizontal', () => {
+  const ewRoute = [{ lat: 41.896, lon: -87.65 }, { lat: 41.896, lon: -87.64 }];
+  const nsRoute = [{ lat: 41.90, lon: -87.687 }, { lat: 41.91, lon: -87.687 }];
+  const ew = annotateSignalOrientations([{ lat: 41.896, lon: -87.645 }], ewRoute);
+  const ns = annotateSignalOrientations([{ lat: 41.905, lon: -87.687 }], nsRoute);
+  assert.equal(ew[0].orientation, 'vertical');
+  assert.equal(ns[0].orientation, 'horizontal');
+});
+
+test('annotateSignalOrientations snaps signals to the nearest point on the route', () => {
+  // Straight N-S route along lon=-87.687. Two signals offset east/west by
+  // ~50 ft each — after snapping they should both sit on the centerline.
+  const route = [{ lat: 41.90, lon: -87.687 }, { lat: 41.91, lon: -87.687 }];
+  const offsets = [
+    { lat: 41.905, lon: -87.6872 },
+    { lat: 41.906, lon: -87.6868 },
+  ];
+  const snapped = annotateSignalOrientations(offsets, route);
+  for (const s of snapped) assert.ok(Math.abs(s.lon - -87.687) < 1e-9);
 });

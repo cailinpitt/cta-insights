@@ -10,7 +10,7 @@ const { names: routeNames, bunching: bunchingRoutes } = require('../src/routes')
 const { detectAllBunching, TERMINAL_PDIST_FT } = require('../src/bunching');
 const { loadPattern } = require('../src/patterns');
 const { renderBunchingMap, computeBunchingView } = require('../src/map');
-const { fetchSignalsInBbox, filterSignalsOnRoute, dedupeNearbySignals } = require('../src/trafficSignals');
+const { fetchSignalsInBbox, filterSignalsOnRoute, dedupeNearbySignals, annotateSignalOrientations } = require('../src/trafficSignals');
 const { captureBunchingVideo } = require('../src/bunchingVideo');
 const { loginBus, postWithImage, postWithVideo } = require('../src/bluesky');
 const { isOnCooldown, acquireCooldown } = require('../src/state');
@@ -204,7 +204,7 @@ async function main() {
   };
   const bboxSignals = await fetchSignalsInBbox(patternBbox);
   const onRoute = filterSignalsOnRoute(bboxSignals, pattern.points);
-  const signals = dedupeNearbySignals(onRoute);
+  const signals = annotateSignalOrientations(dedupeNearbySignals(onRoute), pattern.points);
   console.log(`Signals: ${bboxSignals.length} in pattern bbox → ${onRoute.length} on route → ${signals.length} after dedupe`);
   const image = await renderBunchingMap(bunch, pattern, signals);
 
