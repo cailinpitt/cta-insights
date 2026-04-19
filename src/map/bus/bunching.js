@@ -5,13 +5,14 @@ const { fitZoom, project } = require('../../shared/projection');
 const {
   STYLE, WIDTH, HEIGHT,
   ROUTE_HALO_COLOR, ROUTE_HALO_STROKE, ROUTE_CORE_COLOR, ROUTE_CORE_STROKE,
-  TWEMOJI_BUS_INNER,
+  TWEMOJI_BUS_INNER, TWEMOJI_HOUSE_INNER,
   buildDirectionArrow, requireMapboxToken, fetchMapboxStatic,
 } = require('../common');
 
 const BUS_COLOR = 'ff2a6d';         // hot pink/red reads well on dark
 const CONTEXT_PAD_FT = 1500;        // feet of route context on each side of the bunch
 const BUS_MARKER_RADIUS = 34;
+const TERMINAL_MARKER_RADIUS = BUS_MARKER_RADIUS;
 
 /**
  * Slice pattern points to a window around the bunched buses' geographic position.
@@ -88,7 +89,14 @@ function computeBunchingView(bunch, pattern, extraVehicles = []) {
     bearingDeg = diffFwd <= diffRev ? fwd : rev;
   }
 
-  return { overlays, centerLat, centerLon, zoom, bearingDeg, bbox };
+  // Last pattern point is the end terminal — CTA orders pattern points by seq
+  // along the service direction. We draw a house marker here so viewers can
+  // see where the buses are heading (and in particular, notice when they're
+  // approaching end-of-line rather than drifting off toward nothing).
+  const terminalPoint = pattern.points[pattern.points.length - 1];
+  const terminal = terminalPoint ? { lat: terminalPoint.lat, lon: terminalPoint.lon } : null;
+
+  return { overlays, centerLat, centerLon, zoom, bearingDeg, bbox, terminal };
 }
 
 async function fetchBunchingBaseMap(view) {
@@ -143,7 +151,25 @@ async function renderBunchingFrame(view, baseMap, vehicles, signals = []) {
     ].join('');
   });
   const arrowElements = [buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)];
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${signalElements.join('\n')}${markerElements.join('\n')}${arrowElements.join('\n')}</svg>`;
+
+  // End-of-line house marker — render below buses (so a bus sitting at the
+  // terminal still reads clearly) but above signals. Skip if the terminal
+  // falls outside the viewport; we only want it when it's meaningful.
+  const terminalElements = [];
+  if (view.terminal) {
+    const { x, y } = project(view.terminal.lat, view.terminal.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
+    if (x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT) {
+      const iconSize = TERMINAL_MARKER_RADIUS * 1.6;
+      const iconX = x - iconSize / 2;
+      const iconY = y - iconSize / 2;
+      terminalElements.push(
+        `<circle cx="${x}" cy="${y}" r="${TERMINAL_MARKER_RADIUS}" fill="#7cb342" stroke="#fff" stroke-width="4"/>`,
+        `<svg x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" viewBox="0 0 36 36">${TWEMOJI_HOUSE_INNER}</svg>`,
+      );
+    }
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${signalElements.join('\n')}${terminalElements.join('\n')}${markerElements.join('\n')}${arrowElements.join('\n')}</svg>`;
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
