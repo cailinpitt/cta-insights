@@ -17,7 +17,7 @@ const OUT_PATH = Path.join(__dirname, '..', 'data', 'gtfs', 'index.json');
 
 // Restrict bus indexing to the routes the bot actually polls. Keeps the
 // index small. Rail indexing is always all-lines — there are only eight.
-const { bunching: BUS_ROUTES } = require('../src/routes');
+const { bunching: BUS_ROUTES } = require('../src/bus/routes');
 const RAIL_ROUTES = ['Red', 'Blue', 'Brn', 'G', 'Org', 'P', 'Pink', 'Y'];
 
 async function downloadGtfs() {

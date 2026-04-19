@@ -5,7 +5,7 @@ const argv = require('minimist')(process.argv.slice(2));
 
 const { LINE_NAMES, LINE_EMOJI, ALL_LINES } = require('../src/trainApi');
 const { detectTrainGhosts } = require('../src/trainGhosts');
-const { buildRollupPost } = require('../src/ghosts');
+const { buildRollupPost } = require('../src/bus/ghosts');
 const { expectedTrainHeadwayMin, expectedTrainTripMinutes, isTrainLoopLine } = require('../src/shared/gtfs');
 const { getTrainObservations, rolloffOldObservations } = require('../src/shared/observations');
 const { loginTrain, postText } = require('../src/bluesky');

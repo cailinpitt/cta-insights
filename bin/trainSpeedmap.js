@@ -8,7 +8,7 @@ const argv = require('minimist')(process.argv.slice(2));
 
 const { LINE_NAMES, LINE_COLORS, ALL_LINES } = require('../src/trainApi');
 const { collectTrains, computeTrainSamples, buildLineBranches } = require('../src/trainSpeedmap');
-const { binSamples, summarize, TRAIN_THRESHOLDS } = require('../src/speedmap');
+const { binSamples, summarize, TRAIN_THRESHOLDS } = require('../src/bus/speedmap');
 const { renderTrainSpeedmap } = require('../src/map');
 const { loginTrain, postWithImage } = require('../src/bluesky');
 const { pruneOldAssets } = require('../src/shared/cleanup');

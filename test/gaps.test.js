@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { detectAllGaps, TYPICAL_SPEED_FT_PER_MIN, ABSOLUTE_MIN_MIN } = require('../src/gaps');
+const { detectAllGaps, TYPICAL_SPEED_FT_PER_MIN, ABSOLUTE_MIN_MIN } = require('../src/bus/gaps');
 const { bus, FRESH } = require('./helpers');
 
 const pattern = { direction: 'Northbound', lengthFt: 100000 };

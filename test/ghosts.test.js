@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { detectBusGhosts, buildRollupPost, MIN_SNAPSHOTS } = require('../src/ghosts');
+const { detectBusGhosts, buildRollupPost, MIN_SNAPSHOTS } = require('../src/bus/ghosts');
 const { detectTrainGhosts } = require('../src/trainGhosts');
 
 // Build a synthetic observation stream: `snapshots` polling timestamps, and at

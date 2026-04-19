@@ -5,10 +5,10 @@ const Fs = require('fs-extra');
 const Path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getVehicles, getPredictions } = require('../src/busApi');
-const { names: routeNames, gaps: gapRoutes } = require('../src/routes');
-const { detectAllGaps } = require('../src/gaps');
-const { loadPattern } = require('../src/patterns');
+const { getVehicles, getPredictions } = require('../src/bus/api');
+const { names: routeNames, gaps: gapRoutes } = require('../src/bus/routes');
+const { detectAllGaps } = require('../src/bus/gaps');
+const { loadPattern } = require('../src/bus/patterns');
 const { renderGapMap } = require('../src/map');
 const { loginBus, postWithImage } = require('../src/bluesky');
 const { isOnCooldown, acquireCooldown } = require('../src/shared/state');
@@ -187,7 +187,7 @@ async function main() {
   }
 
   // Re-check thresholds in case the refined ETA moved us below the bar.
-  const { RATIO_THRESHOLD, ABSOLUTE_MIN_MIN } = require('../src/gaps');
+  const { RATIO_THRESHOLD, ABSOLUTE_MIN_MIN } = require('../src/bus/gaps');
   if (gap.gapMin < ABSOLUTE_MIN_MIN || gap.ratio < RATIO_THRESHOLD) {
     console.log(`After refinement, gap no longer meets threshold (${gap.gapMin} min, ${gap.ratio.toFixed(2)}x); skipping`);
     return;

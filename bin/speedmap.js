@@ -6,9 +6,9 @@ const Path = require('path');
 const _ = require('lodash');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { names: routeNames, speedmap: speedmapRoutes } = require('../src/routes');
-const { collect, computeSamples, pickTargetPid, binSamples, summarize } = require('../src/speedmap');
-const { loadPattern } = require('../src/patterns');
+const { names: routeNames, speedmap: speedmapRoutes } = require('../src/bus/routes');
+const { collect, computeSamples, pickTargetPid, binSamples, summarize } = require('../src/bus/speedmap');
+const { loadPattern } = require('../src/bus/patterns');
 const { renderSpeedmap } = require('../src/map');
 const { loginBus, postWithImage } = require('../src/bluesky');
 const { pruneOldAssets } = require('../src/shared/cleanup');

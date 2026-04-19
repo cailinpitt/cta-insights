@@ -2,7 +2,7 @@
 // train count (median per snapshot) against `trip_duration / headway` per
 // (line, trDr).
 
-const { MISSING_PCT_THRESHOLD, MISSING_ABS_THRESHOLD, MIN_SNAPSHOTS } = require('./ghosts');
+const { MISSING_PCT_THRESHOLD, MISSING_ABS_THRESHOLD, MIN_SNAPSHOTS } = require('./bus/ghosts');
 
 function median(arr) {
   if (arr.length === 0) return null;
