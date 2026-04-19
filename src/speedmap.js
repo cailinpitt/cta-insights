@@ -1,4 +1,4 @@
-const { getVehicles } = require('./cta');
+const { getVehicles } = require('./busApi');
 
 // Default pair-sampling thresholds tuned for bus data. Callers can override.
 // Bus max mph sits well above the ~35 mph ceiling observed on CTA bus routes;

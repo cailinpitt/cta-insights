@@ -67,8 +67,8 @@ The bus bot tracks a subset of CTA routes — see `src/routes.js` for the list. 
 | `npm run train-gaps:dry` | Dry run |
 | `npm run train-speedmap` | Run train speedmap collection and post |
 | `npm run train-speedmap:dry` | Dry run |
-| `npm run snapshot` | Post L system snapshot |
-| `npm run snapshot:dry` | Dry run |
+| `npm run train-snapshot` | Post L system snapshot |
+| `npm run train-snapshot:dry` | Dry run |
 | `npm run observe-ghosts` | Bus observer for ghost detection — fetches `routes.ghosts` and logs positions (no posting). Run on a ~5-minute cron. |
 | `npm run ghosts` | Post the hourly ghost-bus rollup |
 | `npm run ghosts:dry` | Dry run |

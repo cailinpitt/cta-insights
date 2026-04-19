@@ -4,7 +4,7 @@ const Path = require('path');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 
-const { getVehicles } = require('./cta');
+const { getVehicles } = require('./busApi');
 const { computeBunchingView, fetchBunchingBaseMap, renderBunchingFrame } = require('./map');
 const { cumulativeDistances } = require('./geo');
 const { snapToLine, pointAlongLine } = require('./trainSpeedmap');

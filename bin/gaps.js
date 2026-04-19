@@ -5,7 +5,7 @@ const Fs = require('fs-extra');
 const Path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getVehicles, getPredictions } = require('../src/cta');
+const { getVehicles, getPredictions } = require('../src/busApi');
 const { names: routeNames, gaps: gapRoutes } = require('../src/routes');
 const { detectAllGaps } = require('../src/gaps');
 const { loadPattern } = require('../src/patterns');

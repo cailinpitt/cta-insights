@@ -6,7 +6,7 @@
 // purely to trigger that fetch.
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
-const { getVehicles } = require('../src/cta');
+const { getVehicles } = require('../src/busApi');
 const { ghosts: ghostRoutes } = require('../src/routes');
 const { rolloffOldObservations } = require('../src/observations');
 

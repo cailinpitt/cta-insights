@@ -5,7 +5,7 @@ const Fs = require('fs-extra');
 const Path = require('path');
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getVehicles } = require('../src/cta');
+const { getVehicles } = require('../src/busApi');
 const { names: routeNames, bunching: bunchingRoutes } = require('../src/routes');
 const { detectAllBunching, TERMINAL_PDIST_FT } = require('../src/bunching');
 const { loadPattern } = require('../src/patterns');

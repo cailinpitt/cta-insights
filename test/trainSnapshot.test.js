@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildPostText, buildAltText, countByLine } = require('../src/snapshot');
+const { buildPostText, buildAltText, countByLine } = require('../src/trainSnapshot');
 const { train } = require('./helpers');
 
 const NOON_CT = new Date('2026-04-18T17:00:00Z'); // 12:00 PM CT
