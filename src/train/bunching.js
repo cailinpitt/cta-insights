@@ -1,9 +1,8 @@
-const { haversineFt } = require('../shared/geo');
+const { haversineFt, terminalZoneFt: terminalZoneFor } = require('../shared/geo');
 const { buildLinePolyline, snapToLine } = require('./speedmap');
 
 const TRAIN_BUNCHING_FT = 2000; // ~0.38 mi, tighter than normal rush-hour headway
 const MIN_DISTANCE_FT = 200;    // ignore pairs closer than this — likely same station or API glitch
-const TERMINAL_ZONE_CAP_FT = 1500; // cap for the terminal zone; shorter lines scale down by 10% of length
 const MAX_HEADING_DIFF_DEG = 60;   // pair must be moving geographically the same way
 
 // Smallest angular difference between two compass headings (0–180).
@@ -67,9 +66,7 @@ function detectTrainBunching(trains, trainLines) {
     }
     if (deduped.length < 2) continue;
 
-    // Scale terminal zone with line length so short loops (Pink, Yellow) don't
-    // get a fixed zone that covers a meaningful fraction of the line.
-    const terminalZoneFt = Math.min(TERMINAL_ZONE_CAP_FT, totalFt * 0.1);
+    const terminalZoneFt = terminalZoneFor(totalFt);
 
     let i = 0;
     while (i < deduped.length - 1) {

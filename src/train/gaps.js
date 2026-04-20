@@ -1,13 +1,11 @@
 const { buildLinePolyline, snapToLine } = require('./speedmap');
+const { terminalZoneFt: terminalZoneFor } = require('../shared/geo');
 
 // Trains cruise faster than buses — typical average between stations on the
 // rapid-transit lines is ~25 mph with dwell time mixed in ≈ 2200 ft/min. Only
 // used to convert an along-track distance to a rough time gap for ratio
 // filtering; refined at post time if we add prediction support.
 const TYPICAL_TRAIN_SPEED_FT_PER_MIN = 2200;
-// Scale terminal zone with line length, capped — matches the train bunching
-// detector so we don't flag queues at start/end terminals as gaps.
-const TERMINAL_ZONE_CAP_FT = 1500;
 const RATIO_THRESHOLD = 2.5;
 const ABSOLUTE_MIN_MIN = 10;
 
@@ -59,7 +57,7 @@ function detectAllTrainGaps(trains, trainLines, stations, stationsByName, expect
     const { points, cumDist } = getLine(line);
     if (points.length < 2) continue;
     const totalFt = cumDist[cumDist.length - 1];
-    const terminalZoneFt = Math.min(TERMINAL_ZONE_CAP_FT, totalFt * 0.1);
+    const terminalZoneFt = terminalZoneFor(totalFt);
 
     const snapped = group
       .map((t) => ({ train: t, trackDist: snapToLine(t.lat, t.lon, points, cumDist) }))

@@ -12,6 +12,7 @@ const { fetchSignalsInBbox, filterSignalsOnRoute, dedupeNearbySignals, annotateS
 const { captureBunchingVideo } = require('../../src/bus/bunchingVideo');
 const { loginBus, postWithImage, postWithVideo } = require('../../src/bus/bluesky');
 const { isOnCooldown, acquireCooldown } = require('../../src/shared/state');
+const { terminalZoneFt: terminalZoneFor } = require('../../src/shared/geo');
 const history = require('../../src/shared/history');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
 const { buildPostText, buildAltText, buildVideoPostText, buildVideoAltText } = require('../../src/bus/bunchingPost');
@@ -54,11 +55,8 @@ async function main() {
     const stops = candidatePattern.points.filter((p) => p.type === 'S' && p.stopName);
 
     // Skip if the cluster's labeled nearest stop is the first/last stop, OR if
-    // the cluster is within the terminal zone of either pattern endpoint. The
-    // zone scales with route length (capped at 1500 ft) so short routes don't
-    // get a zone that swallows most of the line — e.g. a 2-mi route gets
-    // ~1056 ft instead of a fixed 1500 ft that would cover ~28% of it.
-    const terminalZoneFt = Math.min(1500, candidatePattern.lengthFt * 0.1);
+    // the cluster is within the terminal zone of either pattern endpoint.
+    const terminalZoneFt = terminalZoneFor(candidatePattern.lengthFt);
     const isAtStartTerminalStop = stop === stops[0];
     const isAtEndTerminalStop = stop === stops[stops.length - 1];
     const inStartZone = firstBus.pdist < terminalZoneFt;

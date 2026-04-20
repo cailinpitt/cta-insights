@@ -39,4 +39,12 @@ function bearing(a, b) {
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
-module.exports = { haversineFt, cumulativeDistances, bearing };
+// "Don't flag bunching/gaps within this distance of either route end."
+// Capped at 1500 ft so short routes don't get a zone that swallows most of
+// the line — e.g. a 2-mi route gets ~1056 ft instead of a fixed 1500 ft.
+const TERMINAL_ZONE_CAP_FT = 1500;
+function terminalZoneFt(lengthFt) {
+  return Math.min(TERMINAL_ZONE_CAP_FT, lengthFt * 0.1);
+}
+
+module.exports = { haversineFt, cumulativeDistances, bearing, terminalZoneFt, TERMINAL_ZONE_CAP_FT };
