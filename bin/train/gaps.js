@@ -18,26 +18,7 @@ const trainStations = require('../../src/train/data/trainStations.json');
 // Destination strings from Train Tracker don't always match trainStations.json
 // verbatim (e.g. "95th/Dan Ryan" vs "95th"). Match on the train's own line so
 // we don't collide on repeated station names like "Halsted" (Orange vs Blue).
-function findStationByDestination(line, destination) {
-  if (!destination) return null;
-  const norm = destination.toLowerCase();
-  const candidates = trainStations.filter((s) => s.lines?.includes(line));
-  // Prefer exact match on the line.
-  for (const s of candidates) {
-    if (s.name.toLowerCase() === norm) return s;
-  }
-  // Then prefer startsWith (handles "95th" vs "95th/Dan Ryan" and parenthesized
-  // line suffixes like "Halsted (Orange)").
-  for (const s of candidates) {
-    const baseName = s.name.toLowerCase().split(' (')[0];
-    if (baseName === norm || baseName.startsWith(norm) || norm.startsWith(baseName)) return s;
-  }
-  // Fall back to substring.
-  for (const s of candidates) {
-    if (s.name.toLowerCase().includes(norm)) return s;
-  }
-  return null;
-}
+const { findStationByDestination } = require('../../src/train/findStation');
 
 async function main() {
   setup();

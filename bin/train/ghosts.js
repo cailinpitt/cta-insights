@@ -10,29 +10,9 @@ const { expectedTrainHeadwayMin, expectedTrainTripMinutes, isTrainLoopLine } = r
 const { getTrainObservations, rolloffOldObservations } = require('../../src/shared/observations');
 const { loginTrain, postText } = require('../../src/train/bluesky');
 const { runBin } = require('../../src/shared/runBin');
-const trainStations = require('../../src/train/data/trainStations.json');
+const { findStationByDestination } = require('../../src/train/findStation');
 
 const WINDOW_MS = 60 * 60 * 1000;
-
-// Mirrors the station lookup used by trainGaps: destination strings don't
-// always match trainStations.json verbatim, so try exact → startsWith →
-// substring on names filtered to the current line.
-function findStationByDestination(line, destination) {
-  if (!destination) return null;
-  const norm = destination.toLowerCase();
-  const candidates = trainStations.filter((s) => s.lines?.includes(line));
-  for (const s of candidates) {
-    if (s.name.toLowerCase() === norm) return s;
-  }
-  for (const s of candidates) {
-    const baseName = s.name.toLowerCase().split(' (')[0];
-    if (baseName === norm || baseName.startsWith(norm) || norm.startsWith(baseName)) return s;
-  }
-  for (const s of candidates) {
-    if (s.name.toLowerCase().includes(norm)) return s;
-  }
-  return null;
-}
 
 function formatLine(event) {
   const lineName = LINE_NAMES[event.line];

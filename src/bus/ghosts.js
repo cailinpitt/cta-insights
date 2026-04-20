@@ -6,12 +6,7 @@ const MISSING_PCT_THRESHOLD = 0.25;  // ≥25% of expected active buses unaccoun
 const MISSING_ABS_THRESHOLD = 3;     // ...and ≥3 buses missing in absolute terms
 const MIN_SNAPSHOTS = 6;             // require ≥6 poll snapshots in the window; below that, coverage is too sparse
 
-function median(arr) {
-  if (arr.length === 0) return null;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
+const { median } = require('../shared/stats');
 
 /**
  * Detect ghost buses for a set of routes over a time window.

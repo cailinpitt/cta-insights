@@ -3,13 +3,7 @@
 // (line, trDr).
 
 const { MISSING_PCT_THRESHOLD, MISSING_ABS_THRESHOLD, MIN_SNAPSHOTS } = require('../bus/ghosts');
-
-function median(arr) {
-  if (arr.length === 0) return null;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
+const { median } = require('../shared/stats');
 
 /**
  * Detect ghost trains for a set of lines over a time window.
