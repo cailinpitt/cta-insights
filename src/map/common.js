@@ -210,7 +210,13 @@ function separateMarkers(points, minDist, opts = {}) {
           const perp2 = Math.max(0, dist2 - a * a);
           if (perp2 >= minDist * minDist) continue;
           const targetAbs = Math.sqrt(minDist * minDist - perp2);
-          const sign = a !== 0 ? Math.sign(a) : 1; // stable: i goes -, j goes +
+          // When the natural axis offset is small, GPS noise can flip
+          // Math.sign(a) frame-to-frame in a video, which flips which side
+          // each marker sits on and produces a visible jockeying shimmer.
+          // Fall back to caller-order sign (i goes -, j goes +) whenever the
+          // offset is below a small fraction of the separation distance.
+          const STABLE_THRESH = minDist * 0.2;
+          const sign = Math.abs(a) < STABLE_THRESH ? 1 : Math.sign(a);
           const targetA = sign * targetAbs;
           const delta = (targetA - a) / 2;
           out[i].x -= axis.x * delta;

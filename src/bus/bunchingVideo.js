@@ -7,6 +7,7 @@ const { promisify } = require('util');
 const { getVehicles } = require('./api');
 const { computeBunchingView, fetchBunchingBaseMap, renderBunchingFrame } = require('../map');
 const { cumulativeDistances } = require('../shared/geo');
+const { smoothSeries } = require('../shared/stats');
 const { snapToLine, pointAlongLine } = require('../train/speedmap');
 
 const execP = promisify(exec);
@@ -63,22 +64,38 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
   if (snapshots.length < 2) return null;
 
   // Raw CTA positions have lateral GPS jitter and occasional backwards jumps
-  // (prediction/GPS swaps). Snap each reported position onto the route pattern
-  // polyline, then clamp along-track distance per vid to be monotonically
-  // non-decreasing. Same fix as the train video — see trainBunchingVideo.js.
+  // (prediction/GPS swaps). Three-step cleanup, applied per vid across the
+  // full snapshot sequence:
+  //   1. Snap each reported position onto the route pattern polyline.
+  //   2. Clamp along-track distance to be monotonically non-decreasing.
+  //   3. Smooth the clamped sequence with a 3-tap centered moving average so
+  //      forward lurches (the clamp only removes backward ones) don't make
+  //      tightly-bunched markers jockey visually frame-to-frame.
+  // Same cleanup as the train video — see trainBunchingVideo.js.
   const linePts = pattern.points.map((p) => [p.lat, p.lon]);
   const lineCum = cumulativeDistances(pattern.points);
   const hasPolyline = linePts.length >= 2;
   if (hasPolyline) {
-    const maxTrackByVid = new Map();
+    const seriesByVid = new Map(); // vid → [{ v, raw }]
     for (const snap of snapshots) {
       for (const v of snap.vehicles) {
         const raw = snapToLine(v.lat, v.lon, linePts, lineCum);
-        const prev = maxTrackByVid.get(v.vid);
-        const clamped = prev == null ? raw : Math.max(prev, raw);
-        maxTrackByVid.set(v.vid, clamped);
-        v.track = clamped;
-        const snapped = pointAlongLine(linePts, lineCum, clamped);
+        if (!seriesByVid.has(v.vid)) seriesByVid.set(v.vid, []);
+        seriesByVid.get(v.vid).push({ v, raw });
+      }
+    }
+    for (const series of seriesByVid.values()) {
+      let prev = null;
+      const clamped = series.map(({ raw }) => {
+        const next = prev == null ? raw : Math.max(prev, raw);
+        prev = next;
+        return next;
+      });
+      const smoothed = smoothSeries(clamped);
+      for (let i = 0; i < series.length; i++) {
+        const { v } = series[i];
+        v.track = smoothed[i];
+        const snapped = pointAlongLine(linePts, lineCum, v.track);
         if (snapped) { v.lat = snapped.lat; v.lon = snapped.lon; }
       }
     }
@@ -92,11 +109,16 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
   // samples (s[i], s[i+1]), emit `interpolate` frames lerping each vehicle's
   // position by vid. If a vehicle is missing from one side of the pair (e.g.
   // dropped from the feed mid-capture), it holds at its last known position.
+  // Stable iteration order across frames: sort by vid. Without this, the API
+  // can return vehicles in a different order each tick, which flips the
+  // input order passed to `separateMarkers` — and when markers are tightly
+  // overlapped, that flips their perpendicular nudge direction tick-to-tick.
   const vehicleFrames = [];
+  const allVids = [...new Set(snapshots.flatMap((s) => s.vehicles.map((v) => v.vid)))].sort();
   for (let i = 0; i < snapshots.length - 1; i++) {
     const a = new Map(snapshots[i].vehicles.map((v) => [v.vid, v]));
     const b = new Map(snapshots[i + 1].vehicles.map((v) => [v.vid, v]));
-    const vids = new Set([...a.keys(), ...b.keys()]);
+    const vids = allVids.filter((vid) => a.has(vid) || b.has(vid));
     for (let k = 0; k < interpolate; k++) {
       const t = k / interpolate;
       const vehicles = [];
@@ -130,8 +152,10 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
       vehicleFrames.push(vehicles);
     }
   }
-  // Always include the final real snapshot as the last interpolated frame.
-  vehicleFrames.push(snapshots[snapshots.length - 1].vehicles);
+  // Always include the final real snapshot as the last interpolated frame,
+  // in the same stable vid order the interpolated frames used.
+  const finalByVid = new Map(snapshots[snapshots.length - 1].vehicles.map((v) => [v.vid, v]));
+  vehicleFrames.push(allVids.filter((vid) => finalByVid.has(vid)).map((vid) => finalByVid.get(vid)));
 
   const tmpDir = await Fs.mkdtemp(Path.join(Os.tmpdir(), 'cta-bunch-video-'));
   try {

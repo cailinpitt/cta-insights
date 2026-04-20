@@ -11,6 +11,7 @@ const {
   renderTrainBunchingFrame,
 } = require('../map');
 const { haversineFt } = require('../shared/geo');
+const { smoothSeries } = require('../shared/stats');
 const { buildLinePolyline, snapToLine, pointAlongLine } = require('./speedmap');
 
 const execP = promisify(exec);
@@ -83,15 +84,29 @@ async function captureTrainBunchingVideo(bunch, lineColors, trainLines, stations
   const { points: linePts, cumDist: lineCum } = buildLinePolyline(trainLines, bunch.line);
   const hasPolyline = linePts.length >= 2;
   if (hasPolyline) {
-    const maxTrackByRn = new Map();
+    // Per rn: snap to line, clamp monotonically non-decreasing, then smooth
+    // with a 3-tap moving average so forward GPS lurches don't make
+    // tightly-bunched markers jockey between frames.
+    const seriesByRn = new Map(); // rn → [{ t, raw }]
     for (const snap of snapshots) {
       for (const t of snap.trains) {
         const raw = snapToLine(t.lat, t.lon, linePts, lineCum);
-        const prev = maxTrackByRn.get(t.rn);
-        const clamped = prev == null ? raw : Math.max(prev, raw);
-        maxTrackByRn.set(t.rn, clamped);
-        t.track = clamped;
-        const snapped = pointAlongLine(linePts, lineCum, clamped);
+        if (!seriesByRn.has(t.rn)) seriesByRn.set(t.rn, []);
+        seriesByRn.get(t.rn).push({ t, raw });
+      }
+    }
+    for (const series of seriesByRn.values()) {
+      let prev = null;
+      const clamped = series.map(({ raw }) => {
+        const next = prev == null ? raw : Math.max(prev, raw);
+        prev = next;
+        return next;
+      });
+      const smoothed = smoothSeries(clamped);
+      for (let i = 0; i < series.length; i++) {
+        const { t } = series[i];
+        t.track = smoothed[i];
+        const snapped = pointAlongLine(linePts, lineCum, t.track);
         if (snapped) { t.lat = snapped.lat; t.lon = snapped.lon; }
       }
     }
@@ -101,12 +116,16 @@ async function captureTrainBunchingVideo(bunch, lineColors, trainLines, stations
   const view = computeTrainBunchingView(bunch, lineColors, trainLines, stations, extraTrains);
   const baseMap = await fetchTrainBunchingBaseMap(view);
 
-  // Interpolate between consecutive snapshots.
+  // Interpolate between consecutive snapshots. Stable rn ordering across
+  // frames so `separateMarkers` gets a consistent input order when two
+  // trains are visually overlapped — otherwise the perpendicular nudge can
+  // flip sides tick-to-tick.
   const trainFrames = [];
+  const allRns = [...new Set(snapshots.flatMap((s) => s.trains.map((t) => t.rn)))].sort();
   for (let i = 0; i < snapshots.length - 1; i++) {
     const a = new Map(snapshots[i].trains.map((t) => [t.rn, t]));
     const b = new Map(snapshots[i + 1].trains.map((t) => [t.rn, t]));
-    const rns = new Set([...a.keys(), ...b.keys()]);
+    const rns = allRns.filter((rn) => a.has(rn) || b.has(rn));
     for (let k = 0; k < interpolate; k++) {
       const t = k / interpolate;
       const frame = [];
@@ -141,7 +160,8 @@ async function captureTrainBunchingVideo(bunch, lineColors, trainLines, stations
       trainFrames.push(frame);
     }
   }
-  trainFrames.push(snapshots[snapshots.length - 1].trains);
+  const finalByRn = new Map(snapshots[snapshots.length - 1].trains.map((t) => [t.rn, t]));
+  trainFrames.push(allRns.filter((rn) => finalByRn.has(rn)).map((rn) => finalByRn.get(rn)));
 
   const tmpDir = await Fs.mkdtemp(Path.join(Os.tmpdir(), 'cta-train-video-'));
   try {
