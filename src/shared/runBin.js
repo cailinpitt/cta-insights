@@ -23,6 +23,14 @@ function writeDryRunAsset(buffer, filename) {
 }
 
 function runBin(main) {
+  // --check exits successfully without invoking main(). All requires at the
+  // top of the bin script have already resolved by the time we get here, so
+  // a typo'd import would have crashed before this point. Useful as a CI
+  // smoke test — runs in milliseconds and needs no env vars or network.
+  if (process.argv.includes('--check')) {
+    console.log('OK: imports resolved');
+    return;
+  }
   main().catch((e) => {
     console.error(e.stack || e);
     process.exit(1);

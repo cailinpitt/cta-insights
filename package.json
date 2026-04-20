@@ -35,7 +35,8 @@
     "ghosts:dry": "node bin/bus/ghosts.js --dry-run",
     "train-ghosts": "node bin/train/ghosts.js",
     "train-ghosts:dry": "node bin/train/ghosts.js --dry-run",
-    "test": "node --test test/**/*.test.js"
+    "test": "node --test test/**/*.test.js",
+    "smoke": "for f in bin/bus/*.js bin/train/*.js; do node \"$f\" --check || exit 1; done"
   },
   "author": "Cailin Pitt <cailinpitt1@gmail.com> (https://cailinpitt.com)",
   "license": "ISC"
