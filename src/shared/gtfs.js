@@ -95,19 +95,26 @@ function resolveDirection(pattern) {
   return best;
 }
 
-/**
- * Expected headway in minutes for a route+pattern at a given instant.
- * Returns null when the route has no scheduled service at the current hour.
- */
-function expectedHeadwayMin(route, pattern, now = new Date()) {
+// Resolve the directional bucket of an indexed bus route, then pull `field`
+// (`headways` or `durations`) and look it up by hour. Single source of truth
+// for both `expectedHeadwayMin` and `expectedTripMinutes`.
+function busLookup(route, pattern, field, now) {
   const index = loadIndex();
   const byDir = index.routes[route];
   if (!byDir) return null;
   const dir = resolveDirection({ ...pattern, route });
   if (!dir) return null;
   const dirInfo = byDir[dir];
-  if (!dirInfo) return null;
-  return hourlyLookup(dirInfo.headways, now);
+  if (!dirInfo || !dirInfo[field]) return null;
+  return hourlyLookup(dirInfo[field], now);
+}
+
+function expectedHeadwayMin(route, pattern, now = new Date()) {
+  return busLookup(route, pattern, 'headways', now);
+}
+
+function expectedTripMinutes(route, pattern, now = new Date()) {
+  return busLookup(route, pattern, 'durations', now);
 }
 
 // Train Tracker line codes (lowercase) → GTFS route_id in the index. These
@@ -117,84 +124,40 @@ const TRAIN_LINE_TO_GTFS = {
   org: 'Org', p: 'P', pink: 'Pink', y: 'Y',
 };
 
-/**
- * Expected headway in minutes for a rail line heading toward `destination` at
- * the given instant.
- *
- * `destination` is a {lat, lon} object (typically the destination station's
- * coords from trainStations.json). We pick the GTFS direction whose terminal
- * is closest to that point — this handles bi-directional lines (Red/Blue/
- * Green) correctly. Loop lines (Brown/Orange/Purple/Pink/Yellow) only have
- * one indexed direction, so the match is trivial.
- *
- * Returns null if the line isn't indexed or no destination is given.
- */
+// Pick the GTFS direction whose terminal is closest to `destination` ({lat,
+// lon}). Loop lines (Brown/Orange/Purple/Pink/Yellow) ship one direction so
+// the match is trivial.
+function pickTrainDirInfo(line, destination) {
+  const index = loadIndex();
+  const gtfsId = TRAIN_LINE_TO_GTFS[line];
+  if (!gtfsId) return null;
+  const byDir = index.lines && index.lines[gtfsId];
+  if (!byDir) return null;
+  const dirs = Object.values(byDir);
+  if (dirs.length === 1) return dirs[0];
+  if (!destination || destination.lat == null) return null;
+  let best = null;
+  let bestDist = Infinity;
+  for (const info of dirs) {
+    if (info.terminalLat == null) continue;
+    const d = haversineFt({ lat: info.terminalLat, lon: info.terminalLon }, destination);
+    if (d < bestDist) { bestDist = d; best = info; }
+  }
+  return best;
+}
+
+function trainLookup(line, destination, field, now) {
+  const dirInfo = pickTrainDirInfo(line, destination);
+  if (!dirInfo || !dirInfo[field]) return null;
+  return hourlyLookup(dirInfo[field], now);
+}
+
 function expectedTrainHeadwayMin(line, destination, now = new Date()) {
-  const index = loadIndex();
-  const gtfsId = TRAIN_LINE_TO_GTFS[line];
-  if (!gtfsId) return null;
-  const byDir = index.lines && index.lines[gtfsId];
-  if (!byDir) return null;
-
-  let dirInfo = null;
-  const dirs = Object.values(byDir);
-  if (dirs.length === 1) {
-    dirInfo = dirs[0];
-  } else if (destination && destination.lat != null) {
-    let bestDist = Infinity;
-    for (const info of dirs) {
-      if (info.terminalLat == null) continue;
-      const d = haversineFt({ lat: info.terminalLat, lon: info.terminalLon }, destination);
-      if (d < bestDist) { bestDist = d; dirInfo = info; }
-    }
-  }
-  if (!dirInfo) return null;
-  return hourlyLookup(dirInfo.headways, now);
+  return trainLookup(line, destination, 'headways', now);
 }
 
-/**
- * Expected trip duration (minutes) for a route+pattern at a given instant.
- * Used by ghost detection: `duration / headway` ≈ number of buses that should
- * be simultaneously active on the route+direction, which is what distinct
- * vehicle counts over an hour actually measure. Same dayType/hour resolution
- * as `expectedHeadwayMin`.
- */
-function expectedTripMinutes(route, pattern, now = new Date()) {
-  const index = loadIndex();
-  const byDir = index.routes[route];
-  if (!byDir) return null;
-  const dir = resolveDirection({ ...pattern, route });
-  if (!dir) return null;
-  const dirInfo = byDir[dir];
-  if (!dirInfo || !dirInfo.durations) return null;
-  return hourlyLookup(dirInfo.durations, now);
-}
-
-/**
- * Train equivalent of `expectedTripMinutes`. Direction is picked by destination
- * coordinate (same logic as `expectedTrainHeadwayMin`).
- */
 function expectedTrainTripMinutes(line, destination, now = new Date()) {
-  const index = loadIndex();
-  const gtfsId = TRAIN_LINE_TO_GTFS[line];
-  if (!gtfsId) return null;
-  const byDir = index.lines && index.lines[gtfsId];
-  if (!byDir) return null;
-
-  let dirInfo = null;
-  const dirs = Object.values(byDir);
-  if (dirs.length === 1) {
-    dirInfo = dirs[0];
-  } else if (destination && destination.lat != null) {
-    let bestDist = Infinity;
-    for (const info of dirs) {
-      if (info.terminalLat == null) continue;
-      const d = haversineFt({ lat: info.terminalLat, lon: info.terminalLon }, destination);
-      if (d < bestDist) { bestDist = d; dirInfo = info; }
-    }
-  }
-  if (!dirInfo || !dirInfo.durations) return null;
-  return hourlyLookup(dirInfo.durations, now);
+  return trainLookup(line, destination, 'durations', now);
 }
 
 // Loop lines (Brown/Orange/Pink/Purple/Yellow) ship a single GTFS direction_id
