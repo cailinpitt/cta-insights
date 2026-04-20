@@ -63,6 +63,41 @@ const TWEMOJI_HOUSE_INNER = [
   '<rect fill="#fff" x="23.7" y="25.85" width="4.6" height="0.3"/>',
 ].join('');
 
+// Simplified checkered flag glyph, 36x36 viewBox. Marks the end-of-line
+// destination so direction reads at a glance alongside the house (origin)
+// marker. Pole on the left, 4×3 checker on the right half.
+const TWEMOJI_FLAG_INNER = [
+  // pole
+  '<rect fill="#3B2412" x="7.5" y="3" width="2" height="30"/>',
+  // pole tip
+  '<circle fill="#FFD700" cx="8.5" cy="3" r="1.5"/>',
+  // flag white background
+  '<rect fill="#FFFFFF" x="9.5" y="6" width="22" height="12"/>',
+  // checker squares (5.5w × 4h, black on alternating cells)
+  '<rect fill="#000" x="9.5"  y="6"  width="5.5" height="4"/>',
+  '<rect fill="#000" x="20.5" y="6"  width="5.5" height="4"/>',
+  '<rect fill="#000" x="15"   y="10" width="5.5" height="4"/>',
+  '<rect fill="#000" x="26"   y="10" width="5.5" height="4"/>',
+  '<rect fill="#000" x="9.5"  y="14" width="5.5" height="4"/>',
+  '<rect fill="#000" x="20.5" y="14" width="5.5" height="4"/>',
+  // outline
+  '<rect fill="none" stroke="#000" stroke-width="0.6" x="9.5" y="6" width="22" height="12"/>',
+].join('');
+
+// Shared renderer for origin/destination markers (house at start, flag at end).
+// Same circle styling across bus/train so the two markers read as a matched
+// pair on every map.
+function buildTerminalMarker(x, y, radius, glyph) {
+  const iconSize = radius * 1.6;
+  const iconX = x - iconSize / 2;
+  const iconY = y - iconSize / 2;
+  return [
+    `<circle cx="${x}" cy="${y}" r="${radius}" fill="#7cb342"/>`,
+    `<svg x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" viewBox="0 0 36 36">${glyph}</svg>`,
+    `<circle cx="${x}" cy="${y}" r="${radius}" fill="none" stroke="#fff" stroke-width="4"/>`,
+  ];
+}
+
 // Twemoji 🚆 (U+1F686) paths, 36x36 viewBox.
 const TWEMOJI_TRAIN_INNER = '<path fill="#A7A9AC" d="M2 36h32L23 19H13z"/><path fill="#58595B" d="M5 36h26L21 19h-6z"/><path fill="#808285" d="M8 36h20l-9-17h-2z"/><path fill="#A7A9AC" d="M28 35c0 .553-.447 1-1 1H9c-.552 0-1-.447-1-1 0-.553.448-1 1-1h18c.553 0 1 .447 1 1zm-2-4c0 .553-.447 1-1 1H11c-.552 0-1-.447-1-1 0-.553.448-1 1-1h14c.553 0 1 .447 1 1z"/><path fill="#58595B" d="M27.076 25.3L23 19H13l-4.076 6.3c1.889 2.517 4.798 4.699 9.076 4.699 4.277 0 7.188-2.183 9.076-4.699z"/><path fill="#A7A9AC" d="M18 0C9 0 6 3 6 9v8c0 1.999 3 11 12 11s12-9.001 12-11V9c0-6-3-9-12-9z"/><path fill="#E6E7E8" d="M8 11C8 2 12.477 1 18 1s10 1 10 10c0 6-4.477 11-10 11-5.523-.001-10-5-10-11z"/><path fill="#FFAC33" d="M18 21.999c1.642 0 3.185-.45 4.553-1.228C21.77 19.729 20.03 19 18 19s-3.769.729-4.552 1.772c1.366.777 2.911 1.227 4.552 1.227z"/><path d="M19 4.997v4.965c3.488-.232 6-1.621 6-2.463V5.833c0-.791-3.692-.838-6-.836zm-2 0c-2.308-.002-6 .044-6 .836V7.5c0 .842 2.512 2.231 6 2.463V4.997z" fill="#55ACEE"/><path fill="#269" d="M6 10s0 3 4 9c0 0-4-2-4-6v-3zm24 0s0 3-4 9c0 0 4-2 4-6v-3z"/>';
 
@@ -132,7 +167,8 @@ module.exports = {
   ROUTE_HALO_COLOR, ROUTE_HALO_STROKE, ROUTE_CORE_COLOR, ROUTE_CORE_STROKE,
   SPEEDMAP_SEGMENT_STROKE, SPEEDMAP_HALO_STROKE,
   ARROW_PATH_D, buildDirectionArrow,
-  TWEMOJI_BUS_INNER, TWEMOJI_TRAIN_INNER, TWEMOJI_HOUSE_INNER,
+  TWEMOJI_BUS_INNER, TWEMOJI_TRAIN_INNER, TWEMOJI_HOUSE_INNER, TWEMOJI_FLAG_INNER,
+  buildTerminalMarker,
   xmlEscape, requireMapboxToken, fetchMapboxStatic,
   sliceIntoSegments,
 };

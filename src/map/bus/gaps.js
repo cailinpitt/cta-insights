@@ -5,7 +5,8 @@ const { fitZoom, project } = require('../../shared/projection');
 const {
   STYLE, WIDTH, HEIGHT,
   ROUTE_HALO_COLOR, ROUTE_HALO_STROKE, ROUTE_CORE_COLOR, ROUTE_CORE_STROKE,
-  TWEMOJI_BUS_INNER, TWEMOJI_HOUSE_INNER,
+  TWEMOJI_BUS_INNER, TWEMOJI_HOUSE_INNER, TWEMOJI_FLAG_INNER,
+  buildTerminalMarker,
   buildDirectionArrow, requireMapboxToken, fetchMapboxStatic,
 } = require('../common');
 
@@ -81,13 +82,15 @@ function computeGapView(gap, pattern) {
     bearingDeg = diffFwd <= diffRev ? fwd : rev;
   }
 
-  // End-of-line terminal — same semantics as bus bunching. Last pattern point
-  // is the terminal in service-direction order. Rendered only if it falls in
-  // the viewport; for most gaps mid-route it won't, and that's fine.
+  // Origin (first point) and destination (last point) — same semantics as bus
+  // bunching. Either is rendered only if it falls in the viewport; for most
+  // mid-route gaps neither will, and that's fine.
+  const originPoint = pattern.points[0];
   const terminalPoint = pattern.points[pattern.points.length - 1];
+  const origin = originPoint ? { lat: originPoint.lat, lon: originPoint.lon } : null;
   const terminal = terminalPoint ? { lat: terminalPoint.lat, lon: terminalPoint.lon } : null;
 
-  return { overlays, centerLat, centerLon, zoom, bearingDeg, terminal };
+  return { overlays, centerLat, centerLon, zoom, bearingDeg, origin, terminal };
 }
 
 async function fetchGapBaseMap(view) {
@@ -113,18 +116,11 @@ async function renderGapMap(gap, pattern) {
   const arrowElements = [buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)];
 
   const terminalElements = [];
-  if (view.terminal) {
-    const { x, y } = project(view.terminal.lat, view.terminal.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
-    if (x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT) {
-      const iconSize = TERMINAL_MARKER_RADIUS * 1.6;
-      const iconX = x - iconSize / 2;
-      const iconY = y - iconSize / 2;
-      terminalElements.push(
-        `<circle cx="${x}" cy="${y}" r="${TERMINAL_MARKER_RADIUS}" fill="#7cb342"/>`,
-        `<svg x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" viewBox="0 0 36 36">${TWEMOJI_HOUSE_INNER}</svg>`,
-        `<circle cx="${x}" cy="${y}" r="${TERMINAL_MARKER_RADIUS}" fill="none" stroke="#fff" stroke-width="4"/>`,
-      );
-    }
+  for (const [point, glyph] of [[view.origin, TWEMOJI_HOUSE_INNER], [view.terminal, TWEMOJI_FLAG_INNER]]) {
+    if (!point) continue;
+    const { x, y } = project(point.lat, point.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
+    if (x < 0 || x > WIDTH || y < 0 || y > HEIGHT) continue;
+    terminalElements.push(...buildTerminalMarker(x, y, TERMINAL_MARKER_RADIUS, glyph));
   }
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${terminalElements.join('\n')}${markerElements.join('\n')}${arrowElements.join('\n')}</svg>`;

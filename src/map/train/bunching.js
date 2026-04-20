@@ -6,7 +6,8 @@ const { buildLinePolyline, snapToLine } = require('../../train/speedmap');
 const { shortStationName } = require('../../train/api');
 const {
   STYLE, WIDTH, HEIGHT,
-  TWEMOJI_TRAIN_INNER, TWEMOJI_HOUSE_INNER,
+  TWEMOJI_TRAIN_INNER, TWEMOJI_HOUSE_INNER, TWEMOJI_FLAG_INNER,
+  buildTerminalMarker,
   buildDirectionArrow, xmlEscape, requireMapboxToken, fetchMapboxStatic,
 } = require('../common');
 
@@ -43,7 +44,36 @@ function findTerminal(bunch, stations) {
   return st ? { lat: st.lat, lon: st.lon } : null;
 }
 
-function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, lineColor, widthPx, heightPx, terminalPixel) {
+// Origin (start of trip) marker. CTA's API doesn't return origin, but for most
+// lines the destination uniquely implies it: red/blue/p/y all have exactly two
+// true terminals, so origin is whichever isn't the destination. Loop lines
+// (brn/org/pink) only list one true terminal — when destination is "Loop"
+// the trains came from that lone terminal; when destination IS that terminal
+// they came from the Loop and we have no marker for it (skip).
+//
+// Green is a special case: southbound trains always originate at Harlem/Lake,
+// but northbound terminate at Harlem/Lake from either Ashland/63rd or Cottage
+// Grove and we can't tell which from the API — so we skip the marker only
+// when destination is Harlem/Lake.
+function findOrigin(bunch, stations) {
+  const lineTerms = TRUE_TERMINALS[bunch.line];
+  if (!lineTerms) return null;
+  const dest = bunch.trains[0]?.destination;
+  if (!dest) return null;
+  const destStationName = lineTerms[dest] || null;
+  if (bunch.line === 'g') {
+    if (destStationName !== 'Ashland/63rd' && destStationName !== 'Cottage Grove') return null;
+    const st = (stations || []).find((s) => s.name === 'Harlem/Lake');
+    return st ? { lat: st.lat, lon: st.lon } : null;
+  }
+  const uniqueStations = [...new Set(Object.values(lineTerms))];
+  const candidates = uniqueStations.filter((n) => n !== destStationName);
+  if (candidates.length !== 1) return null;
+  const st = (stations || []).find((s) => s.name === candidates[0]);
+  return st ? { lat: st.lat, lon: st.lon } : null;
+}
+
+function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, lineColor, widthPx, heightPx, terminalPixel, originPixel) {
   const fontSize = 18;
   const labelHeight = fontSize + 8;
   const gap = 4; // minimum vertical gap between labels
@@ -104,21 +134,13 @@ function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, 
     <text x="${textX}" y="${textY}" fill="#fff" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="600">${label}</text>`;
   });
 
-  // End-of-line house marker — draw below trains (so a train at the terminal
-  // still reads clearly) and below labels. Only for true geographic terminals;
-  // skipped for Loop-bound trains on Brown/Orange/Pink/Purple.
+  // Origin (house) and destination (flag) markers — draw below trains so a
+  // train sitting at either still reads clearly, and below labels. Either may
+  // be absent (Loop-bound trains have no flag; Green has no house; off-screen
+  // points are dropped upstream).
   const terminalElements = [];
-  if (terminalPixel) {
-    const { x, y } = terminalPixel;
-    const iconSize = TERMINAL_MARKER_RADIUS * 1.6;
-    const iconX = x - iconSize / 2;
-    const iconY = y - iconSize / 2;
-    terminalElements.push(
-      `<circle cx="${x}" cy="${y}" r="${TERMINAL_MARKER_RADIUS}" fill="#7cb342"/>`,
-      `<svg x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" viewBox="0 0 36 36">${TWEMOJI_HOUSE_INNER}</svg>`,
-      `<circle cx="${x}" cy="${y}" r="${TERMINAL_MARKER_RADIUS}" fill="none" stroke="#fff" stroke-width="4"/>`,
-    );
-  }
+  if (originPixel) terminalElements.push(...buildTerminalMarker(originPixel.x, originPixel.y, TERMINAL_MARKER_RADIUS, TWEMOJI_HOUSE_INNER));
+  if (terminalPixel) terminalElements.push(...buildTerminalMarker(terminalPixel.x, terminalPixel.y, TERMINAL_MARKER_RADIUS, TWEMOJI_FLAG_INNER));
 
   const elements = [...terminalElements, ...halos, ...trainMarkers, ...arrows, ...labelElements].join('\n');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}">${elements}</svg>`;
@@ -255,6 +277,7 @@ function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extra
   }
 
   const terminal = findTerminal(bunch, stations);
+  const origin = findOrigin(bunch, stations);
 
   return {
     color,
@@ -265,6 +288,7 @@ function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extra
     visibleStations,
     bearingDeg,
     terminal,
+    origin,
   };
 }
 
@@ -291,13 +315,15 @@ async function renderTrainBunchingFrame(view, baseMap, trains) {
     .filter((t) => view.visibleStations.some((v) => haversineFt({ lat: v.station.lat, lon: v.station.lon }, t) < 500))
     .map((t) => project(t.lat, t.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT));
 
-  let terminalPixel = null;
-  if (view.terminal) {
-    const { x, y } = project(view.terminal.lat, view.terminal.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
-    if (x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT) terminalPixel = { x, y };
+  function projectIfVisible(point) {
+    if (!point) return null;
+    const { x, y } = project(point.lat, point.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
+    return x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT ? { x, y } : null;
   }
+  const terminalPixel = projectIfVisible(view.terminal);
+  const originPixel = projectIfVisible(view.origin);
 
-  const svg = buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, view.color, WIDTH, HEIGHT, terminalPixel);
+  const svg = buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, view.color, WIDTH, HEIGHT, terminalPixel, originPixel);
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])

@@ -5,7 +5,8 @@ const { fitZoom, project } = require('../../shared/projection');
 const {
   STYLE, WIDTH, HEIGHT,
   ROUTE_HALO_COLOR, ROUTE_HALO_STROKE, ROUTE_CORE_COLOR, ROUTE_CORE_STROKE,
-  TWEMOJI_BUS_INNER, TWEMOJI_HOUSE_INNER,
+  TWEMOJI_BUS_INNER, TWEMOJI_HOUSE_INNER, TWEMOJI_FLAG_INNER,
+  buildTerminalMarker,
   buildDirectionArrow, requireMapboxToken, fetchMapboxStatic,
 } = require('../common');
 
@@ -89,14 +90,16 @@ function computeBunchingView(bunch, pattern, extraVehicles = []) {
     bearingDeg = diffFwd <= diffRev ? fwd : rev;
   }
 
-  // Last pattern point is the end terminal — CTA orders pattern points by seq
-  // along the service direction. We draw a house marker here so viewers can
-  // see where the buses are heading (and in particular, notice when they're
-  // approaching end-of-line rather than drifting off toward nothing).
+  // CTA orders pattern points by seq along the service direction, so the first
+  // point is the route's origin and the last is its destination. We mark the
+  // origin with a house and the destination with a checkered flag so viewers
+  // can see at a glance which way the buses are heading.
+  const originPoint = pattern.points[0];
   const terminalPoint = pattern.points[pattern.points.length - 1];
+  const origin = originPoint ? { lat: originPoint.lat, lon: originPoint.lon } : null;
   const terminal = terminalPoint ? { lat: terminalPoint.lat, lon: terminalPoint.lon } : null;
 
-  return { overlays, centerLat, centerLon, zoom, bearingDeg, bbox, terminal };
+  return { overlays, centerLat, centerLon, zoom, bearingDeg, bbox, origin, terminal };
 }
 
 async function fetchBunchingBaseMap(view) {
@@ -152,22 +155,15 @@ async function renderBunchingFrame(view, baseMap, vehicles, signals = []) {
   });
   const arrowElements = [buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)];
 
-  // End-of-line house marker — render below buses (so a bus sitting at the
-  // terminal still reads clearly) but above signals. Skip if the terminal
-  // falls outside the viewport; we only want it when it's meaningful.
+  // Origin (house) and destination (flag) markers — render below buses (so a
+  // bus sitting at either still reads clearly) but above signals. Each is
+  // skipped if its point falls outside the viewport.
   const terminalElements = [];
-  if (view.terminal) {
-    const { x, y } = project(view.terminal.lat, view.terminal.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
-    if (x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT) {
-      const iconSize = TERMINAL_MARKER_RADIUS * 1.6;
-      const iconX = x - iconSize / 2;
-      const iconY = y - iconSize / 2;
-      terminalElements.push(
-        `<circle cx="${x}" cy="${y}" r="${TERMINAL_MARKER_RADIUS}" fill="#7cb342"/>`,
-        `<svg x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" viewBox="0 0 36 36">${TWEMOJI_HOUSE_INNER}</svg>`,
-        `<circle cx="${x}" cy="${y}" r="${TERMINAL_MARKER_RADIUS}" fill="none" stroke="#fff" stroke-width="4"/>`,
-      );
-    }
+  for (const [point, glyph] of [[view.origin, TWEMOJI_HOUSE_INNER], [view.terminal, TWEMOJI_FLAG_INNER]]) {
+    if (!point) continue;
+    const { x, y } = project(point.lat, point.lon, view.centerLat, view.centerLon, view.zoom, WIDTH, HEIGHT);
+    if (x < 0 || x > WIDTH || y < 0 || y > HEIGHT) continue;
+    terminalElements.push(...buildTerminalMarker(x, y, TERMINAL_MARKER_RADIUS, glyph));
   }
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${signalElements.join('\n')}${terminalElements.join('\n')}${markerElements.join('\n')}${arrowElements.join('\n')}</svg>`;
