@@ -55,7 +55,7 @@ function buildPostText(line, dirSummaries, startTime, endTime, callouts = []) {
   return (
     (tail ? `${head}\n${tail}\n\n` : `${head}\n\n`) +
     `Two parallel ribbons = the two travel directions.\n` +
-    `🟥 under 10 mph · 🟧 10–25 · 🟨 25–40 · 🟩 40+`
+    `🟥 under 15 mph · 🟧 15–25 · 🟨 25–35 · 🟪 35–45 · 🟩 45+`
   );
 }
 
@@ -64,7 +64,7 @@ function buildAltText(line, dirSummaries, durationMin) {
   const dirLines = dirSummaries
     .map(({ dest, summary }) => `${dirLabel(dest)} average ${formatAvg(summary)}`)
     .join('; ');
-  return `Speedmap of the CTA ${lineName} Line over a ${durationMin}-minute window, rendered as two parallel ribbons (one per travel direction) colored by average train speed. ${dirLines}. Red indicates under 10 mph, orange under 25, yellow under 40, green 40 and above.`;
+  return `Speedmap of the CTA ${lineName} Line over a ${durationMin}-minute window, rendered as two parallel ribbons (one per travel direction) colored by average train speed. ${dirLines}. Red indicates under 15 mph, orange 15–25, yellow 25–35, purple 35–45, green 45 and above.`;
 }
 
 async function main() {
@@ -110,7 +110,7 @@ async function main() {
       const s = summarize(binSpeedsByDir[trDr], TRAIN_THRESHOLDS);
       const dest = destForBranchDir(rnsByDir.get(trDr) || new Set(), trDr, destByRnDir);
       const label = dirLabel(dest);
-      console.log(`Branch ${i} / ${label} (dir ${trDr}): ${samples.length} samples · avg ${s.avg?.toFixed(1)} mph · red=${s.red} orange=${s.orange} yellow=${s.yellow} green=${s.green}`);
+      console.log(`Branch ${i} / ${label} (dir ${trDr}): ${samples.length} samples · avg ${s.avg?.toFixed(1)} mph · red=${s.red} orange=${s.orange} yellow=${s.yellow} purple=${s.purple} green=${s.green}`);
       dirSummaries.push({ dest, summary: s });
     }
     branchData.push({ points, cumDist, binSpeedsByDir });
@@ -178,10 +178,11 @@ async function main() {
     acc.red += summary.red;
     acc.orange += summary.orange;
     acc.yellow += summary.yellow;
+    acc.purple += summary.purple;
     acc.green += summary.green;
     return acc;
-  }, { red: 0, orange: 0, yellow: 0, green: 0 });
-  const totalValid = totals.red + totals.orange + totals.yellow + totals.green;
+  }, { red: 0, orange: 0, yellow: 0, purple: 0, green: 0 });
+  const totalValid = totals.red + totals.orange + totals.yellow + totals.purple + totals.green;
   history.recordSpeedmap({
     kind: 'train',
     route: line,
@@ -190,6 +191,7 @@ async function main() {
     pctRed: totalValid ? totals.red / totalValid : 0,
     pctOrange: totalValid ? totals.orange / totalValid : 0,
     pctYellow: totalValid ? totals.yellow / totalValid : 0,
+    pctPurple: totalValid ? totals.purple / totalValid : 0,
     pctGreen: totalValid ? totals.green / totalValid : 0,
     binSpeeds: [],
     posted: true,

@@ -22,11 +22,15 @@ function colorForBusSpeed(mph) {
   return '2ad17f';                 // green
 }
 
+// Train speed buckets align with CTA's slow-zone categories (15/25/35 mph),
+// with an extra "purple" band for track that's well above the slowest zones
+// but not yet at line speed, and green reserved for full-speed track (~45+).
 function colorForTrainSpeed(mph) {
   if (mph == null) return '444';   // no data — dim gray
-  if (mph < 10) return 'ff2a2a';   // red
+  if (mph < 15) return 'ff2a2a';   // red
   if (mph < 25) return 'ff8c1a';   // orange
-  if (mph < 40) return 'ffd21a';   // yellow
+  if (mph < 35) return 'ffd21a';   // yellow
+  if (mph < 45) return 'a855f7';   // purple
   return '2ad17f';                 // green
 }
 
@@ -140,20 +144,31 @@ function binSamples(samples, patternLengthFt, numBins) {
 
 /**
  * Summary stats for post text / alt text.
+ *
+ * Thresholds are the lower bound of each non-red bucket — e.g. for buses
+ * { orange: 5, yellow: 10, green: 15 } means red is <5, orange is 5–10, etc.
+ * A `purple` key opts into the 5-bucket train schema (red/orange/yellow/purple/
+ * green); without it, callers get the 4-bucket shape with purple omitted.
  */
 function summarize(speeds, thresholds = { orange: 5, yellow: 10, green: 15 }) {
   const valid = speeds.filter((s) => s != null);
-  if (valid.length === 0) return { avg: null, red: 0, orange: 0, yellow: 0, green: 0 };
+  const base = thresholds.purple == null
+    ? { avg: null, red: 0, orange: 0, yellow: 0, green: 0 }
+    : { avg: null, red: 0, orange: 0, yellow: 0, purple: 0, green: 0 };
+  if (valid.length === 0) return base;
   const avg = valid.reduce((a, v) => a + v, 0) / valid.length;
-  const red = valid.filter((s) => s < 5).length;
-  const orange = valid.filter((s) => s >= 5 && s < thresholds.yellow).length;
-  const yellow = valid.filter((s) => s >= thresholds.yellow && s < thresholds.green).length;
+  const red = valid.filter((s) => s < thresholds.orange).length;
+  const orange = valid.filter((s) => s >= thresholds.orange && s < thresholds.yellow).length;
+  const yellowUpper = thresholds.purple ?? thresholds.green;
+  const yellow = valid.filter((s) => s >= thresholds.yellow && s < yellowUpper).length;
   const green = valid.filter((s) => s >= thresholds.green).length;
-  return { avg, red, orange, yellow, green };
+  if (thresholds.purple == null) return { avg, red, orange, yellow, green };
+  const purple = valid.filter((s) => s >= thresholds.purple && s < thresholds.green).length;
+  return { avg, red, orange, yellow, purple, green };
 }
 
 const BUS_THRESHOLDS = { orange: 5, yellow: 10, green: 15 };
-const TRAIN_THRESHOLDS = { orange: 10, yellow: 25, green: 40 };
+const TRAIN_THRESHOLDS = { orange: 15, yellow: 25, purple: 35, green: 45 };
 
 module.exports = {
   collect,

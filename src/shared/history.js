@@ -39,6 +39,7 @@ function db() {
       pct_red REAL,
       pct_orange REAL,
       pct_yellow REAL,
+      pct_purple REAL,
       pct_green REAL,
       bin_speeds_json TEXT,
       posted INTEGER NOT NULL DEFAULT 0,
@@ -80,6 +81,15 @@ function db() {
     CREATE INDEX IF NOT EXISTS idx_obs_kind_route_ts
       ON observations(kind, route, ts);
   `);
+
+  // Migration: add pct_purple to speedmap_runs for trains' 5-bucket schema.
+  // Pre-existing rows leave this NULL, which is fine — we only read pct_* as
+  // per-row insert values, never aggregated across historical runs.
+  const speedmapCols = _db.prepare("PRAGMA table_info(speedmap_runs)").all().map((c) => c.name);
+  if (!speedmapCols.includes('pct_purple')) {
+    _db.exec('ALTER TABLE speedmap_runs ADD COLUMN pct_purple REAL');
+  }
+
   return _db;
 }
 
@@ -123,16 +133,18 @@ function recordBunching({
 }
 
 function recordSpeedmap({
-  kind, route, direction, avgMph, pctRed, pctOrange, pctYellow, pctGreen, binSpeeds, posted, postUri,
+  kind, route, direction, avgMph, pctRed, pctOrange, pctYellow, pctPurple, pctGreen, binSpeeds, posted, postUri,
 }, now = Date.now()) {
   db().prepare(`
     INSERT INTO speedmap_runs
-      (ts, kind, route, direction, avg_mph, pct_red, pct_orange, pct_yellow, pct_green, bin_speeds_json, posted, post_uri)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (ts, kind, route, direction, avg_mph, pct_red, pct_orange, pct_yellow, pct_purple, pct_green, bin_speeds_json, posted, post_uri)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     now, kind, route, direction || null,
     avgMph == null ? null : avgMph,
-    pctRed, pctOrange, pctYellow, pctGreen,
+    pctRed, pctOrange, pctYellow,
+    pctPurple == null ? null : pctPurple,
+    pctGreen,
     JSON.stringify(binSpeeds || []),
     posted ? 1 : 0,
     postUri || null,
