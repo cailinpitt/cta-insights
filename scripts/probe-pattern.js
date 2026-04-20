@@ -4,7 +4,7 @@ const axios = require('axios');
 async function main() {
   const key = process.env.CTA_BUS_KEY;
   const pid = process.argv[2] || '3932';
-  const { data } = await axios.get('http://www.ctabustracker.com/bustime/api/v3/getpatterns', {
+  const { data } = await axios.get('https://www.ctabustracker.com/bustime/api/v3/getpatterns', {
     params: { key, format: 'json', pid },
     timeout: 15000,
   });

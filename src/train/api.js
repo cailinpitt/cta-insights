@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { recordTrainObservations } = require('../shared/observations');
 
-const BASE = 'http://lapi.transitchicago.com/api/1.0';
+const BASE = 'https://lapi.transitchicago.com/api/1.0';
 const ALL_LINES = ['red', 'blue', 'brn', 'g', 'org', 'p', 'pink', 'y'];
 
 // Official CTA line colors (hex without leading #) for Mapbox overlays and post text.

@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { recordBusObservations } = require('../shared/observations');
 
-const BUS_BASE = 'http://www.ctabustracker.com/bustime/api/v3';
+const BUS_BASE = 'https://www.ctabustracker.com/bustime/api/v3';
 
 async function get(endpoint, params) {
   const { data } = await axios.get(`${BUS_BASE}/${endpoint}`, {

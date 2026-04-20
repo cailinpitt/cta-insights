@@ -6,7 +6,7 @@ async function main() {
   if (!key) throw new Error('CTA_BUS_KEY missing');
 
   const route = process.argv[2] || '22';
-  const url = 'http://www.ctabustracker.com/bustime/api/v3/getvehicles';
+  const url = 'https://www.ctabustracker.com/bustime/api/v3/getvehicles';
   const { data } = await axios.get(url, {
     params: { key, format: 'json', rt: route, tmres: 's' },
     timeout: 15000,
