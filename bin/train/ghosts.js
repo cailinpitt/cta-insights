@@ -5,7 +5,9 @@ const argv = require('minimist')(process.argv.slice(2));
 
 const { LINE_NAMES, LINE_EMOJI, ALL_LINES } = require('../../src/train/api');
 const { detectTrainGhosts } = require('../../src/train/ghosts');
-const { buildRollupPost } = require('../../src/shared/post');
+const { buildRollupPost, POST_MAX_CHARS } = require('../../src/shared/post');
+
+const DISCLAIMER = '"Missing" = fewer trains than the full terminal-to-terminal schedule predicts.';
 const { expectedTrainHeadwayMin, expectedTrainTripMinutes, isTrainLoopLine } = require('../../src/shared/gtfs');
 const { getTrainObservations, rolloffOldObservations } = require('../../src/shared/observations');
 const { loginTrain, postText } = require('../../src/train/bluesky');
@@ -27,7 +29,12 @@ function formatLine(event) {
 }
 
 function buildPostText(events) {
-  return buildRollupPost('👻 Ghost trains, past hour', events.map(formatLine));
+  // Reserve the disclaimer's grapheme budget (+2 for the blank-line separator)
+  // up front so buildRollupPost's truncation accounts for the footer.
+  const reserved = DISCLAIMER.length + 2;
+  const body = buildRollupPost('👻 Ghost trains, past hour', events.map(formatLine), POST_MAX_CHARS - reserved);
+  if (!body) return null;
+  return `${body}\n\n${DISCLAIMER}`;
 }
 
 async function main() {
