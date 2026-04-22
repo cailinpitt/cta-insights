@@ -10,9 +10,9 @@ const {
   buildDirectionArrow, requireMapboxToken, fetchMapboxStatic,
 } = require('../common');
 
-// Red highlight for the segment *between* the two bounding buses — that's the
-// stretch of route where a rider would be waiting.
-const GAP_SEGMENT_COLOR = 'ff2a00';
+// Magenta highlight for the segment *between* the two bounding buses — that's
+// the stretch of route where a rider would be waiting. Shared with train gaps.
+const GAP_SEGMENT_COLOR = 'ff00ff';
 const GAP_SEGMENT_STROKE = 10;
 const BUS_COLOR = 'ff2a6d';
 const BUS_MARKER_RADIUS = 34;
