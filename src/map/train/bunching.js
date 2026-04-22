@@ -4,6 +4,7 @@ const { haversineFt, bearing } = require('../../shared/geo');
 const { fitZoom, project } = require('../../shared/projection');
 const { buildLinePolyline, snapToLine } = require('../../train/speedmap');
 const { shortStationName } = require('../../train/api');
+const { dayTypeFor, chicagoHour } = require('../../shared/gtfs');
 const {
   STYLE, WIDTH, HEIGHT,
   TWEMOJI_TRAIN_INNER, TWEMOJI_HOUSE_INNER, TWEMOJI_FLAG_INNER,
@@ -63,22 +64,43 @@ function defaultOriginResolver(line, destStationName) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+// Purple Express runs weekday rush only: SB Linden→Loop in the morning, NB
+// Loop→Linden in the afternoon. Outside these windows, Purple is the
+// Linden↔Howard shuttle. CTA's API doesn't tag express vs shuttle, so we read
+// the time-of-day to pick the right origin for northbound trains (dest=Linden)
+// and to map dest=Loop back to Linden as the SB express origin.
+function purpleExpressNorthboundActive(now) {
+  if (dayTypeFor(now) !== 'weekday') return false;
+  const h = chicagoHour(now);
+  return h >= 14 && h < 19;
+}
+
 const LINE_ORIGIN_RESOLVERS = {
   g: (_line, destStationName) => (
     destStationName === 'Ashland/63rd' || destStationName === 'Cottage Grove'
       ? 'Harlem/Lake'
       : null
   ),
+  p: (_line, destStationName, opts = {}) => {
+    if (destStationName === 'Linden') {
+      return purpleExpressNorthboundActive(opts.now)
+        ? 'Merchandise Mart (Brown/Purple)'
+        : 'Howard';
+    }
+    if (destStationName === 'Howard') return 'Linden';
+    if (opts.dest === 'Loop') return 'Linden';
+    return null;
+  },
 };
 
-function findOrigin(bunch, stations) {
+function findOrigin(bunch, stations, now = new Date()) {
   const lineTerms = TRUE_TERMINALS[bunch.line];
   if (!lineTerms) return null;
   const dest = bunch.trains[0]?.destination;
   if (!dest) return null;
   const destStationName = lineTerms[dest] || null;
   const resolver = LINE_ORIGIN_RESOLVERS[bunch.line] || defaultOriginResolver;
-  const originName = resolver(bunch.line, destStationName);
+  const originName = resolver(bunch.line, destStationName, { dest, now });
   if (!originName) return null;
   const st = (stations || []).find((s) => s.name === originName);
   return st ? { lat: st.lat, lon: st.lon } : null;
