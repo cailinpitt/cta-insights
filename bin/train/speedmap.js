@@ -55,7 +55,7 @@ function buildPostText(line, dirSummaries, startTime, endTime, callouts = []) {
   return (
     (tail ? `${head}\n${tail}\n\n` : `${head}\n\n`) +
     `Two parallel ribbons = the two travel directions.\n` +
-    `🟥 under 15 mph · 🟧 15–25 · 🟨 25–35 · 🟪 35–45 · 🟩 45+`
+    `🟥 under 15 mph · 🟧 15–25 · 🟨 25–35 · 🟪 35–45 · 🟩 45+ · ⬜ no data`
   );
 }
 
@@ -64,7 +64,7 @@ function buildAltText(line, dirSummaries, durationMin) {
   const dirLines = dirSummaries
     .map(({ dest, summary }) => `${dirLabel(dest)} average ${formatAvg(summary)}`)
     .join('; ');
-  return `Speedmap of the CTA ${lineName} Line over a ${durationMin}-minute window, rendered as two parallel ribbons (one per travel direction) colored by average train speed. ${dirLines}. Red indicates under 15 mph, orange 15–25, yellow 25–35, purple 35–45, green 45 and above.`;
+  return `Speedmap of the CTA ${lineName} Line over a ${durationMin}-minute window, rendered as two parallel ribbons (one per travel direction) colored by average train speed. ${dirLines}. Red indicates under 15 mph, orange 15–25, yellow 25–35, purple 35–45, green 45 and above, gray no data.`;
 }
 
 async function main() {
