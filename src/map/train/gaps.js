@@ -1,5 +1,5 @@
 const { encode } = require('../../shared/polyline');
-const { buildLinePolyline } = require('../../train/speedmap');
+const { buildLinePolyline, pointAlongLine } = require('../../train/speedmap');
 const {
   computeTrainBunchingView,
   fetchTrainBunchingBaseMap,
@@ -25,10 +25,19 @@ function computeTrainGapView(gap, lineColors, trainLines, stations) {
   const { points, cumDist } = buildLinePolyline(trainLines, gap.line);
   const lo = Math.min(gap.leadingTrackDist, gap.trailingTrackDist);
   const hi = Math.max(gap.leadingTrackDist, gap.trailingTrackDist);
+  // Anchor the strip at the trains' actual snapped positions, not at whichever
+  // polyline vertex happens to fall just inside [lo, hi]. Train polylines have
+  // sparse vertices, so vertex-only filtering visibly ends the red strip short
+  // of the train pin (e.g. terminating at Sheridan when the trailing train is
+  // at Fullerton).
+  const loPt = pointAlongLine(points, cumDist, lo);
+  const hiPt = pointAlongLine(points, cumDist, hi);
   const gapPts = [];
+  if (loPt) gapPts.push([loPt.lat, loPt.lon]);
   for (let i = 0; i < points.length; i++) {
-    if (cumDist[i] >= lo && cumDist[i] <= hi) gapPts.push(points[i]);
+    if (cumDist[i] > lo && cumDist[i] < hi) gapPts.push(points[i]);
   }
+  if (hiPt) gapPts.push([hiPt.lat, hiPt.lon]);
   if (gapPts.length >= 2) {
     // Splice the gap overlay between the line-segment paths and the station
     // pins so station markers still sit on top.
