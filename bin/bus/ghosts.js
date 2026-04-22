@@ -29,8 +29,16 @@ function formatLine(event) {
   const missing = Math.round(event.missing);
   const expected = Math.round(event.expectedActive);
   const pct = Math.round((event.missing / event.expectedActive) * 100);
-  const effectiveHeadway = Math.round(event.headway * (event.expectedActive / event.observedActive));
   const scheduledHeadway = Math.round(event.headway);
+  // When observed drops near zero, the effective-headway estimate explodes and
+  // looks like noise ("every ~180 min instead of ~10"). Above 3× the scheduled
+  // headway the number stops telling readers anything useful, so fall back to
+  // "scheduled every ~X min".
+  const ratio = event.expectedActive / Math.max(event.observedActive, 1);
+  if (ratio > 3) {
+    return `🚌 ${title} ${dir} · ${missing} of ${expected} missing (${pct}%) · scheduled every ~${scheduledHeadway} min`;
+  }
+  const effectiveHeadway = Math.round(event.headway * ratio);
   return `🚌 ${title} ${dir} · ${missing} of ${expected} missing (${pct}%) · every ~${effectiveHeadway} min instead of ~${scheduledHeadway}`;
 }
 
@@ -83,4 +91,8 @@ async function main() {
   console.log(`Posted: ${result.url}`);
 }
 
-runBin(main);
+module.exports = { formatLine };
+
+if (require.main === module) {
+  runBin(main);
+}

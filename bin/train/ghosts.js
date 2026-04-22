@@ -22,11 +22,16 @@ function formatLine(event) {
   const missing = Math.round(event.missing);
   const expected = Math.round(event.expectedActive);
   const pct = Math.round((event.missing / event.expectedActive) * 100);
-  const effectiveHeadway = Math.round(event.headway * (event.expectedActive / event.observedActive));
   const scheduledHeadway = Math.round(event.headway);
   const dest = event.destination ? ` → ${event.destination}` : '';
+  const ratio = event.expectedActive / Math.max(event.observedActive, 1);
+  if (ratio > 3) {
+    return `${emoji} ${lineName} Line${dest} · ${missing} of ${expected} missing (${pct}%) · scheduled every ~${scheduledHeadway} min`;
+  }
+  const effectiveHeadway = Math.round(event.headway * ratio);
   return `${emoji} ${lineName} Line${dest} · ${missing} of ${expected} missing (${pct}%) · every ~${effectiveHeadway} min instead of ~${scheduledHeadway}`;
 }
+
 
 function buildPostText(events) {
   // Reserve the disclaimer's grapheme budget (+2 for the blank-line separator)
@@ -78,4 +83,8 @@ async function main() {
   console.log(`Posted: ${result.url}`);
 }
 
-runBin(main);
+module.exports = { formatLine };
+
+if (require.main === module) {
+  runBin(main);
+}

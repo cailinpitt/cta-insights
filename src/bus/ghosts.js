@@ -4,7 +4,9 @@
 
 const MISSING_PCT_THRESHOLD = 0.25;  // ≥25% of expected active buses unaccounted for
 const MISSING_ABS_THRESHOLD = 3;     // ...and ≥3 buses missing in absolute terms
-const MIN_SNAPSHOTS = 6;             // require ≥6 poll snapshots in the window; below that, coverage is too sparse
+const MIN_SNAPSHOTS = 8;             // at a 5-min cadence the window holds ~12; 8 tolerates ≤4 dropped polls
+const MIN_OBSERVED = 2;              // observed ≥ 2 — "missing 7 of 9" with observed=0/1 is either a schedule bug or a genuine outage the gap bot already covers
+const MAX_EXPECTED_ACTIVE = 30;      // sanity ceiling — expected > 30 almost always means a bad GTFS bucket (e.g. sub-minute median) slipped through
 
 const { median } = require('../shared/stats');
 
@@ -79,6 +81,10 @@ async function detectBusGhosts({
       // (one missing bus isn't a story; two dropping to zero is a gap, which the
       // gaps bot already covers).
       if (expectedActive < 2) continue;
+      if (expectedActive > MAX_EXPECTED_ACTIVE) {
+        console.warn(`ghosts: ${route}/${direction} expectedActive=${expectedActive.toFixed(1)} exceeds cap (${MAX_EXPECTED_ACTIVE}) — skipping, likely schedule-index bug`);
+        continue;
+      }
 
       // Count distinct vids per snapshot (ts). API returns all active vehicles
       // in one shot, so each ts gives a clean snapshot of active buses.
@@ -94,6 +100,13 @@ async function detectBusGhosts({
       const missing = expectedActive - observedActive;
       if (missing < MISSING_ABS_THRESHOLD) continue;
       if (missing / expectedActive < MISSING_PCT_THRESHOLD) continue;
+      if (observedActive < MIN_OBSERVED) continue;
+      // Stddev > observed → per-snapshot counts are wildly inconsistent, which
+      // usually means observer polling blackouts, not actually-missing vehicles.
+      const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
+      const variance = counts.reduce((a, b) => a + (b - mean) ** 2, 0) / counts.length;
+      const stddev = Math.sqrt(variance);
+      if (stddev > observedActive) continue;
 
       events.push({
         route,
@@ -112,4 +125,4 @@ async function detectBusGhosts({
   return events;
 }
 
-module.exports = { detectBusGhosts, MISSING_PCT_THRESHOLD, MISSING_ABS_THRESHOLD, MIN_SNAPSHOTS };
+module.exports = { detectBusGhosts, MISSING_PCT_THRESHOLD, MISSING_ABS_THRESHOLD, MIN_SNAPSHOTS, MIN_OBSERVED, MAX_EXPECTED_ACTIVE };

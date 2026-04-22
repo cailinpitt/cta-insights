@@ -87,15 +87,25 @@ function resolveDirection(pattern) {
   const index = loadIndex();
   const byDir = index.routes[pattern.route];
   if (!byDir) return null;
+  const first = pattern.points[0];
   const end = pattern.points[pattern.points.length - 1];
+  // Score each GTFS direction by (end-of-pattern → end terminal) PLUS
+  // (start-of-pattern → origin terminal). Short-turn patterns that end mid-
+  // route previously scored by end-distance alone and could land on the wrong
+  // direction; adding the origin term forces the right pick when origin data
+  // is present. Fall back to end-only when origin is absent (older index).
   let best = null;
-  let bestDist = Infinity;
+  let bestScore = Infinity;
   for (const dir of ['0', '1']) {
     const info = byDir[dir];
     if (!info || info.terminalLat == null) continue;
-    const d = haversineFt({ lat: info.terminalLat, lon: info.terminalLon }, end);
-    if (d < bestDist) {
-      bestDist = d;
+    const endDist = haversineFt({ lat: info.terminalLat, lon: info.terminalLon }, end);
+    const originDist = (info.originLat != null && first)
+      ? haversineFt({ lat: info.originLat, lon: info.originLon }, first)
+      : 0;
+    const score = endDist + originDist;
+    if (score < bestScore) {
+      bestScore = score;
       best = dir;
     }
   }

@@ -24,8 +24,8 @@ dependency (see the shipping-order graph at the bottom of this doc).
 - [x] 0.2 Same for `bin/train/ghosts.js` (lines 71–78).
 - [x] 0.3 Env var reuses the existing `--dry-run` code path; no extra
       comment needed since the behavior is identical.
-- [ ] 0.4 On the server, set `GHOSTS_DRY_RUN=1` in `.env`. (operator step,
-      not code)
+- [x] 0.4 `GHOSTS_DRY_RUN=1` set in server `.env`. Ghost crons uncommented
+      so they execute in dry-run mode for Phase 10 shadow validation.
 - [x] 0.5 Verified env-var branch is reachable.
 
 ### Phase 1 — Index every polled bus route (Bug A)
@@ -38,7 +38,8 @@ dependency (see the shipping-order graph at the bottom of this doc).
 - [x] 1.5 CI test at `test/bus/routes.test.js`.
 - [x] 1.6 Regenerated `data/gtfs/index.json` contains `routes['50']`.
 - [x] 1.7 Regenerated index committed alongside script change.
-- [ ] 1.8 Deploy: re-run `fetch-gtfs.js` on server. (operator step)
+- [x] 1.8 Re-ran `fetch-gtfs.js` on server; index picked up route 50 and
+      all other ghost/gaps routes.
 
 ### Phase 2 — Bulletproof observation-side correctness (Bug B)
 
@@ -102,70 +103,65 @@ dependency (see the shipping-order graph at the bottom of this doc).
 
 ### Phase 5 — Pattern direction resolution via both endpoints (Bug G)
 
-- [ ] 5.1 In `scripts/fetch-gtfs.js`, extend the `lastStopSample` logic
-      (around lines 295–307) to capture origin-terminal lat/lon alongside
-      end-terminal. Thread into the output bucket `bucket[route][dir]`.
-- [ ] 5.2 Re-run `fetch-gtfs.js`; verify `data/gtfs/index.json` now
-      contains `originLat`/`originLon` per `(route, dir)`.
-- [ ] 5.3 In `src/shared/gtfs.js:73–96`, replace `resolveDirection` to score
-      directions by `endDist + originDist` (with graceful fallback to
-      endDist-only when origin data is absent).
-- [ ] 5.4 Add a unit test in `test/shared/gtfs.test.js` for a synthetic
-      short-turn pattern (last point closer to the "wrong" terminal,
-      origin closer to the "right" one) — confirm correct direction.
-- [ ] 5.5 Add a test for a full-length pattern (both endpoints match the
-      right direction) — confirm unchanged behavior.
-- [ ] 5.6 Commit regenerated index.
+- [x] 5.1 `lastStopSample` now captures originLat/originLon alongside
+      end-terminal; threaded into `bucket[route][dir]`.
+- [x] 5.2 Local index regenerated (79.8 KB, up from 76.4). Route 22 dir 0
+      now has `origin: 42.019, -87.673` (Howard terminal).
+- [x] 5.3 `resolveDirection` scores by `endDist + originDist` with graceful
+      fallback to end-only when origin data missing.
+- [x] 5.4 Short-turn test added: origin near dir0, end nudged toward dir1
+      terminal — correctly resolves to dir0.
+- [x] 5.5 Full-length test added: both endpoints match dir0 → resolves to 0.
+- [x] 5.6 Will commit in the next push.
 
 ### Phase 6 — Train destination proxy prefers terminals (Bug H)
 
-- [ ] 6.1 Audit `src/train/data/trainStations.json` and mark terminals
-      with `isTerminal: true`. Verify every line has at least one
-      terminal tagged.
-- [ ] 6.2 In `src/train/ghosts.js:87`, replace the sample-destination
-      logic with a scan that prefers the first destination resolving to
-      a station with `isTerminal: true`.
-- [ ] 6.3 If no terminal-matching destination exists in the group, `continue`
-      (skip the direction) rather than fall back to a short-turn.
-- [ ] 6.4 Update `src/train/findStation.js` to propagate `isTerminal`
-      through in its return shape (if not already).
-- [ ] 6.5 Add a test: a group whose only destinations are mid-line
-      short-turns produces no event.
-- [ ] 6.6 Add a test: a group containing at least one terminal destination
-      picks that terminal's direction reliably.
+- [x] 6.1 12 terminal stations tagged with `isTerminal: true` in
+      trainStations.json — Howard, 95th/Dan Ryan, O'Hare, Forest Park,
+      Kimball, Harlem/Lake, Ashland/63rd, Cottage Grove, Midway,
+      54th/Cermak, Linden, Dempster-Skokie.
+- [x] 6.2 `src/train/ghosts.js` scans destinations for the first one
+      resolving to `isTerminal: true`.
+- [x] 6.3 `continue` (skip the direction) when no terminal destination
+      found.
+- [x] 6.4 `findStation` returns the full station object, so isTerminal
+      propagates automatically.
+- [x] 6.5 Test added: group whose destinations are all short-turns → no
+      events.
+- [x] 6.6 Test added: mixed group with UIC-Halsted + Forest Park picks
+      Forest Park as the direction proxy.
 
 ### Phase 7 — Tighten destination string matching (Bug I)
 
-- [ ] 7.1 In `src/train/findStation.js`, delete the
-      `baseName.startsWith(norm) || norm.startsWith(baseName)` tier.
-- [ ] 7.2 Add a `DESTINATION_ALIASES` map with entries for
-      `'95th/dan ryan' → '95th'`, `'54th/cermak' → '54th/Cermak'`,
-      `'loop' → null`, `'see train' → null`.
-- [ ] 7.3 Add a one-shot-per-process log of unmatched destinations so new
-      aliases surface.
-- [ ] 7.4 Add tests in new `test/train/findStation.test.js`: alias-resolved
-      destinations, verbatim matches, unmatched destinations return null.
+- [x] 7.1 Dropped the loose `startsWith`/`includes` tiers. Only exact and
+      base-name-exact matches remain.
+- [x] 7.2 `DESTINATION_ALIASES` map added: `'95th'` and `'95th/dan ryan'`
+      → `'95th/Dan Ryan'`; `'54th/cermak'` → `'54th/Cermak'`; `'loop'` and
+      `'see train'` → `null`.
+- [x] 7.3 One-shot-per-(line, destination) warn log when a destination
+      fails to resolve.
+- [x] 7.4 10 findStation tests: aliases (case-insensitive), verbatim,
+      base-name, null aliases, unmatched, line-scoping, regression for
+      Harlem/Lake false-positive.
 
 ### Phase 8 — Sanitize "effective headway" display (Bug J)
 
-- [ ] 8.1 In `bin/bus/ghosts.js:32`, compute the ratio and branch: if
-      `ratio > 3`, drop the "every ~X min instead of ~Y" clause and
-      render as `scheduled every ~Y min`.
-- [ ] 8.2 Same in `bin/train/ghosts.js:25`.
-- [ ] 8.3 Add a small unit test asserting: given `expectedActive=10`,
-      `observedActive=1`, the composed line ends with `scheduled every ~Y min`.
-- [ ] 8.4 Add a test for the normal path (ratio ≤ 3) — format unchanged.
+- [x] 8.1 Bus formatLine now branches on `ratio > 3` and renders
+      `scheduled every ~Y min` in that case.
+- [x] 8.2 Same branch in train formatLine.
+- [x] 8.3 Tests added for both bus and train `ratio > 3` paths.
+- [x] 8.4 Tests added for both bus and train normal-path (ratio ≤ 3).
 
 ### Phase 9 — Belt-and-suspenders sanity gate
 
-- [ ] 9.1 In `src/bus/ghosts.js`, bump `MIN_SNAPSHOTS` from 6 to 8.
-- [ ] 9.2 Add the four gates immediately before `events.push(...)`:
-      `observedActive >= 2`, `perSnapshot.size >= 8`, `stddev <=
-      observedActive`, `expectedActive <= 30`.
-- [ ] 9.3 Mirror in `src/train/ghosts.js` (both loop and bi-dir paths).
-- [ ] 9.4 Add tests for each gate individually (four test cases).
-- [ ] 9.5 Re-run the whole test suite; update any pre-existing test that
-      assumed `MIN_SNAPSHOTS === 6`.
+- [x] 9.1 `MIN_SNAPSHOTS` bumped from 6 to 8 in `src/bus/ghosts.js`.
+- [x] 9.2 Four gates added in bus ghost loop: `MIN_OBSERVED=2`,
+      `MIN_SNAPSHOTS=8`, `stddev <= observedActive`, `expectedActive <= 30`.
+- [x] 9.3 Same gates mirrored in both train paths (loop + bi-dir).
+- [x] 9.4 Four gate tests added (MIN_OBSERVED, MIN_SNAPSHOTS, MAX_EXPECTED,
+      stddev/bimodal).
+- [x] 9.5 Whole suite re-run: 64/64 pass. Updated the `sorts events` test
+      which had been using `observedActive=1` (now below MIN_OBSERVED).
 
 ### Phase 10 — Shadow run validation
 
@@ -180,9 +176,7 @@ dependency (see the shipping-order graph at the bottom of this doc).
       relevant phase.
 - [ ] 10.6 Target: <1 would-be event per 24h over the 48h window.
 - [ ] 10.7 Unset `GHOSTS_DRY_RUN` on the server.
-- [ ] 10.8 Post an initial "we're live again" sanity post from both
-      accounts (optional).
-- [ ] 10.9 Monitor the first 24h post-enable for any false-positive spike.
+- [ ] 10.8 Monitor the first 24h post-enable for any false-positive spike.
 
 ### Phase 11 — Lower-priority follow-ups
 

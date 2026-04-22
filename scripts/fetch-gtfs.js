@@ -379,12 +379,16 @@ async function main() {
 
     const rdKey = `${meta.route}|${meta.dir}`;
     if (!lastStopSample.has(rdKey)) {
-      const stopId = lastStopId.get(tripId);
-      const stop = stopId && byStopId.get(stopId);
-      if (stop) {
+      const endStopId = lastStopId.get(tripId);
+      const originStopId = firstStopId.get(tripId);
+      const endStop = endStopId && byStopId.get(endStopId);
+      const originStop = originStopId && byStopId.get(originStopId);
+      if (endStop) {
         lastStopSample.set(rdKey, {
-          lat: parseFloat(stop.stop_lat),
-          lon: parseFloat(stop.stop_lon),
+          lat: parseFloat(endStop.stop_lat),
+          lon: parseFloat(endStop.stop_lon),
+          originLat: originStop ? parseFloat(originStop.stop_lat) : null,
+          originLon: originStop ? parseFloat(originStop.stop_lon) : null,
           headsign: meta.headsign,
         });
       }
@@ -415,6 +419,8 @@ async function main() {
         headsign: sample.headsign || '',
         terminalLat: sample.lat ?? null,
         terminalLon: sample.lon ?? null,
+        originLat: sample.originLat ?? null,
+        originLon: sample.originLon ?? null,
         headways: {},
       };
     }

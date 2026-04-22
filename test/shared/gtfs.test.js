@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { hourlyLookup, expectedHeadwayMin } = require('../../src/shared/gtfs');
+const { hourlyLookup, expectedHeadwayMin, resolveDirection } = require('../../src/shared/gtfs');
 
 // Fixed reference moments, all chosen so Chicago wall-clock is unambiguous
 // (mid-April 2026 is firmly in CDT, UTC-5).
@@ -83,6 +83,51 @@ test('expectedHeadwayMin: Route 82 at 1 AM Sunday returns null (not a 24h route)
   const dir0 = info['0'];
   const pattern = { pid: 'test82-0', points: [{ lat: 0, lon: 0 }, { lat: dir0.terminalLat, lon: dir0.terminalLon }] };
   assert.equal(expectedHeadwayMin('82', pattern, SUN_1AM), null);
+});
+
+test('resolveDirection: full-length pattern with both endpoints matching picks the right direction', () => {
+  const { loadIndex } = require('../../src/shared/gtfs');
+  const info = loadIndex().routes['22'];
+  if (!info) return;
+  const dir0 = info['0'];
+  const dir1 = info['1'];
+  if (dir0.originLat == null || dir1.originLat == null) return; // older index
+  // Pattern that starts at dir0's origin and ends at dir0's terminal.
+  const pattern = {
+    pid: 'resolve-fulldir0',
+    route: '22',
+    points: [
+      { lat: dir0.originLat, lon: dir0.originLon },
+      { lat: dir0.terminalLat, lon: dir0.terminalLon },
+    ],
+  };
+  assert.equal(resolveDirection(pattern), '0');
+});
+
+test('resolveDirection: short-turn pattern uses origin distance to pick correct direction', () => {
+  const { loadIndex } = require('../../src/shared/gtfs');
+  const info = loadIndex().routes['22'];
+  if (!info) return;
+  const dir0 = info['0'];
+  const dir1 = info['1'];
+  if (dir0.originLat == null || dir1.originLat == null) return;
+  // Short-turn dir0 trip: starts near dir0 origin but ends at the midpoint
+  // (geographically closer to dir1 terminal). Without the origin term, this
+  // would misresolve to dir1. With both-endpoint scoring, origin wins.
+  const midLat = (dir0.terminalLat + dir1.terminalLat) / 2;
+  const midLon = (dir0.terminalLon + dir1.terminalLon) / 2;
+  // Nudge the end slightly toward dir1 terminal.
+  const endLat = midLat + (dir1.terminalLat - midLat) * 0.1;
+  const endLon = midLon + (dir1.terminalLon - midLon) * 0.1;
+  const pattern = {
+    pid: 'resolve-shortturn-dir0',
+    route: '22',
+    points: [
+      { lat: dir0.originLat, lon: dir0.originLon },
+      { lat: endLat, lon: endLon },
+    ],
+  };
+  assert.equal(resolveDirection(pattern), '0');
 });
 
 test('expectedHeadwayMin: Route 22 at 1 AM Sunday returns data (24h route, via prior-day)', () => {

@@ -2,7 +2,7 @@
 // train count (median per snapshot) against `trip_duration / headway` per
 // (line, trDr).
 
-const { MISSING_PCT_THRESHOLD, MISSING_ABS_THRESHOLD, MIN_SNAPSHOTS } = require('../bus/ghosts');
+const { MISSING_PCT_THRESHOLD, MISSING_ABS_THRESHOLD, MIN_SNAPSHOTS, MIN_OBSERVED, MAX_EXPECTED_ACTIVE } = require('../bus/ghosts');
 const { median } = require('../shared/stats');
 
 /**
@@ -44,6 +44,10 @@ async function detectTrainGhosts({
 
       const expectedActive = duration / headway;
       if (expectedActive < 2) continue;
+      if (expectedActive > MAX_EXPECTED_ACTIVE) {
+        console.warn(`ghosts: ${line} line-wide expectedActive=${expectedActive.toFixed(1)} exceeds cap (${MAX_EXPECTED_ACTIVE}) — skipping, likely schedule-index bug`);
+        continue;
+      }
 
       const perSnapshot = new Map();
       for (const o of obs) {
@@ -57,6 +61,11 @@ async function detectTrainGhosts({
       const missing = expectedActive - observedActive;
       if (missing < MISSING_ABS_THRESHOLD) continue;
       if (missing / expectedActive < MISSING_PCT_THRESHOLD) continue;
+      if (observedActive < MIN_OBSERVED) continue;
+      const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
+      const variance = counts.reduce((a, b) => a + (b - mean) ** 2, 0) / counts.length;
+      const stddev = Math.sqrt(variance);
+      if (stddev > observedActive) continue;
 
       events.push({
         line,
@@ -82,16 +91,31 @@ async function detectTrainGhosts({
     }
 
     for (const [trDr, group] of byDir) {
-      // Pick any observed destination on this direction as the direction proxy
-      // (same trDr → same rail terminus for headway lookup purposes).
-      const sampleDest = group.find((o) => o.destination)?.destination;
-      const destStation = sampleDest ? findStation(line, sampleDest) : null;
+      // Prefer a destination that resolves to a flagged terminal station.
+      // Short-turn destinations (e.g. UIC-Halsted on the Blue) would otherwise
+      // point the headway lookup at a mid-route station whose terminalLat/Lon
+      // doesn't match either GTFS direction cleanly, producing an unreliable
+      // expectedActive. Skip the direction entirely if no terminal destination
+      // was seen — safety > coverage.
+      const destinations = [...new Set(group.map((o) => o.destination).filter(Boolean))];
+      let bestDest = null;
+      let destStation = null;
+      for (const d of destinations) {
+        const s = findStation(line, d);
+        if (s && s.isTerminal) { bestDest = d; destStation = s; break; }
+      }
+      if (!destStation) continue;
+      const sampleDest = bestDest;
       const headway = expectedHeadway(line, destStation);
       const duration = expectedDuration(line, destStation);
       if (headway == null || duration == null || headway <= 0 || duration <= 0) continue;
 
       const expectedActive = duration / headway;
       if (expectedActive < 2) continue;
+      if (expectedActive > MAX_EXPECTED_ACTIVE) {
+        console.warn(`ghosts: ${line}/${trDr} expectedActive=${expectedActive.toFixed(1)} exceeds cap (${MAX_EXPECTED_ACTIVE}) — skipping, likely schedule-index bug`);
+        continue;
+      }
 
       const perSnapshot = new Map();
       for (const o of group) {
@@ -105,6 +129,11 @@ async function detectTrainGhosts({
       const missing = expectedActive - observedActive;
       if (missing < MISSING_ABS_THRESHOLD) continue;
       if (missing / expectedActive < MISSING_PCT_THRESHOLD) continue;
+      if (observedActive < MIN_OBSERVED) continue;
+      const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
+      const variance = counts.reduce((a, b) => a + (b - mean) ** 2, 0) / counts.length;
+      const stddev = Math.sqrt(variance);
+      if (stddev > observedActive) continue;
 
       events.push({
         line,
