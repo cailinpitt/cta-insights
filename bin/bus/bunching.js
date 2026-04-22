@@ -193,7 +193,7 @@ async function main() {
       console.log('Timelapse capture produced <2 frames, skipping reply');
       return;
     }
-    const videoText = buildVideoPostText(video);
+    const videoText = buildVideoPostText(video, bunch, pattern);
     const videoAlt = buildVideoAltText(bunch, pattern, stop, video);
     const replyRef = {
       root: { uri: primary.uri, cid: primary.cid },

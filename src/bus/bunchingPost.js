@@ -18,15 +18,16 @@ function buildAltText(bunch, pattern, stop) {
   return `Map of ${routeTitle(bunch.route)} near ${stop.stopName} showing ${bunch.vehicles.length} ${pattern.direction.toLowerCase()} buses within ${formatDistance(bunch.spanFt)} of each other.`;
 }
 
-function buildVideoPostText(result) {
+function buildVideoPostText(result, bunch, pattern) {
   const elapsed = elapsedMinutesLabel(result.elapsedSec);
-  if (result.finalSpanFt == null) return `Timelapse of the above — ${elapsed} of real time.`;
+  const context = bunch && pattern ? `${routeTitle(bunch.route)} — ${pattern.direction}\n` : '';
+  if (result.finalSpanFt == null) return `${context}Timelapse of the above — ${elapsed} of real time.`;
   const delta = result.finalSpanFt - result.initialSpanFt;
   let headline;
   if (delta > 50) headline = `${elapsed} later, the buses were ${formatDistance(delta)} farther apart.`;
   else if (delta < -50) headline = `${elapsed} later, the gap had closed by ${formatDistance(-delta)}.`;
   else headline = `Still bunched ${elapsed} later.`;
-  return `${headline}\n🎬 ${formatDistance(result.initialSpanFt)} → ${formatDistance(result.finalSpanFt)}`;
+  return `${context}${headline}\n🎬 ${formatDistance(result.initialSpanFt)} → ${formatDistance(result.finalSpanFt)}`;
 }
 
 function buildVideoAltText(bunch, pattern, stop, result) {
