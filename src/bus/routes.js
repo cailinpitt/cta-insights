@@ -136,7 +136,7 @@ const bunching = ['6', '8', '9', 'X9', 'J14', '15', '20', '22', '26', '29', '36'
 
 // Routes eligible for the 60-minute speedmap. Favors density — only routes with
 // enough active buses to fill most segments with real data during a one-hour window.
-const speedmap = ['8', '9', 'X9', 'J14', '15', '22', '26', '36', '49', 'X49', '50', '53', '56', '66', '72', '73', '76', '77', '79', '80', '94', '95', '151'];
+const speedmap = ['8', '9', 'X9', 'J14', '15', '22', '26', '36', '49', 'X49', '50', '53', '55', '56', '66', '72', '73', '76', '77', '79', '80', '94', '95', '151'];
 
 // Routes polled for gap detection. Starts aligned with `bunching` — any route
 // where "two buses close together" is meaningful is also one where "no bus for
