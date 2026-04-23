@@ -19,9 +19,10 @@ const BAR_GAP = 18;
 
 const WINDOW_LABELS = { week: 'this week', month: 'this month' };
 
-function renderGapChart({ kind, entries, window, lineNames = null, lineColors = null, totalGaps, formatRoute = null }) {
+function renderGapChart({ kind, entries, window, windowLabel = null, lineNames = null, lineColors = null, totalGaps, formatRoute = null }) {
   const title = kind === 'train' ? '⏰ Headway gaps by line' : '⏰ Headway gaps by route';
-  const subtitle = `${totalGaps} gap${totalGaps === 1 ? '' : 's'}, ${WINDOW_LABELS[window] || window}`;
+  const label = windowLabel || WINDOW_LABELS[window] || window;
+  const subtitle = `${totalGaps} gap${totalGaps === 1 ? '' : 's'}, ${label}`;
 
   const rows = entries.length;
   const chartTop = PAD_TOP + TITLE_SIZE + 20 + SUBTITLE_SIZE + 40;

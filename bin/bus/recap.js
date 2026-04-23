@@ -3,7 +3,7 @@ require('../../src/shared/env');
 
 const argv = require('minimist')(process.argv.slice(2));
 
-const { loadBusHeatmap, loadGapLeaderboard } = require('../../src/shared/recap');
+const { loadBusHeatmap, loadGapLeaderboard, rangeForWindow } = require('../../src/shared/recap');
 const { renderHeatmap, renderGapChart } = require('../../src/map');
 const { loginBus, postWithImage } = require('../../src/bus/bluesky');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
@@ -16,7 +16,6 @@ const {
 // Below that floor the bars get noise-thin; above it the text gets cramped.
 const GAP_CHART_CAP = 10;
 
-const WINDOW_DAYS = { week: 7, month: 30 };
 // Noise floor: don't plot locations with fewer than this many incidents in
 // the window. Keeps the map legible on low-volume windows.
 const MIN_COUNT = { week: 3, month: 3 };
@@ -45,15 +44,15 @@ const formatBusRoute = (r) => `Route ${r}`;
 async function main() {
   setup();
   const window = argv.window || 'month';
-  const days = WINDOW_DAYS[window];
-  if (!days) {
+  if (!(window in MIN_COUNT)) {
     console.error(`Unknown --window: ${window}. Use week or month.`);
     process.exit(1);
   }
   const minCount = MIN_COUNT[window];
+  const { since, until, label: windowLabel } = rangeForWindow(window);
 
-  console.log(`Bus recap, ${window} (${days}-day window)`);
-  const allPoints = loadBusHeatmap(days);
+  console.log(`Bus recap, ${window} (${windowLabel})`);
+  const allPoints = loadBusHeatmap(since, until);
   const points = allPoints
     .filter((p) => p.count >= minCount)
     .map((p) => ({ ...p, routesLabel: formatBusRoutes(p.routes) }));
@@ -71,10 +70,10 @@ async function main() {
 
   const plotted = [...points].sort((a, b) => b.count - a.count).slice(0, RENDER_CAP);
   const image = await renderHeatmap({ points: plotted, kind: 'bus' });
-  const text = buildPostText({ mode: 'bus', window, points, totalIncidents });
-  const alt = buildAltText({ mode: 'bus', window, points, totalIncidents });
+  const text = buildPostText({ mode: 'bus', window, windowLabel, points, totalIncidents });
+  const alt = buildAltText({ mode: 'bus', window, windowLabel, points, totalIncidents });
 
-  const gapEntriesAll = loadGapLeaderboard('bus', days);
+  const gapEntriesAll = loadGapLeaderboard('bus', since, until);
   const totalGaps = gapEntriesAll.reduce((s, e) => s + e.count, 0);
   const gapEntries = gapEntriesAll.slice(0, GAP_CHART_CAP);
   const hasGapReply = totalGaps > 0 && gapEntries.length > 0;
@@ -83,9 +82,9 @@ async function main() {
   let gapText = '';
   let gapAlt = '';
   if (hasGapReply) {
-    gapImage = await renderGapChart({ kind: 'bus', entries: gapEntries, window, totalGaps, formatRoute: formatBusRoute });
-    gapText = buildGapReplyText({ mode: 'bus', window, entries: gapEntries, totalGaps, routeCount: gapEntriesAll.length, formatRoute: formatBusRoute });
-    gapAlt = buildGapReplyAlt({ mode: 'bus', window, entries: gapEntries, totalGaps, formatRoute: formatBusRoute });
+    gapImage = await renderGapChart({ kind: 'bus', entries: gapEntries, window, windowLabel, totalGaps, formatRoute: formatBusRoute });
+    gapText = buildGapReplyText({ mode: 'bus', window, windowLabel, entries: gapEntries, totalGaps, routeCount: gapEntriesAll.length, formatRoute: formatBusRoute });
+    gapAlt = buildGapReplyAlt({ mode: 'bus', window, windowLabel, entries: gapEntries, totalGaps, formatRoute: formatBusRoute });
   }
 
   if (argv['dry-run']) {

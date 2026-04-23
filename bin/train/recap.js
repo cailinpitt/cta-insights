@@ -4,7 +4,7 @@ require('../../src/shared/env');
 const argv = require('minimist')(process.argv.slice(2));
 
 const { LINE_COLORS, LINE_NAMES } = require('../../src/train/api');
-const { loadTrainHeatmap, loadGapLeaderboard } = require('../../src/shared/recap');
+const { loadTrainHeatmap, loadGapLeaderboard, rangeForWindow } = require('../../src/shared/recap');
 const { renderHeatmap, renderGapChart } = require('../../src/map');
 const { loginTrain, postWithImage } = require('../../src/train/bluesky');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
@@ -14,7 +14,6 @@ const {
 } = require('../../src/shared/recapPost');
 const trainLines = require('../../src/train/data/trainLines.json');
 
-const WINDOW_DAYS = { week: 7, month: 30 };
 const MIN_COUNT = { week: 3, month: 3 };
 const RENDER_CAP = 40;
 
@@ -44,15 +43,15 @@ function formatTrainLines(routes) {
 async function main() {
   setup();
   const window = argv.window || 'month';
-  const days = WINDOW_DAYS[window];
-  if (!days) {
+  if (!(window in MIN_COUNT)) {
     console.error(`Unknown --window: ${window}. Use week or month.`);
     process.exit(1);
   }
   const minCount = MIN_COUNT[window];
+  const { since, until, label: windowLabel } = rangeForWindow(window);
 
-  console.log(`Train recap, ${window} (${days}-day window)`);
-  const allPoints = loadTrainHeatmap(days);
+  console.log(`Train recap, ${window} (${windowLabel})`);
+  const allPoints = loadTrainHeatmap(since, until);
   const points = allPoints
     .filter((p) => p.count >= minCount)
     .map((p) => ({
@@ -74,12 +73,12 @@ async function main() {
 
   const plotted = [...points].sort((a, b) => b.count - a.count).slice(0, RENDER_CAP);
   const image = await renderHeatmap({ points: plotted, kind: 'train', trainLines, lineColors: LINE_COLORS });
-  const text = buildPostText({ mode: 'train', window, points, totalIncidents });
-  const alt = buildAltText({ mode: 'train', window, points, totalIncidents });
+  const text = buildPostText({ mode: 'train', window, windowLabel, points, totalIncidents });
+  const alt = buildAltText({ mode: 'train', window, windowLabel, points, totalIncidents });
 
   // Show every line in canonical order — even zero-gap lines — so the chart
   // conveys the whole system picture rather than just the worst offenders.
-  const gapCounts = new Map(loadGapLeaderboard('train', days).map((e) => [e.route, e.count]));
+  const gapCounts = new Map(loadGapLeaderboard('train', since, until).map((e) => [e.route, e.count]));
   const gapEntries = LINE_ORDER.map((line) => ({ route: line, count: gapCounts.get(line) || 0 }));
   const totalGaps = gapEntries.reduce((s, e) => s + e.count, 0);
   const rankedGapEntries = [...gapEntries].sort((a, b) => b.count - a.count);
@@ -91,12 +90,12 @@ async function main() {
   let gapAlt = '';
   if (hasGapReply) {
     gapImage = await renderGapChart({
-      kind: 'train', entries: rankedGapEntries, window, totalGaps,
+      kind: 'train', entries: rankedGapEntries, window, windowLabel, totalGaps,
       lineNames: LINE_NAMES, lineColors: LINE_COLORS,
     });
     const linesWithGaps = rankedGapEntries.filter((e) => e.count > 0).length;
-    gapText = buildGapReplyText({ mode: 'train', window, entries: rankedGapEntries, totalGaps, routeCount: linesWithGaps, formatRoute: formatTrainRoute });
-    gapAlt = buildGapReplyAlt({ mode: 'train', window, entries: rankedGapEntries, totalGaps, formatRoute: formatTrainRoute });
+    gapText = buildGapReplyText({ mode: 'train', window, windowLabel, entries: rankedGapEntries, totalGaps, routeCount: linesWithGaps, formatRoute: formatTrainRoute });
+    gapAlt = buildGapReplyAlt({ mode: 'train', window, windowLabel, entries: rankedGapEntries, totalGaps, formatRoute: formatTrainRoute });
   }
 
   if (argv['dry-run']) {

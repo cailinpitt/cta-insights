@@ -118,22 +118,21 @@ function bucket(events, resolve) {
     .sort((a, b) => b.count - a.count);
 }
 
-function loadEvents(kind, windowDays, now = Date.now()) {
-  const since = now - windowDays * DAY_MS;
+function loadEvents(kind, since, until) {
   const db = getDb();
   return db.prepare(`
     SELECT route, direction, near_stop FROM bunching_events
-    WHERE kind = ? AND posted = 1 AND ts >= ? AND near_stop IS NOT NULL
-  `).all(kind, since).map((r) => ({ ...r, source: 'bunching' }));
+    WHERE kind = ? AND posted = 1 AND ts >= ? AND ts < ? AND near_stop IS NOT NULL
+  `).all(kind, since, until).map((r) => ({ ...r, source: 'bunching' }));
 }
 
-function loadBusHeatmap(windowDays, now = Date.now()) {
-  const events = loadEvents('bus', windowDays, now);
+function loadBusHeatmap(since, until) {
+  const events = loadEvents('bus', since, until);
   return bucket(events, (ev) => resolveBusStop(ev) || resolveBusStopAnywhere(ev.near_stop));
 }
 
-function loadTrainHeatmap(windowDays, now = Date.now()) {
-  const events = loadEvents('train', windowDays, now);
+function loadTrainHeatmap(since, until) {
+  const events = loadEvents('train', since, until);
   return bucket(events, resolveTrainStation);
 }
 
@@ -141,23 +140,96 @@ function loadTrainHeatmap(windowDays, now = Date.now()) {
 // "which routes/lines had the worst headway gaps" summary. Gaps are a
 // line-level phenomenon so we aggregate by route rather than by stop; the
 // output feeds the threaded reply chart, not the heatmap.
-function loadGapLeaderboard(kind, windowDays, now = Date.now()) {
-  const since = now - windowDays * DAY_MS;
+function loadGapLeaderboard(kind, since, until) {
   const db = getDb();
   const rows = db.prepare(`
     SELECT route, COUNT(*) AS count FROM gap_events
-    WHERE kind = ? AND posted = 1 AND ts >= ? AND route IS NOT NULL
+    WHERE kind = ? AND posted = 1 AND ts >= ? AND ts < ? AND route IS NOT NULL
     GROUP BY route
     ORDER BY count DESC
-  `).all(kind, since);
+  `).all(kind, since, until);
   return rows.map((r) => ({ route: r.route, count: r.count }));
+}
+
+// Find the UTC ms at which the given (year, month, day, hour) falls in
+// America/Chicago. Needed to compute CT calendar-month boundaries without a
+// tz library: we probe the two possible UTC offsets (CST=-6, CDT=-5) and
+// return whichever one renders back to the desired CT wall time.
+function ctWallTimeAsUtcMs(year, month, day, hour) {
+  for (const offsetHours of [5, 6]) {
+    const candidate = Date.UTC(year, month - 1, day, offsetHours, 0, 0);
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago', hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
+    }).formatToParts(new Date(candidate));
+    const get = (t) => parseInt(parts.find((p) => p.type === t).value, 10);
+    if (get('year') === year && get('month') === month && get('day') === day && get('hour') === hour) {
+      return candidate;
+    }
+  }
+  throw new Error(`No UTC offset lands ${year}-${month}-${day} ${hour}:00 in America/Chicago`);
+}
+
+function ctDateParts(ms) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(ms));
+  const get = (t) => parseInt(parts.find((p) => p.type === t).value, 10);
+  return { year: get('year'), month: get('month'), day: get('day') };
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Range for the recap window, plus a human-readable label used in the post
+// title, chart subtitle, and alt text.
+//   - week: rolling 7 days ending now
+//   - month: the prior calendar month in America/Chicago (e.g. on May 1, the
+//     range is all of April, labeled "Apr 1 – 30"). This matches how readers
+//     think about a "monthly recap" better than a 30-day rolling window.
+function rangeForWindow(window, now = Date.now()) {
+  if (window === 'week') {
+    const until = now;
+    const since = until - 7 * DAY_MS;
+    const startParts = ctDateParts(since);
+    const endParts = ctDateParts(until);
+    return { since, until, label: formatRangeLabel(startParts, endParts) };
+  }
+  if (window === 'month') {
+    const today = ctDateParts(now);
+    const priorMonth = today.month === 1 ? 12 : today.month - 1;
+    const priorYear = today.month === 1 ? today.year - 1 : today.year;
+    const since = ctWallTimeAsUtcMs(priorYear, priorMonth, 1, 0);
+    const until = ctWallTimeAsUtcMs(today.year, today.month, 1, 0);
+    const lastDay = new Date(today.year, today.month - 1, 0).getDate();
+    const start = { year: priorYear, month: priorMonth, day: 1 };
+    const end = { year: priorYear, month: priorMonth, day: lastDay };
+    // Show the year when the recap covers a different calendar year than
+    // "now" — e.g. on Jan 1 2026 the label becomes "Dec 1 – 31, 2025" instead
+    // of a bare "Dec 1 – 31" that reads ambiguously.
+    const baseLabel = formatRangeLabel(start, end);
+    const label = priorYear !== today.year ? `${baseLabel}, ${priorYear}` : baseLabel;
+    return { since, until, label };
+  }
+  throw new Error(`Unknown window: ${window}`);
+}
+
+function formatRangeLabel(start, end) {
+  const sameYear = start.year === end.year;
+  const sameMonth = sameYear && start.month === end.month;
+  const startStr = `${MONTH_NAMES[start.month - 1]} ${start.day}`;
+  if (sameMonth) return `${startStr} – ${end.day}`;
+  const endStr = `${MONTH_NAMES[end.month - 1]} ${end.day}`;
+  return sameYear ? `${startStr} – ${endStr}` : `${startStr}, ${start.year} – ${endStr}, ${end.year}`;
 }
 
 module.exports = {
   loadBusHeatmap,
   loadTrainHeatmap,
   loadGapLeaderboard,
+  rangeForWindow,
   // exported for tests
   bucket,
   resolveTrainStation,
+  formatRangeLabel,
 };
