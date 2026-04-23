@@ -83,9 +83,12 @@ const LINE_ORIGIN_RESOLVERS = {
   ),
   p: (_line, destStationName, opts = {}) => {
     if (destStationName === 'Linden') {
-      return purpleExpressNorthboundActive(opts.now)
-        ? 'Merchandise Mart (Brown/Purple)'
-        : 'Howard';
+      if (purpleExpressNorthboundActive(opts.now)) return 'Merchandise Mart (Brown/Purple)';
+      // Position fallback for NB express outside the time window (e.g. morning
+      // deadhead pullouts): the shuttle only runs Linden↔Howard, so a train
+      // snapped south of Howard on the line polyline can't be shuttle service.
+      if (opts.leadSouthOfHoward) return 'Merchandise Mart (Brown/Purple)';
+      return 'Howard';
     }
     if (destStationName === 'Howard') return 'Linden';
     if (opts.dest === 'Loop') return 'Linden';
@@ -93,14 +96,15 @@ const LINE_ORIGIN_RESOLVERS = {
   },
 };
 
-function findOrigin(bunch, stations, now = new Date()) {
+function findOrigin(bunch, stations, opts = {}) {
+  const now = opts.now || new Date();
   const lineTerms = TRUE_TERMINALS[bunch.line];
   if (!lineTerms) return null;
   const dest = bunch.trains[0]?.destination;
   if (!dest) return null;
   const destStationName = lineTerms[dest] || null;
   const resolver = LINE_ORIGIN_RESOLVERS[bunch.line] || defaultOriginResolver;
-  const originName = resolver(bunch.line, destStationName, { dest, now });
+  const originName = resolver(bunch.line, destStationName, { dest, now, leadSouthOfHoward: opts.leadSouthOfHoward });
   if (!originName) return null;
   const st = (stations || []).find((s) => s.name === originName);
   return st ? { lat: st.lat, lon: st.lon } : null;
@@ -321,13 +325,38 @@ function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extra
     trackDist: snapToLine(s.lat, s.lon, linePts, lineCumDist),
   }));
 
-  const behind = stationsWithDist
+  // Resolve origin/destination up front so framing can be clipped to the trip.
+  // Without this, Purple's single Linden→Loop polyline lets a shuttle bunch at
+  // Howard pull `ahead[0]` down to a Loop-side express station (e.g. Belmont),
+  // stretching the bbox ~5 mi south and clipping the trains at the frame edge.
+  const howardEntry = stationsWithDist.find((s) => s.station.name === 'Howard');
+  const leadSouthOfHoward = bunch.line === 'p'
+    && howardEntry
+    && trainTrackDists[0] > howardEntry.trackDist;
+  const terminal = findTerminal(bunch, stations);
+  const origin = findOrigin(bunch, stations, { leadSouthOfHoward });
+
+  // Clip framing stations to the origin↔destination range (Purple only — other
+  // lines don't have the round-trip-polyline issue and branched lines like
+  // Green have unreliable cross-branch trackDists).
+  let framingStations = stationsWithDist;
+  if (bunch.line === 'p' && origin && terminal) {
+    const originEntry = stationsWithDist.find((s) => s.station.lat === origin.lat && s.station.lon === origin.lon);
+    const terminalEntry = stationsWithDist.find((s) => s.station.lat === terminal.lat && s.station.lon === terminal.lon);
+    if (originEntry && terminalEntry) {
+      const lo = Math.min(originEntry.trackDist, terminalEntry.trackDist);
+      const hi = Math.max(originEntry.trackDist, terminalEntry.trackDist);
+      framingStations = stationsWithDist.filter((s) => s.trackDist >= lo && s.trackDist <= hi);
+    }
+  }
+
+  const behind = framingStations
     .filter((s) => s.trackDist < minTrainDist)
     .sort((a, b) => b.trackDist - a.trackDist);
-  const ahead = stationsWithDist
+  const ahead = framingStations
     .filter((s) => s.trackDist > maxTrainDist)
     .sort((a, b) => a.trackDist - b.trackDist);
-  const between = stationsWithDist
+  const between = framingStations
     .filter((s) => s.trackDist >= minTrainDist && s.trackDist <= maxTrainDist)
     .sort((a, b) => a.trackDist - b.trackDist);
 
@@ -473,9 +502,6 @@ function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extra
     const diffRev = Math.abs(((leadTrain.heading - rev + 540) % 360) - 180);
     bearingDeg = diffFwd <= diffRev ? fwd : rev;
   }
-
-  const terminal = findTerminal(bunch, stations);
-  const origin = findOrigin(bunch, stations);
 
   return {
     color,
