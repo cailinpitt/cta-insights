@@ -5,14 +5,16 @@ const _ = require('lodash');
 const argv = require('minimist')(process.argv.slice(2));
 
 const { LINE_NAMES, LINE_COLORS, ALL_LINES } = require('../../src/train/api');
-const { collectTrains, computeTrainSamples, buildLineBranches } = require('../../src/train/speedmap');
+const { collectTrains, computeTrainSamples, buildLineBranches, snapToLine, truncateBranchToDistance } = require('../../src/train/speedmap');
 const { binSamples, summarize, TRAIN_THRESHOLDS } = require('../../src/bus/speedmap');
 const { renderTrainSpeedmap } = require('../../src/map');
 const { loginTrain, postWithImage } = require('../../src/train/bluesky');
 const history = require('../../src/shared/history');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
 const { formatTimeCT } = require('../../src/shared/format');
+const { expectedTrainTripMinutes } = require('../../src/shared/gtfs');
 const trainLines = require('../../src/train/data/trainLines.json');
+const trainStations = require('../../src/train/data/trainStations.json');
 
 // ~0.5 mi per bin keeps spatial resolution uniform across lines. A flat bin
 // count made Yellow (~5 mi) look sparse: with only 2 trains in service and
@@ -83,10 +85,34 @@ async function main() {
     process.exit(1);
   }
 
-  const branches = buildLineBranches(trainLines, line);
+  let branches = buildLineBranches(trainLines, line);
   if (branches.length === 0 || branches[0].points.length < 2) {
     console.error(`No polyline data for ${line} line`);
     process.exit(1);
+  }
+
+  // Purple's polyline covers the full Linden→Loop express route, but outside
+  // rush hours the service is a Linden↔Howard shuttle and the express portion
+  // renders as a long grey halo to nowhere. Use the scheduled trip duration
+  // (GTFS) as the signal: an express trip is ~95 min end-to-end, a shuttle
+  // trip is ~14 min, so anything above ~50 min means express is running.
+  // Check both ends of the collection window so a boundary-straddling run
+  // (e.g. 08:30–09:30) still gets the full polyline.
+  if (line === 'p') {
+    const windowStart = new Date();
+    const windowEnd = new Date(windowStart.getTime() + durationMs);
+    const startMin = expectedTrainTripMinutes('p', null, windowStart);
+    const endMin = expectedTrainTripMinutes('p', null, windowEnd);
+    const expressRunning = (startMin != null && startMin > 50) || (endMin != null && endMin > 50);
+    if (!expressRunning) {
+      const howard = trainStations.find((s) => s.name === 'Howard');
+      if (howard && branches[0]) {
+        const b = branches[0];
+        const howardDist = snapToLine(howard.lat, howard.lon, b.points, b.cumDist);
+        branches = [truncateBranchToDistance(b, howardDist)];
+        console.log(`Purple shuttle hours — truncated polyline to Linden↔Howard (${(branches[0].totalFt / 5280).toFixed(1)} mi)`);
+      }
+    }
   }
 
   console.log(`Train speedmap for ${LINE_NAMES[line]} Line, ${durationMin}min window, poll every ${POLL_INTERVAL_MS / 1000}s`);

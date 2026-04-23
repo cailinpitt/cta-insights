@@ -316,6 +316,33 @@ function pointAlongLine(linePoints, cumDist, dist) {
   return { lat: a[0] + t * (b[0] - a[0]), lon: a[1] + t * (b[1] - a[1]) };
 }
 
+// Truncate a branch {points, cumDist, totalFt} at a cumulative distance, keeping
+// all vertices up to that distance and interpolating an exact endpoint vertex.
+// Used to render Purple's shuttle-only polyline (Linden↔Howard) during hours
+// when express service isn't running.
+function truncateBranchToDistance(branch, maxDistFt) {
+  const { points, cumDist } = branch;
+  const kept = [];
+  const keptDist = [];
+  for (let i = 0; i < points.length; i++) {
+    if (cumDist[i] <= maxDistFt) {
+      kept.push(points[i]);
+      keptDist.push(cumDist[i]);
+      continue;
+    }
+    if (i > 0) {
+      const a = points[i - 1];
+      const b = points[i];
+      const span = cumDist[i] - cumDist[i - 1];
+      const t = span === 0 ? 0 : (maxDistFt - cumDist[i - 1]) / span;
+      kept.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+      keptDist.push(maxDistFt);
+    }
+    break;
+  }
+  return { points: kept, cumDist: keptDist, totalFt: keptDist[keptDist.length - 1] };
+}
+
 module.exports = {
   collectTrains,
   computeTrainSamples,
@@ -323,6 +350,8 @@ module.exports = {
   buildLinePolyline,
   buildLineBranches,
   snapToLine,
+  snapToLineWithPerp,
   pointAlongLine,
   offsetPolyline,
+  truncateBranchToDistance,
 };
