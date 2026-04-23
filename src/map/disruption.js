@@ -51,12 +51,22 @@ function splitSegments(segments, fromLoc, toLoc) {
   const abx = B.x - A.x;
   const aby = B.y - A.y;
   const abLen2 = abx * abx + aby * aby;
-  const T_MIN = -0.02;
-  const T_MAX = 1.02;
-  const inAffected = (pt) => {
+  const T_MIN = 0;
+  const T_MAX = 1;
+  const tOf = (pt) => {
     const p = toXY(pt);
-    const t = ((p.x - A.x) * abx + (p.y - A.y) * aby) / abLen2;
-    return t >= T_MIN && t <= T_MAX;
+    return ((p.x - A.x) * abx + (p.y - A.y) * aby) / abLen2;
+  };
+  const inAffected = (t) => t >= T_MIN && t <= T_MAX;
+
+  // Interpolate the [lat, lon] point on the chord P→Q whose projection
+  // parameter equals tTarget. Used to insert an exact boundary vertex at
+  // t=0 or t=1 — otherwise the last-in-run vertex and first-of-next-run
+  // vertex can sit far from the actual station (CTA polylines have sparse
+  // sampling), leaving the dim/bright transition hundreds of meters off.
+  const interpolateAt = (P, Q, tP, tQ, tTarget) => {
+    const s = (tTarget - tP) / (tQ - tP);
+    return [P[0] + s * (Q[0] - P[0]), P[1] + s * (Q[1] - P[1])];
   };
 
   const active = [];
@@ -70,21 +80,33 @@ function splitSegments(segments, fromLoc, toLoc) {
       }
       current = [];
     };
+    let prevT = null;
+    let prevPt = null;
     for (const pt of seg) {
-      const isIn = inAffected(pt);
+      const t = tOf(pt);
+      const isIn = inAffected(t);
       if (currentIsSuspended === null) {
         currentIsSuspended = isIn;
         current.push(pt);
       } else if (isIn === currentIsSuspended) {
         current.push(pt);
       } else {
-        // Transition vertex belongs to both runs — otherwise there's a
-        // visible gap between the dim and bright polylines.
-        current.push(pt);
+        // Crossing a boundary (t=0 or t=1). Interpolate the exact point on
+        // the chord where t hits that boundary and use it as the end of
+        // the current run and the start of the next one — this keeps the
+        // dim/bright transition precisely at the station.
+        const tTarget = currentIsSuspended
+          ? (prevT < t ? T_MAX : T_MIN)
+          : (prevT < t ? T_MIN : T_MAX);
+        const boundary = interpolateAt(prevPt, pt, prevT, t, tTarget);
+        current.push(boundary);
         flush();
         currentIsSuspended = isIn;
+        current.push(boundary);
         current.push(pt);
       }
+      prevT = t;
+      prevPt = pt;
     }
     flush();
   }
