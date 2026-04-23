@@ -97,6 +97,7 @@ function bucket(events, resolve) {
       existing.count += 1;
       existing.bunching += ev.source === 'bunching' ? 1 : 0;
       existing.gap += ev.source === 'gap' ? 1 : 0;
+      if (ev.route) existing.routes.add(ev.route);
     } else {
       buckets.set(key, {
         label: loc.name || ev.near_stop,
@@ -105,10 +106,13 @@ function bucket(events, resolve) {
         count: 1,
         bunching: ev.source === 'bunching' ? 1 : 0,
         gap: ev.source === 'gap' ? 1 : 0,
+        routes: new Set(ev.route ? [ev.route] : []),
       });
     }
   }
-  return [...buckets.values()].sort((a, b) => b.count - a.count);
+  return [...buckets.values()]
+    .map((b) => ({ ...b, routes: [...b.routes] }))
+    .sort((a, b) => b.count - a.count);
 }
 
 function loadEvents(kind, windowDays, now = Date.now()) {

@@ -17,6 +17,21 @@ const MIN_COUNT = { week: 3, month: 3 };
 // still reflects the full count above the floor.
 const RENDER_CAP = 40;
 
+// Sort bus routes naturally: numeric ones by number, letter-prefixed (X9, J14)
+// after. Keeps "4, 22, 146, X9" readable instead of "146, 22, 4, X9".
+function formatBusRoutes(routes) {
+  if (!routes || routes.length === 0) return '';
+  const sorted = [...routes].sort((a, b) => {
+    const na = parseInt(a, 10);
+    const nb = parseInt(b, 10);
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb || a.localeCompare(b);
+    if (Number.isFinite(na)) return -1;
+    if (Number.isFinite(nb)) return 1;
+    return a.localeCompare(b);
+  });
+  return sorted.join(', ');
+}
+
 async function main() {
   setup();
   const window = argv.window || 'month';
@@ -29,7 +44,9 @@ async function main() {
 
   console.log(`Bus heatmap, ${window} (${days}-day window)`);
   const allPoints = loadBusHeatmap(days);
-  const points = allPoints.filter((p) => p.count >= minCount);
+  const points = allPoints
+    .filter((p) => p.count >= minCount)
+    .map((p) => ({ ...p, routesLabel: formatBusRoutes(p.routes) }));
   const totalIncidents = points.reduce((sum, p) => sum + p.count, 0);
 
   console.log(`  ${allPoints.length} total spots, ${points.length} above the ${minCount}-incident floor (${totalIncidents} incidents)`);

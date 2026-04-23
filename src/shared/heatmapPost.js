@@ -28,11 +28,17 @@ function buildPostText({ mode, window, points, totalIncidents }) {
   const [locSing, locPlur] = locNouns(mode);
   const bunches = pluralize(totalIncidents, 'bunch', 'bunches');
   const locs = pluralize(points.length, locSing, locPlur);
-  lines.push('', `${bunches} across ${locs}:`);
+  lines.push('', `${bunches} near ${locs}:`);
   for (const p of points.slice(0, 3)) {
-    lines.push(`· ${p.label} (${p.count})`);
+    lines.push(`· ${formatBullet(p)}`);
   }
   return lines.join('\n');
+}
+
+function formatBullet(p) {
+  return p.routesLabel
+    ? `${p.label} — ${p.routesLabel} (${p.count})`
+    : `${p.label} (${p.count})`;
 }
 
 function buildAltText({ mode, window, points, totalIncidents }) {
@@ -44,8 +50,8 @@ function buildAltText({ mode, window, points, totalIncidents }) {
   const [locSing, locPlur] = locNouns(mode);
   const bunches = pluralize(totalIncidents, 'bunch', 'bunches');
   const locs = pluralize(points.length, locSing, locPlur);
-  const top = points.slice(0, 3).map((p) => `${p.label} (${p.count})`).join(', ');
-  return `Heatmap of Chicago showing where ${subject} bunched ${label}: ${bunches} across ${locs}, with red circles sized by frequency. Top spots: ${top}.`;
+  const top = points.slice(0, 3).map(formatBullet).join(', ');
+  return `Heatmap of Chicago showing where ${subject} bunched ${label}: ${bunches} near ${locs}, with red circles sized by frequency. Top spots: ${top}.`;
 }
 
 module.exports = { buildPostText, buildAltText, titleFor };

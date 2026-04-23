@@ -3,7 +3,7 @@ require('../../src/shared/env');
 
 const argv = require('minimist')(process.argv.slice(2));
 
-const { LINE_COLORS } = require('../../src/train/api');
+const { LINE_COLORS, LINE_NAMES } = require('../../src/train/api');
 const { loadTrainHeatmap } = require('../../src/shared/heatmap');
 const { renderHeatmap } = require('../../src/map');
 const { loginTrain, postWithImage } = require('../../src/train/bluesky');
@@ -14,6 +14,17 @@ const trainLines = require('../../src/train/data/trainLines.json');
 const WINDOW_DAYS = { week: 7, month: 30 };
 const MIN_COUNT = { week: 3, month: 3 };
 const RENDER_CAP = 40;
+
+// Canonical line order so "Red, Brown, Purple" reads the same way every time
+// regardless of which event happened to land in the bucket first.
+const LINE_ORDER = ['red', 'blue', 'brn', 'g', 'org', 'p', 'pink', 'y'];
+function formatTrainLines(routes) {
+  if (!routes || routes.length === 0) return '';
+  return [...routes]
+    .sort((a, b) => LINE_ORDER.indexOf(a) - LINE_ORDER.indexOf(b))
+    .map((r) => LINE_NAMES[r] || r)
+    .join(', ');
+}
 
 async function main() {
   setup();
@@ -27,7 +38,9 @@ async function main() {
 
   console.log(`Train heatmap, ${window} (${days}-day window)`);
   const allPoints = loadTrainHeatmap(days);
-  const points = allPoints.filter((p) => p.count >= minCount);
+  const points = allPoints
+    .filter((p) => p.count >= minCount)
+    .map((p) => ({ ...p, routesLabel: formatTrainLines(p.routes) }));
   const totalIncidents = points.reduce((sum, p) => sum + p.count, 0);
 
   console.log(`  ${allPoints.length} total spots, ${points.length} above the ${minCount}-incident floor (${totalIncidents} incidents)`);
