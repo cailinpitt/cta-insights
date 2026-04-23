@@ -12,7 +12,8 @@ const { buildPostText, buildAltText } = require('../../src/shared/heatmapPost');
 const trainLines = require('../../src/train/data/trainLines.json');
 
 const WINDOW_DAYS = { week: 7, month: 30 };
-const MIN_COUNT = { week: 2, month: 3 };
+const MIN_COUNT = { week: 3, month: 3 };
+const RENDER_CAP = 40;
 
 async function main() {
   setup();
@@ -39,7 +40,8 @@ async function main() {
     return;
   }
 
-  const image = await renderHeatmap({ points, kind: 'train', trainLines, lineColors: LINE_COLORS });
+  const plotted = [...points].sort((a, b) => b.count - a.count).slice(0, RENDER_CAP);
+  const image = await renderHeatmap({ points: plotted, kind: 'train', trainLines, lineColors: LINE_COLORS });
   const text = buildPostText({ mode: 'train', window, points, totalIncidents });
   const alt = buildAltText({ mode: 'train', window, points, totalIncidents });
 
