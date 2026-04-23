@@ -18,6 +18,12 @@ const history = require('../../src/shared/history');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
 const { buildPostText, buildAltText, buildVideoPostText, buildVideoAltText } = require('../../src/bus/bunchingPost');
 
+// Soft daily cap — skips additional posts on the same route after 3 unless the
+// new bunch is strictly more severe than every post-today on that route. Keeps
+// a chronically-bad route (Route 66) from dominating the feed while still
+// surfacing a genuine escalation.
+const BUS_BUNCHING_DAILY_CAP = 3;
+
 async function main() {
   setup();
   const routes = bunchingRoutes;
@@ -81,6 +87,25 @@ async function main() {
       const routeCd = isOnCooldown(routeKey);
       if (pidCd || routeCd) {
         console.log(`  skip pid ${candidate.pid}: ${pidCd ? 'pid' : 'route'} on cooldown`);
+        history.recordBunching({
+          kind: 'bus',
+          route: candidate.route,
+          direction: candidate.pid,
+          vehicleCount: candidate.vehicles.length,
+          severityFt: candidate.spanFt,
+          nearStop: stop.stopName,
+          posted: false,
+        });
+        continue;
+      }
+      const capAllows = history.bunchingCapAllows({
+        kind: 'bus',
+        route: candidate.route,
+        candidate: { vehicleCount: candidate.vehicles.length, severityFt: candidate.spanFt },
+        cap: BUS_BUNCHING_DAILY_CAP,
+      });
+      if (!capAllows) {
+        console.log(`  skip pid ${candidate.pid}: route ${candidate.route} at daily cap (${BUS_BUNCHING_DAILY_CAP}) and not more severe than today's posts`);
         history.recordBunching({
           kind: 'bus',
           route: candidate.route,

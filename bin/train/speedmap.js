@@ -76,7 +76,7 @@ function buildAltText(line, dirSummaries, durationMin) {
 
 async function main() {
   setup();
-  const line = argv.line || _.sample(ALL_LINES);
+  const line = argv.line || history.leastRecentlyPostedSpeedmapRoute('train', ALL_LINES);
   const durationMin = argv.duration ? Number(argv.duration) : DEFAULT_DURATION_MIN;
   const durationMs = durationMin * 60 * 1000;
 

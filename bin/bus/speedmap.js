@@ -44,7 +44,9 @@ function buildAltText(route, pattern, summary) {
 
 async function main() {
   setup();
-  const route = argv.route ? String(argv.route) : _.sample(speedmapRoutes);
+  const route = argv.route
+    ? String(argv.route)
+    : history.leastRecentlyPostedSpeedmapRoute('bus', speedmapRoutes);
   const durationMin = argv.duration ? Number(argv.duration) : DEFAULT_DURATION_MIN;
   const durationMs = durationMin * 60 * 1000;
 

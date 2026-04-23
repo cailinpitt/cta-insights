@@ -12,8 +12,8 @@ function headingDiff(a, b) {
 }
 
 /**
- * Detect the most severe bunched cluster of trains on the same line heading
- * the same direction (same `trDr`).
+ * Detect all bunched clusters of trains on the same line heading the same
+ * direction (same `trDr`), ranked best-first.
  *
  * Uses along-track distance by snapping each train onto the line's polyline.
  * This avoids false positives where trains are geographically close but far
@@ -21,9 +21,10 @@ function headingDiff(a, b) {
  *
  * Clusters are extended as long as consecutive along-track gaps stay within
  * TRAIN_BUNCHING_FT, then ranked size-desc / tighter-max-gap first — same
- * model as bus bunching. Returns null if no bunch is detected.
+ * model as bus bunching. The bin iterates the full list so a cooldown/cap
+ * skip on one bunch falls through to the next candidate.
  */
-function detectTrainBunching(trains, trainLines) {
+function detectAllTrainBunching(trains, trainLines) {
   const groups = new Map();
   for (const t of trains) {
     if (!t.trDr) continue;
@@ -121,13 +122,18 @@ function detectTrainBunching(trains, trainLines) {
     }
   }
 
-  if (bunches.length === 0) return null;
   // Rank: more trains first; tie-break on tighter max gap (same as buses).
   bunches.sort((a, b) => {
     if (a.trains.length !== b.trains.length) return b.trains.length - a.trains.length;
     return a.maxGapFt - b.maxGapFt;
   });
-  return bunches[0];
+  return bunches;
 }
 
-module.exports = { detectTrainBunching, TRAIN_BUNCHING_FT, MIN_DISTANCE_FT };
+// Back-compat wrapper — callers that just want the single best bunch.
+function detectTrainBunching(trains, trainLines) {
+  const all = detectAllTrainBunching(trains, trainLines);
+  return all.length ? all[0] : null;
+}
+
+module.exports = { detectTrainBunching, detectAllTrainBunching, TRAIN_BUNCHING_FT, MIN_DISTANCE_FT };

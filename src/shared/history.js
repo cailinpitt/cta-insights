@@ -304,6 +304,81 @@ function formatCallouts(callouts) {
   return `📊 ${callouts.join(' · ')}`;
 }
 
+/**
+ * Soft daily cap for bunching posts. Returns true if the candidate is allowed
+ * to post, either because the route is under the cap or because the candidate
+ * is strictly more severe than every bunching posted on the route today. The
+ * cap fixes feed-dominance by chronically-bad routes (Route 66 bunches every
+ * hour) without suppressing a genuine escalation ("3-bus pileup became a 6").
+ *
+ * Severity comparison differs by kind:
+ *   - bus: larger vehicle_count wins; tiebreak on larger span_ft.
+ *   - train: always 2 trains, so smaller span_ft (tighter bunch) wins.
+ *
+ * `candidate`: { vehicleCount, severityFt }
+ */
+function bunchingCapAllows({ kind, route, candidate, cap }, now = Date.now()) {
+  const events = db().prepare(`
+    SELECT vehicle_count AS vc, severity_ft AS sev
+    FROM bunching_events
+    WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ?
+  `).all(kind, route, chicagoStartOfDay(now));
+  if (events.length < cap) return true;
+  return events.every((ev) => {
+    if (kind === 'bus') {
+      if (candidate.vehicleCount > ev.vc) return true;
+      if (candidate.vehicleCount === ev.vc && candidate.severityFt > ev.sev) return true;
+      return false;
+    }
+    return candidate.severityFt < ev.sev;
+  });
+}
+
+/**
+ * Soft daily cap for gap posts. Mirrors `bunchingCapAllows` but with a single
+ * severity axis: ratio (gap_min / expected_min). A larger ratio means "emptier
+ * than schedule implies" — the gap is more severe.
+ *
+ * `candidate`: { ratio }
+ */
+function gapCapAllows({ kind, route, candidate, cap }, now = Date.now()) {
+  const events = db().prepare(`
+    SELECT ratio FROM gap_events
+    WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ?
+  `).all(kind, route, chicagoStartOfDay(now));
+  if (events.length < cap) return true;
+  return events.every((ev) => candidate.ratio > ev.ratio);
+}
+
+/**
+ * Pick the route from `candidates` whose last posted speedmap is oldest,
+ * falling back to never-posted routes first. Keeps speedmap coverage fair
+ * across a growing route list — a uniform random pick left popular routes
+ * re-covered within a day while long-tail routes went weeks between posts.
+ *
+ * Only `posted=1` rows count: skipped/empty runs shouldn't make a route
+ * look "recently covered." Ties are broken by the order candidates were
+ * passed in (stable & predictable; operator can re-order routes.js to
+ * influence the rotation).
+ */
+function leastRecentlyPostedSpeedmapRoute(kind, candidates) {
+  if (!candidates || candidates.length === 0) return null;
+  const rows = db().prepare(`
+    SELECT route, MAX(ts) AS lastTs
+    FROM speedmap_runs
+    WHERE kind = ? AND posted = 1
+    GROUP BY route
+  `).all(kind);
+  const lastTsByRoute = new Map(rows.map((r) => [r.route, r.lastTs]));
+  let best = null;
+  let bestTs = Infinity;
+  for (const route of candidates) {
+    const ts = lastTsByRoute.has(route) ? lastTsByRoute.get(route) : -Infinity;
+    if (ts < bestTs) { bestTs = ts; best = route; }
+  }
+  return best;
+}
+
 module.exports = {
   rolloffOld,
   recordBunching,
@@ -313,5 +388,8 @@ module.exports = {
   speedmapCallouts,
   gapCallouts,
   formatCallouts,
+  leastRecentlyPostedSpeedmapRoute,
+  bunchingCapAllows,
+  gapCapAllows,
   getDb,
 };

@@ -4,7 +4,7 @@ require('../../src/shared/env');
 const argv = require('minimist')(process.argv.slice(2));
 
 const { getAllTrainPositions, LINE_COLORS, LINE_NAMES } = require('../../src/train/api');
-const { detectTrainBunching } = require('../../src/train/bunching');
+const { detectAllTrainBunching } = require('../../src/train/bunching');
 const { renderTrainBunching } = require('../../src/map');
 const { captureTrainBunchingVideo } = require('../../src/train/bunchingVideo');
 const { loginTrain, postWithImage, postWithVideo, postText } = require('../../src/train/bluesky');
@@ -16,6 +16,8 @@ const { buildPostText, buildAltText, buildVideoPostText, buildVideoAltText } = r
 const trainLines = require('../../src/train/data/trainLines.json');
 const trainStations = require('../../src/train/data/trainStations.json');
 
+const TRAIN_BUNCHING_DAILY_CAP = 2;
+
 async function main() {
   setup();
 
@@ -23,14 +25,16 @@ async function main() {
   const trains = await getAllTrainPositions();
   console.log(`Got ${trains.length} trains`);
 
-  const bunch = detectTrainBunching(trains, trainLines);
-  if (!bunch) {
+  const bunches = detectAllTrainBunching(trains, trainLines);
+  if (bunches.length === 0) {
     console.log('No train bunching detected');
     return;
   }
 
-  console.log(`Bunching: ${LINE_NAMES[bunch.line]} Line toward ${bunch.trains[0].destination} — ${bunch.trains.length} trains span ${Math.round(bunch.spanFt)}ft, maxGap ${Math.round(bunch.maxGapFt)}ft`);
-  console.log(`  rns: ${bunch.trains.map((t) => t.rn).join(', ')}`);
+  console.log(`Found ${bunches.length} candidate bunch(es); picking best available:`);
+  for (const b of bunches) {
+    console.log(`  ${LINE_NAMES[b.line]} Line toward ${b.trains[0].destination} — ${b.trains.length} trains span ${Math.round(b.spanFt)}ft, maxGap ${Math.round(b.maxGapFt)}ft`);
+  }
 
   // Two cooldown layers, mirroring the bus bunching model:
   //   - line+direction: blocks the same direction of the same line from
@@ -38,25 +42,60 @@ async function main() {
   //   - line: blocks ANY direction of the same line for 1hr, so opposite
   //     directions of the Red Line don't both post back-to-back (same as
   //     bus `route:X` cooldown — direction-agnostic).
-  const dirCooldownKey = `train_${bunch.line}_${bunch.trDr}`;
-  const lineCooldownKey = `train_line_${bunch.line}`;
-  if (!argv['dry-run']) {
-    const dirCd = isOnCooldown(dirCooldownKey);
-    const lineCd = isOnCooldown(lineCooldownKey);
-    if (dirCd || lineCd) {
-      console.log(`On cooldown (${dirCd ? 'direction' : 'line'}), skipping`);
-      history.recordBunching({
+  let bunch = null;
+  let dirCooldownKey = null;
+  let lineCooldownKey = null;
+  for (const candidate of bunches) {
+    const candDirKey = `train_${candidate.line}_${candidate.trDr}`;
+    const candLineKey = `train_line_${candidate.line}`;
+    if (!argv['dry-run']) {
+      const dirCd = isOnCooldown(candDirKey);
+      const lineCd = isOnCooldown(candLineKey);
+      if (dirCd || lineCd) {
+        console.log(`  skip ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${dirCd ? 'direction' : 'line'} on cooldown`);
+        history.recordBunching({
+          kind: 'train',
+          route: candidate.line,
+          direction: candidate.trDr,
+          vehicleCount: candidate.trains.length,
+          severityFt: candidate.spanFt,
+          nearStop: candidate.trains[0].nextStation,
+          posted: false,
+        });
+        continue;
+      }
+      const capAllows = history.bunchingCapAllows({
         kind: 'train',
-        route: bunch.line,
-        direction: bunch.trDr,
-        vehicleCount: bunch.trains.length,
-        severityFt: bunch.spanFt,
-        nearStop: bunch.trains[0].nextStation,
-        posted: false,
+        route: candidate.line,
+        candidate: { vehicleCount: candidate.trains.length, severityFt: candidate.spanFt },
+        cap: TRAIN_BUNCHING_DAILY_CAP,
       });
-      return;
+      if (!capAllows) {
+        console.log(`  skip ${LINE_NAMES[candidate.line]} ${candidate.trDr}: line at daily cap (${TRAIN_BUNCHING_DAILY_CAP}) and not more severe than today's posts`);
+        history.recordBunching({
+          kind: 'train',
+          route: candidate.line,
+          direction: candidate.trDr,
+          vehicleCount: candidate.trains.length,
+          severityFt: candidate.spanFt,
+          nearStop: candidate.trains[0].nextStation,
+          posted: false,
+        });
+        continue;
+      }
     }
+    bunch = candidate;
+    dirCooldownKey = candDirKey;
+    lineCooldownKey = candLineKey;
+    break;
   }
+
+  if (!bunch) {
+    console.log('All candidates filtered (cooldown or daily cap), nothing to post');
+    return;
+  }
+
+  console.log(`Posting: ${LINE_NAMES[bunch.line]} Line toward ${bunch.trains[0].destination} — ${bunch.trains.length} trains span ${Math.round(bunch.spanFt)}ft`);
 
 
   const callouts = history.bunchingCallouts({

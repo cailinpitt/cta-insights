@@ -21,6 +21,8 @@ const trainStations = require('../../src/train/data/trainStations.json');
 // we don't collide on repeated station names like "Halsted" (Orange vs Blue).
 const { findStationByDestination } = require('../../src/train/findStation');
 
+const TRAIN_GAP_DAILY_CAP = 2;
+
 async function main() {
   setup();
 
@@ -55,6 +57,27 @@ async function main() {
       const lineCd = isOnCooldown(lineKey);
       if (dirCd || lineCd) {
         console.log(`  skip ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${dirCd ? 'direction' : 'line'} on cooldown`);
+        history.recordGap({
+          kind: 'train',
+          route: candidate.line,
+          direction: candidate.trDr,
+          gapFt: candidate.gapFt,
+          gapMin: candidate.gapMin,
+          expectedMin: candidate.expectedMin,
+          ratio: candidate.ratio,
+          nearStop: candidate.nearStation?.name || candidate.leading.nextStation,
+          posted: false,
+        });
+        continue;
+      }
+      const capAllows = history.gapCapAllows({
+        kind: 'train',
+        route: candidate.line,
+        candidate: { ratio: candidate.ratio },
+        cap: TRAIN_GAP_DAILY_CAP,
+      });
+      if (!capAllows) {
+        console.log(`  skip ${LINE_NAMES[candidate.line]} ${candidate.trDr}: line at daily cap (${TRAIN_GAP_DAILY_CAP}) and not more severe than today's posts`);
         history.recordGap({
           kind: 'train',
           route: candidate.line,

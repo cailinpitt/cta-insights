@@ -16,6 +16,8 @@ const history = require('../../src/shared/history');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
 const { buildPostText, buildAltText } = require('../../src/bus/gapPost');
 
+const BUS_GAP_DAILY_CAP = 3;
+
 async function main() {
   setup();
 
@@ -91,6 +93,27 @@ async function main() {
       const routeCd = isOnCooldown(routeKey);
       if (pidCd || routeCd) {
         console.log(`  skip pid ${candidate.pid}: ${pidCd ? 'pid' : 'route'} on cooldown`);
+        history.recordGap({
+          kind: 'bus',
+          route: candidate.route,
+          direction: candidate.pid,
+          gapFt: candidate.gapFt,
+          gapMin: candidate.gapMin,
+          expectedMin: candidate.expectedMin,
+          ratio: candidate.ratio,
+          nearStop: stop.stopName,
+          posted: false,
+        });
+        continue;
+      }
+      const capAllows = history.gapCapAllows({
+        kind: 'bus',
+        route: candidate.route,
+        candidate: { ratio: candidate.ratio },
+        cap: BUS_GAP_DAILY_CAP,
+      });
+      if (!capAllows) {
+        console.log(`  skip pid ${candidate.pid}: route ${candidate.route} at daily cap (${BUS_GAP_DAILY_CAP}) and not more severe than today's posts`);
         history.recordGap({
           kind: 'bus',
           route: candidate.route,
