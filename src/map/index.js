@@ -6,4 +6,5 @@ module.exports = {
   ...require('./bus/gaps'),
   ...require('./train/gaps'),
   ...require('./heatmap'),
+  ...require('./gapChart'),
 };

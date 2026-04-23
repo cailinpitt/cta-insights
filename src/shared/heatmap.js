@@ -134,9 +134,26 @@ function loadTrainHeatmap(windowDays, now = Date.now()) {
   return bucket(events, resolveTrainStation);
 }
 
+// Gap leaderboard — groups posted gap events by route for a categorical
+// "which routes/lines had the worst headway gaps" summary. Gaps are a
+// line-level phenomenon so we aggregate by route rather than by stop; the
+// output feeds the threaded reply chart, not the heatmap.
+function loadGapLeaderboard(kind, windowDays, now = Date.now()) {
+  const since = now - windowDays * DAY_MS;
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT route, COUNT(*) AS count FROM gap_events
+    WHERE kind = ? AND posted = 1 AND ts >= ? AND route IS NOT NULL
+    GROUP BY route
+    ORDER BY count DESC
+  `).all(kind, since);
+  return rows.map((r) => ({ route: r.route, count: r.count }));
+}
+
 module.exports = {
   loadBusHeatmap,
   loadTrainHeatmap,
+  loadGapLeaderboard,
   // exported for tests
   bucket,
   resolveTrainStation,

@@ -54,4 +54,38 @@ function buildAltText({ mode, window, points, totalIncidents }) {
   return `Heatmap of Chicago showing where ${subject} bunched ${label}: ${bunches} near ${locs}, with red circles sized by frequency. Top spots: ${top}.`;
 }
 
-module.exports = { buildPostText, buildAltText, titleFor };
+function buildGapReplyText({ mode, window, entries, totalGaps, formatRoute }) {
+  const label = WINDOW_LABELS[window] || window;
+  const lines = [`⏰ Headway gaps, ${label}`];
+  if (totalGaps === 0 || entries.length === 0) {
+    lines.push('', 'No gaps recorded in this window.');
+    return lines.join('\n');
+  }
+  const noun = mode === 'bus' ? 'routes' : 'lines';
+  const gaps = pluralize(totalGaps, 'gap', 'gaps');
+  lines.push('', `${gaps} across ${entries.length} ${noun}. Where service was thinnest:`);
+  for (const e of entries.slice(0, 3)) {
+    lines.push(`· ${formatRoute ? formatRoute(e.route) : e.route} (${e.count})`);
+  }
+  return lines.join('\n');
+}
+
+function buildGapReplyAlt({ mode, window, entries, totalGaps, formatRoute }) {
+  const label = WINDOW_LABELS[window] || window;
+  const subject = mode === 'bus' ? 'bus routes' : 'train lines';
+  if (totalGaps === 0 || entries.length === 0) {
+    return `Chart showing no headway gaps recorded across ${subject} ${label}.`;
+  }
+  const top = entries.slice(0, 3)
+    .map((e) => `${formatRoute ? formatRoute(e.route) : e.route} (${e.count})`)
+    .join(', ');
+  return `Horizontal bar chart of headway gaps by ${mode === 'bus' ? 'route' : 'line'} ${label}: ${totalGaps} total gaps. Worst: ${top}.`;
+}
+
+module.exports = {
+  buildPostText,
+  buildAltText,
+  buildGapReplyText,
+  buildGapReplyAlt,
+  titleFor,
+};

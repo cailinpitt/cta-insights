@@ -4,11 +4,14 @@ require('../../src/shared/env');
 const argv = require('minimist')(process.argv.slice(2));
 
 const { LINE_COLORS, LINE_NAMES } = require('../../src/train/api');
-const { loadTrainHeatmap } = require('../../src/shared/heatmap');
-const { renderHeatmap } = require('../../src/map');
+const { loadTrainHeatmap, loadGapLeaderboard } = require('../../src/shared/heatmap');
+const { renderHeatmap, renderGapChart } = require('../../src/map');
 const { loginTrain, postWithImage } = require('../../src/train/bluesky');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
-const { buildPostText, buildAltText } = require('../../src/shared/heatmapPost');
+const {
+  buildPostText, buildAltText,
+  buildGapReplyText, buildGapReplyAlt,
+} = require('../../src/shared/heatmapPost');
 const trainLines = require('../../src/train/data/trainLines.json');
 
 const WINDOW_DAYS = { week: 7, month: 30 };
@@ -74,15 +77,51 @@ async function main() {
   const text = buildPostText({ mode: 'train', window, points, totalIncidents });
   const alt = buildAltText({ mode: 'train', window, points, totalIncidents });
 
+  // Show every line in canonical order — even zero-gap lines — so the chart
+  // conveys the whole system picture rather than just the worst offenders.
+  const gapCounts = new Map(loadGapLeaderboard('train', days).map((e) => [e.route, e.count]));
+  const gapEntries = LINE_ORDER.map((line) => ({ route: line, count: gapCounts.get(line) || 0 }));
+  const totalGaps = gapEntries.reduce((s, e) => s + e.count, 0);
+  const rankedGapEntries = [...gapEntries].sort((a, b) => b.count - a.count);
+  const formatTrainRoute = (r) => LINE_NAMES[r] || r;
+  const hasGapReply = totalGaps > 0;
+
+  let gapImage = null;
+  let gapText = '';
+  let gapAlt = '';
+  if (hasGapReply) {
+    gapImage = await renderGapChart({
+      kind: 'train', entries: rankedGapEntries, window, totalGaps,
+      lineNames: LINE_NAMES, lineColors: LINE_COLORS,
+    });
+    gapText = buildGapReplyText({ mode: 'train', window, entries: rankedGapEntries, totalGaps, formatRoute: formatTrainRoute });
+    gapAlt = buildGapReplyAlt({ mode: 'train', window, entries: rankedGapEntries, totalGaps, formatRoute: formatTrainRoute });
+  }
+
   if (argv['dry-run']) {
     const outPath = writeDryRunAsset(image, `heatmap-train-${window}-${Date.now()}.jpg`);
     console.log(`\n--- DRY RUN ---\n${text}\n\nAlt: ${alt}\nImage: ${outPath}`);
+    if (hasGapReply) {
+      const gapPath = writeDryRunAsset(gapImage, `gapchart-train-${window}-${Date.now()}.jpg`);
+      console.log(`\n--- DRY RUN (gap reply) ---\n${gapText}\n\nAlt: ${gapAlt}\nImage: ${gapPath}`);
+    } else {
+      console.log('\n(no gap reply — no gaps in window)');
+    }
     return;
   }
 
   const agent = await loginTrain();
-  const result = await postWithImage(agent, text, image, alt);
-  console.log(`Posted: ${result.url}`);
+  const primary = await postWithImage(agent, text, image, alt);
+  console.log(`Posted: ${primary.url}`);
+
+  if (hasGapReply) {
+    const replyRef = {
+      root: { uri: primary.uri, cid: primary.cid },
+      parent: { uri: primary.uri, cid: primary.cid },
+    };
+    const reply = await postWithImage(agent, gapText, gapImage, gapAlt, replyRef);
+    console.log(`Gap reply: ${reply.url}`);
+  }
 }
 
 runBin(main);

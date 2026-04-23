@@ -3,11 +3,18 @@ require('../../src/shared/env');
 
 const argv = require('minimist')(process.argv.slice(2));
 
-const { loadBusHeatmap } = require('../../src/shared/heatmap');
-const { renderHeatmap } = require('../../src/map');
+const { loadBusHeatmap, loadGapLeaderboard } = require('../../src/shared/heatmap');
+const { renderHeatmap, renderGapChart } = require('../../src/map');
 const { loginBus, postWithImage } = require('../../src/bus/bluesky');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
-const { buildPostText, buildAltText } = require('../../src/shared/heatmapPost');
+const {
+  buildPostText, buildAltText,
+  buildGapReplyText, buildGapReplyAlt,
+} = require('../../src/shared/heatmapPost');
+
+// Cap the gap chart to the worst-N routes so the square canvas stays legible.
+// Below that floor the bars get noise-thin; above it the text gets cramped.
+const GAP_CHART_CAP = 10;
 
 const WINDOW_DAYS = { week: 7, month: 30 };
 // Noise floor: don't plot locations with fewer than this many incidents in
@@ -64,15 +71,44 @@ async function main() {
   const text = buildPostText({ mode: 'bus', window, points, totalIncidents });
   const alt = buildAltText({ mode: 'bus', window, points, totalIncidents });
 
+  const gapEntriesAll = loadGapLeaderboard('bus', days);
+  const totalGaps = gapEntriesAll.reduce((s, e) => s + e.count, 0);
+  const gapEntries = gapEntriesAll.slice(0, GAP_CHART_CAP);
+  const hasGapReply = totalGaps > 0 && gapEntries.length > 0;
+
+  let gapImage = null;
+  let gapText = '';
+  let gapAlt = '';
+  if (hasGapReply) {
+    gapImage = await renderGapChart({ kind: 'bus', entries: gapEntries, window, totalGaps });
+    gapText = buildGapReplyText({ mode: 'bus', window, entries: gapEntries, totalGaps });
+    gapAlt = buildGapReplyAlt({ mode: 'bus', window, entries: gapEntries, totalGaps });
+  }
+
   if (argv['dry-run']) {
     const outPath = writeDryRunAsset(image, `heatmap-bus-${window}-${Date.now()}.jpg`);
     console.log(`\n--- DRY RUN ---\n${text}\n\nAlt: ${alt}\nImage: ${outPath}`);
+    if (hasGapReply) {
+      const gapPath = writeDryRunAsset(gapImage, `gapchart-bus-${window}-${Date.now()}.jpg`);
+      console.log(`\n--- DRY RUN (gap reply) ---\n${gapText}\n\nAlt: ${gapAlt}\nImage: ${gapPath}`);
+    } else {
+      console.log('\n(no gap reply — no gaps in window)');
+    }
     return;
   }
 
   const agent = await loginBus();
-  const result = await postWithImage(agent, text, image, alt);
-  console.log(`Posted: ${result.url}`);
+  const primary = await postWithImage(agent, text, image, alt);
+  console.log(`Posted: ${primary.url}`);
+
+  if (hasGapReply) {
+    const replyRef = {
+      root: { uri: primary.uri, cid: primary.cid },
+      parent: { uri: primary.uri, cid: primary.cid },
+    };
+    const reply = await postWithImage(agent, gapText, gapImage, gapAlt, replyRef);
+    console.log(`Gap reply: ${reply.url}`);
+  }
 }
 
 runBin(main);
