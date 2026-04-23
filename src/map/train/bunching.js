@@ -110,7 +110,7 @@ function findOrigin(bunch, stations, opts = {}) {
   return st ? { lat: st.lat, lon: st.lon } : null;
 }
 
-function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, lineColor, widthPx, heightPx, terminalPixel, originPixel, bearingDeg = 0) {
+function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, lineColor, widthPx, heightPx, terminalPixel, originPixel, bearingDeg = 0, arrowBearingDeg = null) {
   const fontSize = 18;
   const labelHeight = fontSize + 8;
 
@@ -282,7 +282,8 @@ function buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, 
   // Direction-of-travel arrow in the top-right corner.
   const arrows = [];
   if (trainPixels.length > 0) {
-    arrows.push(buildDirectionArrow(widthPx - 220, 180, trainPixels[0].bearingDeg));
+    const arrowDeg = arrowBearingDeg != null ? arrowBearingDeg : trainPixels[0].bearingDeg;
+    arrows.push(buildDirectionArrow(widthPx - 220, 180, arrowDeg));
   }
 
   const labelElements = labels.map(({ label, rectX, rectY, approxWidth, anchor }) => {
@@ -503,6 +504,32 @@ function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extra
     bearingDeg = diffFwd <= diffRev ? fwd : rev;
   }
 
+  // Arrow bearing for the direction-of-travel indicator. On zoomed-out views
+  // where the trip spans the frame, the local track-aligned `bearingDeg`
+  // misleads (a Purple Express gap with the lead train on the south leg of
+  // the Loop Elevated snapped to east-west track, drawing an east-pointing
+  // arrow even though the trip is NB to Linden). Fall back to the trip
+  // vector (train → terminal, or origin → train) only when the trip
+  // reference is far from the lead train in screen space. On tight zooms
+  // where the reference is close, keep the local bearing so the arrow
+  // matches how the train is physically moving through the visible track.
+  let arrowBearingDeg = bearingDeg;
+  const arrowRef = terminal || origin;
+  if (arrowRef) {
+    const leadPx = project(leadTrain.lat, leadTrain.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
+    const refPx = project(arrowRef.lat, arrowRef.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
+    const pixelDist = Math.hypot(refPx.x - leadPx.x, refPx.y - leadPx.y);
+    // ~⅓ of the 1200-px frame — enough that the trip vector is meaningful,
+    // not so much that a shuttle bunch with the terminal a few blocks away
+    // flips to trip mode.
+    const FAR_PX = 400;
+    if (pixelDist > FAR_PX) {
+      arrowBearingDeg = terminal
+        ? bearing(leadTrain, terminal)
+        : bearing(origin, leadTrain);
+    }
+  }
+
   return {
     color,
     overlays,
@@ -511,6 +538,7 @@ function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extra
     zoom,
     visibleStations,
     bearingDeg,
+    arrowBearingDeg,
     terminal,
     origin,
   };
@@ -551,7 +579,7 @@ async function renderTrainBunchingFrame(view, baseMap, trains) {
   const terminalPixel = projectIfVisible(view.terminal);
   const originPixel = projectIfVisible(view.origin);
 
-  const svg = buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, view.color, WIDTH, HEIGHT, terminalPixel, originPixel, view.bearingDeg);
+  const svg = buildTrainOverlaySvg(stationsWithPixels, atStationPixels, trainPixels, view.color, WIDTH, HEIGHT, terminalPixel, originPixel, view.bearingDeg, view.arrowBearingDeg);
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
