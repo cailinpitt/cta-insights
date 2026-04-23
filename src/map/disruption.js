@@ -28,25 +28,36 @@ function findNearestIndex(poly, loc) {
 }
 
 // Split each polyline segment into "active" and "suspended" runs by walking
-// the polyline and asking, for every vertex, "is this point in the affected
-// area?" — where "affected area" = the bbox spanning the two suspension
-// endpoints plus a small buffer.
+// the polyline and projecting every vertex onto the from→to axis. A vertex
+// is "in the affected stretch" when its projection parameter t lies in
+// [~0, ~1] — i.e. between the two stations along the direction of travel.
 //
-// Bbox containment handles round-trip polylines correctly: the Purple Line
-// runs Linden → Howard → Loop → Howard → Linden, so both passes through
-// the Linden↔Howard stretch need to be dimmed. An index-based slice would
-// only dim the first pass; the bright return leg would then sit on top of
-// the dim forward leg and dominate visually.
+// Projection (not bbox) is the right call because it:
+//   1. ends the dim region exactly at the station (no buffer overshoot past
+//      Thorndale like a bbox pad would cause), and
+//   2. naturally handles round-trip polylines — the Purple Line runs
+//      Linden → Howard → Loop → Howard → Linden, and both passes through
+//      the Linden↔Howard stretch produce t ∈ [0, 1], so both get dimmed
+//      and the bright return leg can't sit on top of the dim forward leg.
 function splitSegments(segments, fromLoc, toLoc) {
-  const buffer = 0.003; // ~330 m of latitude
-  const bbox = {
-    minLat: Math.min(fromLoc.lat, toLoc.lat) - buffer,
-    maxLat: Math.max(fromLoc.lat, toLoc.lat) + buffer,
-    minLon: Math.min(fromLoc.lon, toLoc.lon) - buffer,
-    maxLon: Math.max(fromLoc.lon, toLoc.lon) + buffer,
+  // Work in a rough equirectangular pixel space so the projection handles
+  // lat/lon with equal weighting at Chicago's latitude. (Raw lat/lon would
+  // squash longitude distances since a degree of lon ≈ 0.74 × a degree of
+  // lat at 41.9°.)
+  const cosLat = Math.cos(fromLoc.lat * Math.PI / 180);
+  const toXY = ([lat, lon]) => ({ x: lon * cosLat, y: lat });
+  const A = toXY([fromLoc.lat, fromLoc.lon]);
+  const B = toXY([toLoc.lat, toLoc.lon]);
+  const abx = B.x - A.x;
+  const aby = B.y - A.y;
+  const abLen2 = abx * abx + aby * aby;
+  const T_MIN = -0.02;
+  const T_MAX = 1.02;
+  const inAffected = (pt) => {
+    const p = toXY(pt);
+    const t = ((p.x - A.x) * abx + (p.y - A.y) * aby) / abLen2;
+    return t >= T_MIN && t <= T_MAX;
   };
-  const inAffected = ([lat, lon]) =>
-    lat >= bbox.minLat && lat <= bbox.maxLat && lon >= bbox.minLon && lon <= bbox.maxLon;
 
   const active = [];
   const suspended = [];
