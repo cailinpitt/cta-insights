@@ -79,17 +79,17 @@ function computeBunchingView(bunch, pattern, extraVehicles = []) {
 
   // Route-wide direction bearing from the slice endpoints (smoothed over ~3000
   // ft). This avoids a short orthogonal waypoint jog dominating the arrow,
-  // which previously produced 90°-off arrows on straight streets.
+  // which previously produced 90°-off arrows on straight streets. The slice
+  // is filtered from pattern.points preserving seq order, and CTA seq runs
+  // origin → destination along the service direction, so slice[0]→slice[end]
+  // already IS the service direction. Don't second-guess with leadBus.heading
+  // — a bus parked at a terminal often faces the opposite way, which would
+  // flip the arrow to point east on a westbound route.
   const slicePoints = slice.map((p) => ({ lat: p.lat, lon: p.lon }));
   const leadBus = bunch.vehicles.reduce((a, b) => (b.pdist > a.pdist ? b : a), bunch.vehicles[0]);
-  let bearingDeg = leadBus.heading;
-  if (slicePoints.length >= 2) {
-    const fwd = bearing(slicePoints[0], slicePoints[slicePoints.length - 1]);
-    const rev = (fwd + 180) % 360;
-    const diffFwd = Math.abs(((leadBus.heading - fwd + 540) % 360) - 180);
-    const diffRev = Math.abs(((leadBus.heading - rev + 540) % 360) - 180);
-    bearingDeg = diffFwd <= diffRev ? fwd : rev;
-  }
+  const bearingDeg = slicePoints.length >= 2
+    ? bearing(slicePoints[0], slicePoints[slicePoints.length - 1])
+    : leadBus.heading;
 
   // CTA orders pattern points by seq along the service direction, so the first
   // point is the route's origin and the last is its destination. We mark the

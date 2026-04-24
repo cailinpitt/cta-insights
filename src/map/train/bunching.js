@@ -494,39 +494,46 @@ function computeTrainBunchingView(bunch, lineColors, trainLines, stations, extra
     return { from: bestA, to: bestB };
   }
   const leadTrain = bunch.trains[0];
+  // Base bearing: nearest-segment, used for marker perpendicular-fanning and
+  // as station-label bearing fallback. Perpendicular fanning is sign-agnostic
+  // (axis flips are symmetric), so we don't need the orientation to be
+  // correct here — just track-aligned. The old heading-flip was unsafe: a
+  // train parked at a terminal often reports a heading 180° off its actual
+  // service direction, which would invert the arrow.
   let bearingDeg = leadTrain.heading;
+  let trackFwd = null;
+  let trackRev = null;
   if (allSegPoints.length >= 2) {
     const { from, to } = nearestSegment(leadTrain);
-    const fwd = bearing(from, to);
-    const rev = (fwd + 180) % 360;
-    const diffFwd = Math.abs(((leadTrain.heading - fwd + 540) % 360) - 180);
-    const diffRev = Math.abs(((leadTrain.heading - rev + 540) % 360) - 180);
-    bearingDeg = diffFwd <= diffRev ? fwd : rev;
+    trackFwd = bearing(from, to);
+    trackRev = (trackFwd + 180) % 360;
+    bearingDeg = trackFwd;
   }
 
-  // Arrow bearing for the direction-of-travel indicator. On zoomed-out views
-  // where the trip spans the frame, the local track-aligned `bearingDeg`
-  // misleads (a Purple Express gap with the lead train on the south leg of
-  // the Loop Elevated snapped to east-west track, drawing an east-pointing
-  // arrow even though the trip is NB to Linden). Fall back to the trip
-  // vector (train → terminal, or origin → train) only when the trip
-  // reference is far from the lead train in screen space. On tight zooms
-  // where the reference is close, keep the local bearing so the arrow
-  // matches how the train is physically moving through the visible track.
+  // Arrow bearing for the direction-of-travel indicator. Direction comes from
+  // the trip reference (train → terminal, or origin → train) — that's the
+  // authoritative service direction, unlike `leadTrain.heading` which can be
+  // arbitrary at a terminal layover. On zoomed-out views we use the raw trip
+  // vector; on tight zooms we align it to the nearest track segment so the
+  // arrow matches the rails the train is on.
   let arrowBearingDeg = bearingDeg;
   const arrowRef = terminal || origin;
   if (arrowRef) {
+    const refBearing = terminal
+      ? bearing(leadTrain, terminal)
+      : bearing(origin, leadTrain);
     const leadPx = project(leadTrain.lat, leadTrain.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
     const refPx = project(arrowRef.lat, arrowRef.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
     const pixelDist = Math.hypot(refPx.x - leadPx.x, refPx.y - leadPx.y);
-    // ~⅓ of the 1200-px frame — enough that the trip vector is meaningful,
-    // not so much that a shuttle bunch with the terminal a few blocks away
-    // flips to trip mode.
     const FAR_PX = 400;
-    if (pixelDist > FAR_PX) {
-      arrowBearingDeg = terminal
-        ? bearing(leadTrain, terminal)
-        : bearing(origin, leadTrain);
+    if (pixelDist > FAR_PX || trackFwd == null) {
+      arrowBearingDeg = refBearing;
+    } else {
+      // Pick whichever of track fwd/rev is closer to the trip vector — that
+      // gives a track-aligned arrow pointing in the correct service direction.
+      const diffFwd = Math.abs(((refBearing - trackFwd + 540) % 360) - 180);
+      const diffRev = Math.abs(((refBearing - trackRev + 540) % 360) - 180);
+      arrowBearingDeg = diffFwd <= diffRev ? trackFwd : trackRev;
     }
   }
 
