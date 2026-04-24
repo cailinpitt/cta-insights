@@ -9,7 +9,9 @@ function routeTitle(route) {
 
 function buildPostText(bunch, pattern, stop, callouts = []) {
   const title = routeTitle(bunch.route);
-  const base = `🚌 ${title} — ${pattern.direction}\n${bunch.vehicles.length} buses within ${formatDistance(bunch.spanFt)} near ${stop.stopName}`;
+  const vids = bunch.vehicles.map((v) => `#${v.vid}`).filter((s) => s !== '#undefined').join(', ');
+  const busesLine = vids ? `\nBuses: ${vids}` : '';
+  const base = `🚌 ${title} — ${pattern.direction}\n${bunch.vehicles.length} buses within ${formatDistance(bunch.spanFt)} near ${stop.stopName}${busesLine}`;
   const tail = formatCallouts(callouts);
   return tail ? `${base}\n${tail}` : base;
 }

@@ -7,7 +7,9 @@ function buildPostText(bunch, callouts = []) {
   const dest = bunch.trains[0].destination;
   const station = shortStationName(bunch.trains[0].nextStation);
   const count = bunch.trains.length;
-  const base = `🚆 ${lineName} Line — to ${dest}\n${count} trains within ${formatDistance(bunch.spanFt)} near ${station}`;
+  const runs = bunch.trains.map((t) => `#${t.rn}`).filter((s) => s !== '#undefined').join(', ');
+  const runsLine = runs ? `\nRuns: ${runs}` : '';
+  const base = `🚆 ${lineName} Line — to ${dest}\n${count} trains within ${formatDistance(bunch.spanFt)} near ${station}${runsLine}`;
   const tail = formatCallouts(callouts);
   return tail ? `${base}\n${tail}` : base;
 }

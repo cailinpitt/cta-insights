@@ -8,7 +8,14 @@ function routeTitle(route) {
 }
 
 function buildPostText(gap, pattern, stop, callouts = []) {
-  const base = `🕳️ ${routeTitle(gap.route)} — ${pattern.direction}\n${formatMinutes(gap.gapMin)} gap near ${stop.stopName} — currently scheduled every ${formatMinutes(gap.expectedMin)}`;
+  // `leading` is the bus already past the gap (last seen);
+  // `trailing` is the next one a rider is waiting for.
+  const last = gap.leading?.vid ? `#${gap.leading.vid}` : null;
+  const next = gap.trailing?.vid ? `#${gap.trailing.vid}` : null;
+  const busesLine = (last || next)
+    ? `\nBuses: ${[last && `${last} (last)`, next && `${next} (next)`].filter(Boolean).join(', ')}`
+    : '';
+  const base = `🕳️ ${routeTitle(gap.route)} — ${pattern.direction}\n${formatMinutes(gap.gapMin)} gap near ${stop.stopName} — currently scheduled every ${formatMinutes(gap.expectedMin)}${busesLine}`;
   const tail = formatCallouts(callouts);
   return tail ? `${base}\n${tail}` : base;
 }
