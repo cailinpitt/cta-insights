@@ -249,7 +249,7 @@ async function collectTrains(line, durationMs, pollIntervalMs) {
  */
 function computeTrainSamples(tracks, linePoints, cumDist, opts = {}) {
   const { maxDtMs, maxMph, minAlongFt, maxPerpFt } = { ...DEFAULT_TRAIN_SAMPLE_OPTS, ...opts };
-  const byDir = new Map(); // trDr -> [{pdist, mph}, ...]
+  const byDir = new Map(); // trDr -> [{startFt, endFt, mph}, ...]
   const rnsByDir = new Map(); // trDr -> Set<rn>
   const stats = { offLine: 0, stationary: 0, dropped: 0 };
 
@@ -271,9 +271,10 @@ function computeTrainSamples(tracks, linePoints, cumDist, opts = {}) {
         const mph = (dft / (dt / 1000)) * (3600 / 5280);
         if (mph > maxMph) { stats.dropped++; continue; }
 
-        const midPdist = (s1.cumDist + s2.cumDist) / 2;
+        const startFt = Math.min(s1.cumDist, s2.cumDist);
+        const endFt = Math.max(s1.cumDist, s2.cumDist);
         if (!byDir.has(trDr)) byDir.set(trDr, []);
-        byDir.get(trDr).push({ pdist: midPdist, mph });
+        byDir.get(trDr).push({ startFt, endFt, mph });
         if (!rnsByDir.has(trDr)) rnsByDir.set(trDr, new Set());
         rnsByDir.get(trDr).add(rn);
       }

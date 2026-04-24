@@ -74,6 +74,7 @@ test('computeTrainSamples pairs consecutive positions into mph samples', () => {
   const samples = byDir.get('5');
   assert.equal(samples.length, 1);
   assert.ok(Math.abs(samples[0].mph - 25) < 1);
+  assert.ok(samples[0].endFt > samples[0].startFt);
 });
 
 test('computeTrainSamples drops off-line samples via maxPerpFt', () => {

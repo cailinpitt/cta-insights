@@ -143,6 +143,36 @@ function binSamples(samples, patternLengthFt, numBins) {
 }
 
 /**
+ * Bucket train-style segment samples (`{startFt, endFt, mph}`) by length-weighted
+ * overlap with each bin. A sample describes the train's speed across the entire
+ * [startFt, endFt] stretch, so every bin the segment intersects receives the
+ * speed weighted by how much of the bin the segment covered. Per-bin value is
+ * the weighted average over contributing segments. This eliminates interior
+ * no-data bins caused by midpoint-only bucketing on sparse polls.
+ */
+function binSegments(segments, patternLengthFt, numBins) {
+  const segLen = patternLengthFt / numBins;
+  const sums = new Array(numBins).fill(0);
+  const weights = new Array(numBins).fill(0);
+  for (const s of segments) {
+    const lo = Math.max(0, s.startFt);
+    const hi = Math.min(patternLengthFt, s.endFt);
+    if (hi <= lo) continue;
+    const loIdx = Math.min(numBins - 1, Math.floor(lo / segLen));
+    const hiIdx = Math.min(numBins - 1, Math.floor(hi / segLen));
+    for (let i = loIdx; i <= hiIdx; i++) {
+      const binLo = i * segLen;
+      const binHi = binLo + segLen;
+      const overlap = Math.min(hi, binHi) - Math.max(lo, binLo);
+      if (overlap <= 0) continue;
+      sums[i] += s.mph * overlap;
+      weights[i] += overlap;
+    }
+  }
+  return sums.map((v, i) => (weights[i] === 0 ? null : v / weights[i]));
+}
+
+/**
  * Summary stats for post text / alt text.
  *
  * Thresholds are the lower bound of each non-red bucket — e.g. for buses
@@ -175,6 +205,7 @@ module.exports = {
   computeSamples,
   pickTargetPid,
   binSamples,
+  binSegments,
   summarize,
   colorForBusSpeed,
   colorForTrainSpeed,

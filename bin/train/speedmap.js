@@ -6,7 +6,7 @@ const argv = require('minimist')(process.argv.slice(2));
 
 const { LINE_NAMES, LINE_COLORS, ALL_LINES } = require('../../src/train/api');
 const { collectTrains, computeTrainSamples, buildLineBranches, snapToLine, truncateBranchToDistance } = require('../../src/train/speedmap');
-const { binSamples, summarize, TRAIN_THRESHOLDS } = require('../../src/bus/speedmap');
+const { binSegments, summarize, TRAIN_THRESHOLDS } = require('../../src/bus/speedmap');
 const { renderTrainSpeedmap } = require('../../src/map');
 const { loginTrain, postWithImage } = require('../../src/train/bluesky');
 const history = require('../../src/shared/history');
@@ -138,7 +138,7 @@ async function main() {
     const numBins = Math.max(MIN_BINS, Math.round(totalFt / FT_PER_BIN));
     const binSpeedsByDir = {};
     for (const [trDr, samples] of byDir) {
-      binSpeedsByDir[trDr] = binSamples(samples, totalFt, numBins);
+      binSpeedsByDir[trDr] = binSegments(samples, totalFt, numBins);
       const s = summarize(binSpeedsByDir[trDr], TRAIN_THRESHOLDS);
       const dest = destForBranchDir(rnsByDir.get(trDr) || new Set(), trDr, destByRnDir);
       const label = dirLabel(dest);
