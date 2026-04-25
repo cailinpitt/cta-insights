@@ -97,6 +97,15 @@ async function handleCandidate(line, direction, candidate, agentGetter, now) {
     reason: null,
     source: 'observed',
     detectedAt: now,
+    evidence: {
+      runLengthMi: Math.round((candidate.runLengthFt / 5280) * 10) / 10,
+      minutesSinceLastTrain: candidate.lastSeenInRunMs != null
+        ? Math.round((now - candidate.lastSeenInRunMs) / 60000)
+        : null,
+      lookbackMin: Math.round(candidate.lookbackMs / 60000),
+      coldThresholdMin: Math.round(candidate.coldThresholdMs / 60000),
+      trainsOutsideRun: candidate.trainsOutsideRun,
+    },
   };
 
   if (DRY_RUN) {

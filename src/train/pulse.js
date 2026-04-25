@@ -53,6 +53,7 @@ function detectDeadSegments({ line, observations, trainLines, stations, headwayM
 
     const numBins = Math.max(2, Math.ceil(totalFt / binFt));
     const lastSeenPerBin = new Array(numBins).fill(-Infinity);
+    const binIdxOfPos = [];
     let onBranch = 0;
 
     for (const p of fresh) {
@@ -61,6 +62,7 @@ function detectDeadSegments({ line, observations, trainLines, stations, headwayM
       onBranch++;
       const idx = Math.min(numBins - 1, Math.max(0, Math.floor(along / (totalFt / numBins))));
       if (p.ts > lastSeenPerBin[idx]) lastSeenPerBin[idx] = p.ts;
+      binIdxOfPos.push(idx);
     }
 
     const zoneFt = terminalZoneFt(totalFt);
@@ -102,6 +104,16 @@ function detectDeadSegments({ line, observations, trainLines, stations, headwayM
     if (!fromStation || !toStation) continue;
     if (fromStation.station.name === toStation.station.name) continue;
 
+    let lastSeenInRun = -Infinity;
+    let positionsInRun = 0;
+    for (let i = bestStart; i <= bestEnd; i++) {
+      if (lastSeenPerBin[i] > lastSeenInRun) lastSeenInRun = lastSeenPerBin[i];
+    }
+    for (const idx of binIdxOfPos) {
+      if (idx >= bestStart && idx <= bestEnd) positionsInRun++;
+    }
+    const trainsOutsideRun = Math.max(0, onBranch - positionsInRun);
+
     candidates.push({
       line,
       direction: branches.length > 1 ? `branch-${branchIdx}` : 'all',
@@ -113,6 +125,10 @@ function detectDeadSegments({ line, observations, trainLines, stations, headwayM
       coldBins: bestEnd - bestStart + 1,
       totalBins: numBins,
       observedTrainsInWindow: onBranch,
+      lastSeenInRunMs: lastSeenInRun > -Infinity ? lastSeenInRun : null,
+      coldThresholdMs,
+      lookbackMs,
+      trainsOutsideRun,
     });
   }
 

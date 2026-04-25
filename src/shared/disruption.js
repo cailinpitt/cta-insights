@@ -13,7 +13,7 @@ function titleFor(d) {
 }
 
 function buildPostText(d) {
-  const { suspendedSegment, alternative, reason, source } = d;
+  const { suspendedSegment, alternative, reason, source, evidence } = d;
   const lines = [titleFor(d)];
   const reasonPhrase = reason ? ` (${reason})` : '';
   lines.push('', `Between ${suspendedSegment.from} and ${suspendedSegment.to}${reasonPhrase}.`);
@@ -22,8 +22,22 @@ function buildPostText(d) {
   } else if (alternative?.type === 'shuttle') {
     lines.push(`Shuttle buses running: ${alternative.from} ↔ ${alternative.to}.`);
   }
+  if (source === 'observed' && evidence) {
+    lines.push('', evidenceLine(evidence));
+  }
   lines.push('', footerFor(source));
   return lines.join('\n');
+}
+
+function evidenceLine(e) {
+  const stretch = e.runLengthMi != null ? `${e.runLengthMi}-mi stretch` : 'this stretch';
+  const since = e.minutesSinceLastTrain != null
+    ? `the last ${e.minutesSinceLastTrain} min`
+    : `the last ${e.lookbackMin || 20} min`;
+  const elsewhere = e.trainsOutsideRun != null
+    ? ` (${e.trainsOutsideRun} train${e.trainsOutsideRun === 1 ? '' : 's'} active elsewhere on the line)`
+    : '';
+  return `📡 No trains seen on this ${stretch} in ${since}${elsewhere}.`;
 }
 
 function buildAltText(d) {
@@ -40,8 +54,8 @@ function buildAltText(d) {
 
 function footerFor(source) {
   if (source === 'cta-alert') return 'Per CTA. Check transitchicago.com for updates.';
-  if (source === 'observed') return "Based on what the bot sees; CTA hasn't issued an alert for this yet.";
+  if (source === 'observed') return "Inferred from live train positions; CTA hasn't issued an alert for this yet.";
   return '';
 }
 
-module.exports = { buildPostText, buildAltText, titleFor, footerFor };
+module.exports = { buildPostText, buildAltText, titleFor, footerFor, evidenceLine };
