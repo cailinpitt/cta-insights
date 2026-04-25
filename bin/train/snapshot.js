@@ -41,6 +41,7 @@ async function main() {
     new Date(result.startTs),
     new Date(result.endTs),
     windowMin,
+    result.initialTrains,
   );
   const alt = buildVideoAltText(finalTrains, windowMin);
 

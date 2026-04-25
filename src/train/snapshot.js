@@ -19,10 +19,14 @@ function buildAltText(trains) {
   return `Map of Chicago showing live positions of ${trains.length} CTA L trains currently in service, colored by line: ${summary}.`;
 }
 
-function buildVideoPostText(trains, startTs, endTs, windowMin) {
+function buildVideoPostText(trains, startTs, endTs, windowMin, startTrains) {
   const byLine = countByLine(trains);
   const parts = ALL_LINES.map((l) => `${LINE_NAMES[l]} ${byLine.get(l) || 0}`);
-  return `🚆 CTA L · ${windowMin}-min timelapse\n${formatTimeCT(startTs)}–${formatTimeCT(endTs)} CT · ${trains.length} trains at end of window\n\n${parts.join(' · ')}`;
+  const countLine =
+    startTrains && startTrains.length !== trains.length
+      ? `${startTrains.length} → ${trains.length} trains (start → end of window)`
+      : `${trains.length} trains`;
+  return `🚆 CTA L · ${windowMin}-min timelapse\n${formatTimeCT(startTs)}–${formatTimeCT(endTs)} CT · ${countLine}\n\n${parts.join(' · ')}`;
 }
 
 function buildVideoAltText(trains, windowMin) {

@@ -228,7 +228,16 @@ async function captureSnapshotVideo(initialTrains, lineColors, trainLines, opts 
     const endTs = snapshots[snapshots.length - 1].ts;
     const elapsedSec = Math.round((endTs - startTs) / 1000);
     const finalTrains = snapshots[snapshots.length - 1].trains;
-    return { buffer, ticksCaptured: snapshots.length, elapsedSec, finalTrains, startTs, endTs };
+    const initialSnapshotTrains = snapshots[0].trains;
+    return {
+      buffer,
+      ticksCaptured: snapshots.length,
+      elapsedSec,
+      finalTrains,
+      initialTrains: initialSnapshotTrains,
+      startTs,
+      endTs,
+    };
   } finally {
     await Fs.remove(tmpDir).catch(() => {});
   }
