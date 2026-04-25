@@ -1,7 +1,7 @@
 {
   "name": "cta-insights",
   "version": "0.0.1",
-  "description": "Bluesky bot that posts visualizations from CTA train and bus tracker APIs",
+  "description": "Bluesky bots that turn CTA train and bus tracker data into Chicago-specific transit visualizations",
   "main": "index.js",
   "dependencies": {
     "@atproto/api": "^0.18.16",
