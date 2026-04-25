@@ -123,7 +123,10 @@ function db() {
       vehicle_id TEXT NOT NULL,
       destination TEXT,
       lat REAL,
-      lon REAL
+      lon REAL,
+      pdist REAL,
+      heading INTEGER,
+      vehicle_ts INTEGER
     );
     CREATE INDEX IF NOT EXISTS idx_obs_kind_route_ts
       ON observations(kind, route, ts);
@@ -147,12 +150,24 @@ function db() {
   // Migration: add lat/lon to observations so the pulse detector can project
   // historical positions onto line polylines. Existing rows leave them null
   // (still useful for ghost detection which only needs distinct-vid counts).
+  // pdist/heading/vehicle_ts let bunching+gaps consume the same snapshots
+  // observeGhosts already records — eliminating their duplicate getvehicles
+  // calls and cutting bus-API usage in half.
   const obsCols = _db.prepare("PRAGMA table_info(observations)").all().map((c) => c.name);
   if (!obsCols.includes('lat')) {
     _db.exec('ALTER TABLE observations ADD COLUMN lat REAL');
   }
   if (!obsCols.includes('lon')) {
     _db.exec('ALTER TABLE observations ADD COLUMN lon REAL');
+  }
+  if (!obsCols.includes('pdist')) {
+    _db.exec('ALTER TABLE observations ADD COLUMN pdist REAL');
+  }
+  if (!obsCols.includes('heading')) {
+    _db.exec('ALTER TABLE observations ADD COLUMN heading INTEGER');
+  }
+  if (!obsCols.includes('vehicle_ts')) {
+    _db.exec('ALTER TABLE observations ADD COLUMN vehicle_ts INTEGER');
   }
 
   return _db;

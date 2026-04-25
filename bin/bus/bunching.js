@@ -3,7 +3,7 @@ require('../../src/shared/env');
 
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getVehicles } = require('../../src/bus/api');
+const { getVehiclesCachedOrFresh } = require('../../src/bus/api');
 const { bunching: bunchingRoutes } = require('../../src/bus/routes');
 const { detectAllBunching } = require('../../src/bus/bunching');
 const { loadPattern, findNearestStop } = require('../../src/bus/patterns');
@@ -27,11 +27,10 @@ const BUS_BUNCHING_DAILY_CAP = 3;
 async function main() {
   setup();
   const routes = bunchingRoutes;
-  console.log(`Fetching vehicles for ${routes.length} routes...`);
-  const vehicles = await getVehicles(routes);
-  console.log(`Got ${vehicles.length} vehicles`);
+  const { vehicles, now, source } = await getVehiclesCachedOrFresh(routes);
+  console.log(`Got ${vehicles.length} vehicles (${source}, snapshot ${new Date(now).toISOString()})`);
 
-  const bunches = detectAllBunching(vehicles);
+  const bunches = detectAllBunching(vehicles, now);
   if (bunches.length === 0) {
     console.log('No bunching detected');
     return;

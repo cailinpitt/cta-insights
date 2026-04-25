@@ -3,7 +3,7 @@ require('../../src/shared/env');
 
 const argv = require('minimist')(process.argv.slice(2));
 
-const { getVehicles, getPredictions } = require('../../src/bus/api');
+const { getVehiclesCachedOrFresh, getPredictions } = require('../../src/bus/api');
 const { gaps: gapRoutes } = require('../../src/bus/routes');
 const { detectAllGaps } = require('../../src/bus/gaps');
 const { loadPattern, findNearestStop } = require('../../src/bus/patterns');
@@ -28,9 +28,8 @@ async function main() {
     console.warn(`Routes missing from GTFS index (will be skipped): ${unindexed.join(', ')} — re-run scripts/fetch-gtfs.js`);
   }
 
-  console.log(`Fetching vehicles for ${routes.length} routes...`);
-  const vehicles = await getVehicles(routes);
-  console.log(`Got ${vehicles.length} vehicles`);
+  const { vehicles, now, source } = await getVehiclesCachedOrFresh(routes);
+  console.log(`Got ${vehicles.length} vehicles (${source}, snapshot ${new Date(now).toISOString()})`);
 
   // Resolve pattern + expected headway per unique pid once, lazily. We can't
   // pre-fetch because we don't know which pids have candidate gaps until the
@@ -56,6 +55,7 @@ async function main() {
     vehicles,
     (pid) => headwayCache.get(pid) ?? null,
     (pid) => patternCache.get(pid) || null,
+    now,
   );
 
   if (gaps.length === 0) {

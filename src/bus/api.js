@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { recordBusObservations } = require('../shared/observations');
+const { recordBusObservations, getLatestBusSnapshot } = require('../shared/observations');
 const { withRetry } = require('../shared/retry');
 
 const BUS_BASE = 'https://www.ctabustracker.com/bustime/api/v3';
@@ -118,4 +118,30 @@ async function getPredictions({ stpid, vid, rt, top }) {
   return body.prd || [];
 }
 
-module.exports = { getVehicles, getPattern, getPredictions, parseBusTime };
+/**
+ * Return vehicles for `routes`, preferring the latest snapshot already in the
+ * observations DB if it's fresh enough. Falls back to a live `getVehicles`
+ * fetch when the cache is empty or stale.
+ *
+ * Returns `{ vehicles, now, source }`:
+ *   - `vehicles`: array of Vehicle-shaped objects
+ *   - `now`: the timestamp the caller should pass to detectors as their `now`
+ *     (so per-vehicle `tmstmp` staleness gates fire against the snapshot's
+ *     reference time, not the cron's wall clock)
+ *   - `source`: 'cache' or 'fetch' — for logging
+ *
+ * `maxStaleMs` defaults to 4 min, which sits comfortably between the
+ * 5-min observeGhosts cadence and the 3-min per-vehicle staleness floor in
+ * the detectors. The DB snapshot is at most 5 min old; vehicle tmstmps inside
+ * are <= snapshotTs.
+ */
+async function getVehiclesCachedOrFresh(routes, { maxStaleMs = 4 * 60 * 1000 } = {}) {
+  const cached = getLatestBusSnapshot(routes, maxStaleMs);
+  if (cached && cached.vehicles.length > 0) {
+    return { vehicles: cached.vehicles, now: new Date(cached.snapshotTs), source: 'cache' };
+  }
+  const vehicles = await getVehicles(routes);
+  return { vehicles, now: new Date(), source: 'fetch' };
+}
+
+module.exports = { getVehicles, getVehiclesCachedOrFresh, getPattern, getPredictions, parseBusTime };
