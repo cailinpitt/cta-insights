@@ -4,7 +4,7 @@ Bluesky bots that turn CTA train and bus tracker data into Chicago-specific tran
 
 - **Bus**: [@ctabusinsights.bsky.social](https://bsky.app/profile/ctabusinsights.bsky.social)
 - **Train**: [@ctatraininsights.bsky.social](https://bsky.app/profile/ctatraininsights.bsky.social)
-- **Alerts**: dedicated alerts account republishing significant CTA service alerts (with threaded "cleared" replies)
+- **Alerts**: [@ctaalertinsights.bsky.social](https://bsky.app/profile/ctaalertinsights.bsky.social)
 
 This README is written for operators running their own copy. If you just want to see the output, follow the accounts above. Scroll to the [Examples gallery](#examples-gallery) for sample posts.
 
@@ -27,9 +27,13 @@ This README is written for operators running their own copy. If you just want to
 - **Snapshot** — map of all active trains system-wide, with a Loop inset.
 - **Ghost trains** — hourly rollup of line/direction pairs missing trains vs. the schedule.
 
-### Both
+### Alerts (`@ctaalertinsights`)
+- **Republished CTA alerts** — significant service alerts on tracked routes, filtered to drop the noisy "major" ones (single elevator out, block-party reroutes, etc.). Each post gets a threaded `✅ cleared` reply once CTA marks it resolved.
+- **Segment-dim maps** — when a rail alert names a station-to-station stretch ("between Belmont and Howard"), the post includes a map dimming that segment of the line.
+- **Pulse** — a bot-side detector that infers a rail service suspension from live train positions when a ≥2-mile stretch of a line goes cold for 15+ min. Often surfaces outages before CTA issues an alert; threaded under the official alert when one appears.
+
+### Both bus and train
 - **Historical callouts** — posts carry frequency and severity context from prior posts in `history.sqlite`, e.g. *"3rd Route 66 bunch reported today"* or *"tightest reported on this line in 30 days"*.
-- **Service alerts** — a dedicated alerts account combines two signals: (1) significant CTA-published alerts on tracked routes, with a threaded `✅ cleared` reply when CTA resolves them and a segment-dimmed map for rail alerts that name a station-to-station stretch; (2) **pulse**, a bot-side detector that infers a service suspension from live train positions when a ≥2-mile stretch of a line goes cold for 15+ min — often surfacing outages before CTA issues an alert, and threaded under the official alert when one appears. See [docs/ALERTS.md](docs/ALERTS.md) for the full logic.
 
 The bus bot tracks a subset of CTA routes — see `src/bus/routes.js`. The train bot covers all 8 L lines.
 

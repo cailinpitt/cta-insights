@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildPostText, buildAltText, evidenceLine } = require('../../src/shared/disruption');
+const { buildPostText, buildAltText, buildClearPostText, evidenceLine } = require('../../src/shared/disruption');
 
 function observed(overrides = {}) {
   return {
@@ -65,6 +65,32 @@ test('buildPostText omits evidence line for cta-alert source', () => {
 
 test('buildPostText is under 300 graphemes for typical observed pulse', () => {
   const text = buildPostText(observed());
+  assert.ok(text.length < 300, `text was ${text.length} chars: ${text}`);
+});
+
+test('buildClearPostText (no CTA alert) says CTA never issued one', () => {
+  const text = buildClearPostText({
+    line: 'red',
+    suspendedSegment: { from: 'Belmont', to: 'Howard' },
+  });
+  assert.match(text, /^✅ Red Line trains running through Belmont ↔ Howard again\./);
+  assert.match(text, /CTA hasn't issued an alert for this/);
+});
+
+test('buildClearPostText (CTA alert open) acknowledges the open alert', () => {
+  const text = buildClearPostText(
+    { line: 'red', suspendedSegment: { from: 'Belmont', to: 'Howard' } },
+    { ctaAlertOpen: true },
+  );
+  assert.match(text, /CTA hasn't cleared their alert yet/);
+  assert.doesNotMatch(text, /hasn't issued an alert/);
+});
+
+test('buildClearPostText stays under 300 graphemes for typical segments', () => {
+  const text = buildClearPostText({
+    line: 'blue',
+    suspendedSegment: { from: "O'Hare", to: 'Forest Park' },
+  }, { ctaAlertOpen: true });
   assert.ok(text.length < 300, `text was ${text.length} chars: ${text}`);
 });
 

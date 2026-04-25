@@ -6,14 +6,14 @@ const { fetchAlerts, extractBetweenStations, isSignificantAlert } = require('../
 const { findStationByDestination } = require('../../src/train/findStation');
 const { renderDisruption } = require('../../src/map');
 const { LINE_COLORS, LINE_NAMES } = require('../../src/train/api');
-const { loginAlerts, postWithImage, postText } = require('../../src/shared/bluesky');
+const { loginAlerts, postWithImage, postText, resolveReplyRef } = require('../../src/shared/bluesky');
 const {
   buildAlertPostText, buildAlertAltText, buildResolutionReplyText,
 } = require('../../src/shared/alertPost');
 const {
   getAlertPost, recordAlertSeen, recordAlertResolved,
   incrementAlertClearTicks, resetAlertClearTicks,
-  listUnresolvedAlerts, ALERT_CLEAR_TICKS,
+  listUnresolvedAlerts, ALERT_CLEAR_TICKS, getRecentPulsePost,
 } = require('../../src/shared/history');
 const trainLines = require('../../src/train/data/trainLines.json');
 const trainStations = require('../../src/train/data/trainStations.json');
@@ -77,10 +77,21 @@ async function postNewAlert(alert, agentGetter) {
   recordAlertSeen({ alertId: alert.id, kind: KIND, routes, headline: alert.headline, postUri: null });
 
   const agent = await agentGetter();
+
+  // If a recent pulse post on the same line already flagged this disruption,
+  // thread the CTA alert under it so "what the bot saw" and "what CTA says"
+  // stay in one conversation. Skip multi-line alerts — there's no single
+  // pulse to thread under.
+  let replyRef = null;
+  if (alert.trainLines.length === 1) {
+    const recentPulse = getRecentPulsePost({ kind: KIND, line: alert.trainLines[0] });
+    if (recentPulse) replyRef = await resolveReplyRef(agent, recentPulse.post_uri);
+  }
+
   const result = image
-    ? await postWithImage(agent, text, image, alt)
-    : await postText(agent, text);
-  console.log(`Posted alert ${alert.id}: ${result.url}`);
+    ? await postWithImage(agent, text, image, alt, replyRef)
+    : await postText(agent, text, replyRef);
+  console.log(`Posted alert ${alert.id}${replyRef ? ' (threaded under pulse)' : ''}: ${result.url}`);
   recordAlertSeen({ alertId: alert.id, kind: KIND, routes, headline: alert.headline, postUri: result.uri });
 }
 
@@ -100,23 +111,18 @@ async function postResolution(alertRow, agentGetter) {
 
   const agent = await agentGetter();
   try {
-    // AtProto reply refs need a CID; look it up since we only stored the URI.
-    const [repo, collection, rkey] = parseAtUri(alertRow.post_uri);
-    const { data: record } = await agent.com.atproto.repo.getRecord({ repo, collection, rkey });
-    const ref = { uri: alertRow.post_uri, cid: record.cid };
-    const result = await postText(agent, text, { root: ref, parent: ref });
+    // resolveReplyRef inherits the alert's own root when it was itself a
+    // reply (e.g. threaded under an earlier pulse), so the resolution lands
+    // in the same thread instead of starting a sub-thread.
+    const replyRef = await resolveReplyRef(agent, alertRow.post_uri);
+    if (!replyRef) throw new Error('could not resolve reply ref for alert post');
+    const result = await postText(agent, text, replyRef);
     console.log(`Posted resolution for alert ${alertRow.alert_id}: ${result.url}`);
     recordAlertResolved({ alertId: alertRow.alert_id, replyUri: result.uri });
   } catch (e) {
     console.warn(`Resolution reply failed for alert ${alertRow.alert_id}: ${e.message}`);
     recordAlertResolved({ alertId: alertRow.alert_id, replyUri: null });
   }
-}
-
-function parseAtUri(uri) {
-  const m = /^at:\/\/([^/]+)\/([^/]+)\/(.+)$/.exec(uri);
-  if (!m) throw new Error(`Invalid at:// URI: ${uri}`);
-  return [m[1], m[2], m[3]];
 }
 
 async function main() {

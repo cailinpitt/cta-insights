@@ -119,4 +119,23 @@ function loginAlerts() {
   return login(process.env.BLUESKY_ALERTS_IDENTIFIER, process.env.BLUESKY_ALERTS_APP_PASSWORD);
 }
 
-module.exports = { login, loginAlerts, postWithImage, postWithVideo, postText };
+// Build a reply ref pointing at `parentUri`. Inherits the parent's `root`
+// when the parent is itself a reply, so the new post lands in the same thread
+// rather than starting a sub-thread.
+async function resolveReplyRef(agent, parentUri) {
+  const m = /^at:\/\/([^/]+)\/([^/]+)\/(.+)$/.exec(parentUri);
+  if (!m) return null;
+  const [, repo, collection, rkey] = m;
+  try {
+    const { data: record } = await agent.com.atproto.repo.getRecord({ repo, collection, rkey });
+    const parent = { uri: parentUri, cid: record.cid };
+    const root = record.value && record.value.reply && record.value.reply.root
+      ? record.value.reply.root
+      : parent;
+    return { root, parent };
+  } catch (_) {
+    return null;
+  }
+}
+
+module.exports = { login, loginAlerts, postWithImage, postWithVideo, postText, resolveReplyRef };

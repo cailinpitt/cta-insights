@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 // Bus alerts post text-only — bus reroutes don't map cleanly onto a polyline
 // segment, so there's no equivalent of the rail disruption map.
+//
+// Asymmetry with bin/train/alerts.js: there's no bus pulse detector today,
+// so this bin doesn't thread under prior pulse posts (getRecentPulsePost /
+// resolveReplyRef). If a bus pulse is added, mirror the threading logic from
+// bin/train/alerts.js#postNewAlert and the root-aware reply in postResolution.
 
 require('../../src/shared/env');
 

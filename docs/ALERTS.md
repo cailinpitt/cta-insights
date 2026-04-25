@@ -30,8 +30,24 @@ In parallel, every few minutes:
 3. If a contiguous stretch of bins ≥ 2 miles long has been cold for at least 15 minutes (or 2× the scheduled headway, whichever is longer), and trains are still active elsewhere on the line, that's a candidate.
 4. Require the same stretch to recur on two consecutive checks before posting (filters single-tick noise).
 5. Post a map dimming the affected segment with a footer making clear this was inferred from live positions, not announced by CTA. If there's an open CTA alert for the same line, the pulse post is threaded as a reply to it.
+6. When the dead stretch warms back up for several consecutive checks, post a `✅ trains running through X ↔ Y again` reply under the original pulse — independently of whether CTA ever issued an alert.
 
 This is how the bot can flag a Red Line outage minutes before CTA's own alert appears — the empty stretch is right there in the live feed.
+
+### Threading: keeping a single conversation per disruption
+
+Pulse posts and CTA-alert posts can arrive in either order on the same disruption. The threading rules are designed so all related posts share the same thread root:
+
+- **Pulse first, CTA second** — pulse posts top-level. When the CTA alert lands, `bin/train/alerts.js` looks up the most recent pulse for that line and threads under it. Both clears (bot-side `✅ trains running again` and CTA-side `✅ CTA has cleared:`) reply within that thread, with `resolveReplyRef` inheriting the pulse as root.
+- **CTA first, pulse second** — CTA alert posts top-level. Pulse looks up the open CTA alert and threads under it (`findOpenAlertReplyRef` in `bin/train/pulse.js`). The bot-side clear inherits the CTA alert as root via the same `resolveReplyRef` helper.
+- **Pulse only (CTA never publishes)** — pulse posts top-level, bot-side clear replies under it, no CTA participation.
+- **CTA only (pulse never fires)** — single CTA alert + threaded `✅ CTA has cleared:` reply, same as before pulse existed.
+
+The bot-side clear text varies based on whether a CTA alert has appeared in the thread:
+- No CTA alert seen: *"… (CTA hasn't issued an alert for this.)"*
+- CTA alert exists but unresolved: *"… (CTA hasn't cleared their alert yet.)"*
+
+The `ctaAlertPostedSince` check (in `src/shared/history.js`) drives the variant; `hasObservedClearSince` provides idempotency so a process restart between posting the clear reply and deleting `pulse_state` doesn't double-post.
 
 ## The technical version — CTA republishing
 
@@ -153,9 +169,16 @@ Between <from> and <to>.
 Inferred from live train positions; CTA hasn't issued an alert for this yet.
 ```
 
-If there's an open CTA alert post for the same line in our DB, the pulse post is threaded as a reply to it (`findOpenAlertReplyRef`). That way "official CTA alert" and "what the bot saw" stay together as one conversation.
+If there's an open CTA alert post for the same line in our DB, the pulse post is threaded as a reply to it (`findOpenAlertReplyRef`). The reverse case — pulse first, CTA alert later — is handled symmetrically in `bin/train/alerts.js#postNewAlert` via `getRecentPulsePost`, so either ordering converges to a single thread.
 
 The same `Disruption` shape and renderer are reused by `bin/train/disruption.js`, which lets an operator manually post a disruption from CLI args (typically copying CTA alert info verbatim before the auto-republisher catches up). The auto-detector and the manual command share everything downstream of the `Disruption` object.
+
+### Step 6 — bot-side clear
+
+When `pulse_state` rolls off after `CLEAR_TICKS_TO_RESET = 3` clean ticks, `bin/train/pulse.js#postClearReply` posts a `✅ <Line> trains running through X ↔ Y again` reply under the original pulse (24h lookup window) and releases the per-segment cooldown so a fresh outage on the same stretch can post immediately. Two safeguards:
+
+- **Idempotency** — `hasObservedClearSince` checks `disruption_events` for an existing `observed-clear` row tied to the same pulse before posting; if one exists, the reply is skipped. This prevents a duplicate clear if the process is killed between the post and `clearPulseState`.
+- **Wording variant** — `ctaAlertPostedSince` toggles the parenthetical: *"(CTA hasn't issued an alert for this.)"* when CTA never weighed in, *"(CTA hasn't cleared their alert yet.)"* when there's an unresolved CTA alert in the thread. The bot-side clear fires in both cases — CTA's eventual `✅ CTA has cleared:` is an independent signal and both belong in the thread.
 
 ## Why this approach
 
@@ -166,12 +189,15 @@ Riders already have transitchicago.com and the CTA app. The value of this accoun
 
 The conservative filtering (minor-wins, severity floor, multi-tick clear, debounce, coverage/span gates, cold-start guards) is deliberate across both halves. False alarms here are higher-cost than for the visualization posts: a post on this account reads as transit info, and over-posting trivial alerts or a phantom suspension trains followers to ignore the feed.
 
+The bot-side clear (step 6 above) is the one place we deliberately accept a small false-positive risk: a single tick where the dead-zone briefly warms back up could fire a premature `✅`. The 3-tick `CLEAR_TICKS_TO_RESET` debounce makes that unlikely, and on balance leaving pulse posts hanging without resolution was a worse failure mode — followers couldn't tell if a flagged disruption was still live.
+
 ## Files
 
 - `src/shared/ctaAlerts.js` — fetching, normalization, significance gates.
 - `src/shared/alertPost.js` — alert and resolution post text.
-- `src/shared/disruption.js` — segment-dim disruption post text and alt text (shared by republished alerts and pulse).
-- `src/shared/history.js` — `recordAlertSeen`, `listUnresolvedAlerts`, `incrementAlertClearTicks`, `pulse_state` rows, `recordDisruption`, etc.
+- `src/shared/disruption.js` — segment-dim disruption post text, alt text, and `buildClearPostText` (shared by republished alerts and pulse).
+- `src/shared/bluesky.js` — `resolveReplyRef` for root-aware threading (used by both pulse and alerts).
+- `src/shared/history.js` — `recordAlertSeen`, `listUnresolvedAlerts`, `incrementAlertClearTicks`, `pulse_state` rows, `recordDisruption`, `getRecentPulsePost`, `hasObservedClearSince`, `ctaAlertPostedSince`, etc.
 - `src/shared/observations.js` — train position storage + `getRecentTrainPositions` for pulse.
 - `src/train/pulse.js` — dead-segment detector (pure, no DB).
 - `bin/bus/alerts.js`, `bin/train/alerts.js` — CTA-republishing cron entry points.

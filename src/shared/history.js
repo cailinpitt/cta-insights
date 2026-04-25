@@ -211,6 +211,42 @@ function listUnresolvedAlerts(kind) {
   return db().prepare('SELECT * FROM alert_posts WHERE kind = ? AND resolved_ts IS NULL').all(kind);
 }
 
+function getRecentPulsePost({ kind, line, direction, withinMs = 3 * 60 * 60 * 1000 }, now = Date.now()) {
+  const params = [kind, line, now - withinMs];
+  let sql = `
+    SELECT id, ts, from_station, to_station, direction, post_uri FROM disruption_events
+    WHERE kind = ? AND line = ? AND source = 'observed'
+      AND posted = 1 AND post_uri IS NOT NULL
+      AND ts >= ?
+  `;
+  if (direction) { sql += ' AND direction = ?'; params.push(direction); }
+  sql += ' ORDER BY ts DESC LIMIT 1';
+  return db().prepare(sql).get(...params) || null;
+}
+
+function hasObservedClearSince({ kind, line, direction, sinceTs }) {
+  const params = [kind, line, sinceTs];
+  let sql = `
+    SELECT id FROM disruption_events
+    WHERE kind = ? AND line = ? AND source = 'observed-clear'
+      AND posted = 1 AND ts >= ?
+  `;
+  if (direction) { sql += ' AND direction = ?'; params.push(direction); }
+  sql += ' LIMIT 1';
+  return !!db().prepare(sql).get(...params);
+}
+
+function ctaAlertPostedSince({ kind, ctaRouteCode, sinceTs }) {
+  const row = db().prepare(`
+    SELECT alert_id FROM alert_posts
+    WHERE kind = ? AND post_uri IS NOT NULL
+      AND first_seen_ts >= ?
+      AND (',' || routes || ',') LIKE ?
+    LIMIT 1
+  `).get(kind, sinceTs, `%,${ctaRouteCode},%`);
+  return !!row;
+}
+
 function recordDisruption({
   kind, line, direction, fromStation, toStation, source, posted, postUri,
 }, now = Date.now()) {
@@ -503,6 +539,9 @@ module.exports = {
   listUnresolvedAlerts,
   ALERT_CLEAR_TICKS,
   recordDisruption,
+  getRecentPulsePost,
+  hasObservedClearSince,
+  ctaAlertPostedSince,
   getPulseState,
   upsertPulseState,
   clearPulseState,

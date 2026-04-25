@@ -58,4 +58,12 @@ function footerFor(source) {
   return '';
 }
 
-module.exports = { buildPostText, buildAltText, titleFor, footerFor, evidenceLine };
+function buildClearPostText(d, { ctaAlertOpen = false } = {}) {
+  const lineName = LINE_NAMES[d.line] || d.line;
+  const tail = ctaAlertOpen
+    ? "(CTA hasn't cleared their alert yet.)"
+    : "(CTA hasn't issued an alert for this.)";
+  return `✅ ${lineName} Line trains running through ${d.suspendedSegment.from} ↔ ${d.suspendedSegment.to} again. ${tail}`;
+}
+
+module.exports = { buildPostText, buildAltText, buildClearPostText, titleFor, footerFor, evidenceLine };

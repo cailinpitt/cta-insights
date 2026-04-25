@@ -13,15 +13,17 @@ require('../../src/shared/env');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
 const { detectDeadSegments } = require('../../src/train/pulse');
 const { getAllTrainPositions, LINE_COLORS, LINE_NAMES, ALL_LINES } = require('../../src/train/api');
-const { loginAlerts, postWithImage } = require('../../src/shared/bluesky');
+const { loginAlerts, postWithImage, postText, resolveReplyRef } = require('../../src/shared/bluesky');
 const { renderDisruption } = require('../../src/map');
-const { buildPostText, buildAltText } = require('../../src/shared/disruption');
+const { buildPostText, buildAltText, buildClearPostText } = require('../../src/shared/disruption');
 const { expectedTrainHeadwayMin } = require('../../src/shared/gtfs');
 const { getRecentTrainPositions } = require('../../src/shared/observations');
 const { acquireCooldown } = require('../../src/shared/state');
 const {
-  getPulseState, upsertPulseState, clearPulseState, recordDisruption, getDb,
+  getPulseState, upsertPulseState, clearPulseState, recordDisruption,
+  getRecentPulsePost, hasObservedClearSince, ctaAlertPostedSince, getDb,
 } = require('../../src/shared/history');
+const { clearCooldown } = require('../../src/shared/state');
 const { LINE_TO_RAIL_ROUTE } = require('../../src/shared/ctaAlerts');
 const { rolloffOldObservations } = require('../../src/shared/observations');
 const trainLines = require('../../src/train/data/trainLines.json');
@@ -174,12 +176,14 @@ async function handleCandidate(line, direction, candidate, agentGetter, now) {
   });
 }
 
-function handleClear(line, direction, now) {
+async function handleClear(line, direction, agentGetter, now) {
   const prior = getPulseState(line, direction);
   if (!prior) return;
   const clearTicks = (prior.clear_ticks || 0) + 1;
   if (clearTicks >= CLEAR_TICKS_TO_RESET) {
     console.log(`[${line}/${direction}] cleared after ${clearTicks} clean ticks`);
+    await postClearReply(line, direction, prior, agentGetter);
+    if (prior.posted_cooldown_key) clearCooldown(prior.posted_cooldown_key);
     clearPulseState(line, direction);
     return;
   }
@@ -187,6 +191,52 @@ function handleClear(line, direction, now) {
     ...priorToUpsertArgs(prior),
     clearTicks,
     lastSeenTs: now,
+  });
+}
+
+// Post a green-checkmark reply under the original pulse when the bot's
+// detector says trains are running through the previously cold stretch
+// again. We post even when a CTA alert has been threaded under the pulse —
+// the bot's "trains are moving" signal and CTA's "we've cleared the alert"
+// signal are independent and both belong in the thread.
+async function postClearReply(line, direction, prior, agentGetter) {
+  const recentPulse = getRecentPulsePost({ kind: 'train', line, direction, withinMs: 24 * 60 * 60 * 1000 });
+  if (!recentPulse) return;
+
+  // Idempotency: if a clear reply already exists for this pulse (e.g. previous
+  // run posted but crashed before clearPulseState), skip rather than duplicate.
+  if (hasObservedClearSince({ kind: 'train', line, direction, sinceTs: recentPulse.ts })) {
+    console.log(`[${line}/${direction}] clear reply already posted for this pulse — skipping`);
+    return;
+  }
+
+  const ctaCode = LINE_TO_RAIL_ROUTE[line];
+  const ctaAlertOpen = !!(ctaCode && ctaAlertPostedSince({ kind: 'train', ctaRouteCode: ctaCode, sinceTs: recentPulse.ts }));
+
+  const fromStation = prior.from_station || recentPulse.from_station;
+  const toStation = prior.to_station || recentPulse.to_station;
+  if (!fromStation || !toStation) return;
+
+  const disruption = { line, suspendedSegment: { from: fromStation, to: toStation } };
+  const text = buildClearPostText(disruption, { ctaAlertOpen });
+
+  if (DRY_RUN) {
+    console.log(`--- DRY RUN clear reply for ${line}/${direction} ---\n${text}`);
+    return;
+  }
+
+  const agent = await agentGetter();
+  const replyRef = await resolveReplyRef(agent, recentPulse.post_uri);
+  if (!replyRef) {
+    console.warn(`[${line}/${direction}] could not resolve reply ref for clear post`);
+    return;
+  }
+  const result = await postText(agent, text, replyRef);
+  console.log(`Posted pulse clear ${line}/${direction}: ${result.url}`);
+  recordDisruption({
+    kind: 'train', line, direction,
+    fromStation, toStation,
+    source: 'observed-clear', posted: true, postUri: result.uri,
   });
 }
 
@@ -201,17 +251,7 @@ async function findOpenAlertReplyRef(agent, line) {
     ORDER BY first_seen_ts DESC LIMIT 1
   `).get(`%,${code},%`);
   if (!row || !row.post_uri) return null;
-  try {
-    const m = /^at:\/\/([^/]+)\/([^/]+)\/(.+)$/.exec(row.post_uri);
-    if (!m) return null;
-    const [, repo, collection, rkey] = m;
-    const { data: record } = await agent.com.atproto.repo.getRecord({ repo, collection, rkey });
-    const ref = { uri: row.post_uri, cid: record.cid };
-    return { root: ref, parent: ref };
-  } catch (e) {
-    console.warn(`Could not fetch open-alert ref for ${line}: ${e.message}`);
-    return null;
-  }
+  return resolveReplyRef(agent, row.post_uri);
 }
 
 function priorToUpsertArgs(prior) {
@@ -291,9 +331,8 @@ async function main() {
     }
 
     if (candidates.length === 0) {
-      const { getDb } = require('../../src/shared/history');
       const rows = getDb().prepare('SELECT * FROM pulse_state WHERE line = ?').all(line);
-      for (const row of rows) handleClear(line, row.direction, now);
+      for (const row of rows) await handleClear(line, row.direction, agentGetter, now);
       continue;
     }
 
@@ -310,10 +349,9 @@ async function main() {
     }
 
     // Stale pulse_state rows (no matching candidate this tick) get cleared.
-    const { getDb } = require('../../src/shared/history');
     const rows = getDb().prepare('SELECT * FROM pulse_state WHERE line = ?').all(line);
     for (const row of rows) {
-      if (!seenDirs.has(row.direction)) handleClear(line, row.direction, now);
+      if (!seenDirs.has(row.direction)) await handleClear(line, row.direction, agentGetter, now);
     }
   }
 }
