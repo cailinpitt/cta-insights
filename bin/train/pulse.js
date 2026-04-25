@@ -1,23 +1,7 @@
 #!/usr/bin/env node
-// Auto "service pulse" detector — flags suspected service outages from live
-// positions + GTFS headways alone, without waiting for a CTA alert.
-//
-// Runs every 5 min. Calls getAllTrainPositions (which records fresh rows with
-// lat/lon into observations), then pulls the last ~20 minutes of positioned
-// observations, snaps them onto each branch of each line, looks for long
-// contiguous cold-bin runs, and posts a Disruption where the same cold run
-// persists for ≥ MIN_CONSECUTIVE_TICKS.
-//
-// State machine per (line, direction):
-//   - pulse_state row tracks the current run's (lo, hi), started_ts,
-//     consecutive_ticks, clear_ticks.
-//   - Each tick: if a matching candidate exists (≥50% overlap with prior run),
-//     increment consecutive_ticks. Otherwise reset the slot to the new candidate.
-//   - Post only when consecutive_ticks >= MIN_CONSECUTIVE_TICKS AND not on cooldown.
-//   - If no candidate: increment clear_ticks. After CLEAR_TICKS, clear the
-//     row and (optionally) the posted cooldown.
-//
-// Gated by PULSE_DRY_RUN=1 for initial rollout.
+// Posts when a candidate dead segment overlaps the previous tick's run by
+// ≥50% for MIN_CONSECUTIVE_TICKS. Clears state after CLEAR_TICKS_TO_RESET
+// clean ticks. Per-(line, direction) state lives in pulse_state.
 
 require('../../src/shared/env');
 
@@ -39,10 +23,10 @@ const trainStations = require('../../src/train/data/trainStations.json');
 const DRY_RUN = process.env.PULSE_DRY_RUN === '1' || process.argv.includes('--dry-run');
 
 const LOOKBACK_MS = 20 * 60 * 1000;
-const MIN_CONSECUTIVE_TICKS = 2;   // ~10 min of persistence
-const CLEAR_TICKS_TO_RESET = 3;    // ~15 min of clear state before we un-stick
+const MIN_CONSECUTIVE_TICKS = 2;
+const CLEAR_TICKS_TO_RESET = 3;
 const POST_COOLDOWN_MS = 90 * 60 * 1000;
-const MIN_HOUR = 5; // don't fire before 5 AM CT (owl-service edge cases)
+const MIN_HOUR = 5; // owl service edge cases — wait until daytime patterns kick in
 
 function chicagoHourNow(now = new Date()) {
   const h = new Intl.DateTimeFormat('en-US', {
@@ -51,7 +35,6 @@ function chicagoHourNow(now = new Date()) {
   return parseInt(h, 10);
 }
 
-// Overlap of two [loFt, hiFt] intervals as fraction of the smaller.
 function overlapFraction(a, b) {
   if (!a || !b) return 0;
   const lo = Math.max(a.lo, b.lo);
@@ -204,8 +187,7 @@ async function main() {
     return;
   }
 
-  // Prime observations with a fresh fetch so the recent-positions window has
-  // at least one new snapshot.
+  // Prime so the lookback window always includes a current snapshot.
   try {
     await getAllTrainPositions();
   } catch (e) {
@@ -223,11 +205,8 @@ async function main() {
 
   for (const line of ALL_LINES) {
     const recent = allRecent.filter((r) => r.line === line);
-    if (recent.length === 0) {
-      // No positioned observations means we have no signal — don't clear
-      // an existing state based on missing data, just skip.
-      continue;
-    }
+    // No signal → don't clear existing state based on missing data, just skip.
+    if (recent.length === 0) continue;
 
     const headwayMin = safeHeadway(line);
 
@@ -249,17 +228,13 @@ async function main() {
     }
 
     if (candidates.length === 0) {
-      // No candidate this tick: mark any active state as clearing, potentially
-      // reset after CLEAR_TICKS_TO_RESET clean ticks.
-      // Iterate over any existing pulse_state rows for this line.
       const { getDb } = require('../../src/shared/history');
       const rows = getDb().prepare('SELECT * FROM pulse_state WHERE line = ?').all(line);
       for (const row of rows) handleClear(line, row.direction, now);
       continue;
     }
 
-    // Best candidate per (line, direction) — detector already sorts worst-first,
-    // but it may return one per branch; we handle them all.
+    // Detector returns at most one candidate per branch — handle each.
     const seenDirs = new Set();
     for (const c of candidates) {
       if (seenDirs.has(c.direction)) continue;
@@ -271,8 +246,7 @@ async function main() {
       }
     }
 
-    // Clear any stale pulse_state rows that no longer have a matching candidate
-    // for this line.
+    // Stale pulse_state rows (no matching candidate this tick) get cleared.
     const { getDb } = require('../../src/shared/history');
     const rows = getDb().prepare('SELECT * FROM pulse_state WHERE line = ?').all(line);
     for (const row of rows) {
@@ -281,17 +255,10 @@ async function main() {
   }
 }
 
-// Destination lookup for headway is per-direction; for the pulse we want a
-// coarse line-wide number as a scaling factor for the cold-bin threshold.
-// Falls back to null (detector uses its 15-min floor).
+// Null destination → loop lines resolve line-wide; bi-directional lines return
+// null and the detector falls back to its 15-min floor.
 function safeHeadway(line) {
-  try {
-    // Passing null destination lets loop lines resolve line-wide; bi-directional
-    // lines will return null, which is fine — the detector uses its default.
-    return expectedTrainHeadwayMin(line, null);
-  } catch (e) {
-    return null;
-  }
+  try { return expectedTrainHeadwayMin(line, null); } catch (e) { return null; }
 }
 
 runBin(main);

@@ -14,7 +14,6 @@ const { runBin } = require('../../src/shared/runBin');
 
 const WINDOW_MS = 60 * 60 * 1000;
 
-// "Northbound" → "NB", etc. Used in the rollup to keep each line compact.
 function abbreviateDirection(dir) {
   if (!dir) return '';
   const m = dir.match(/(North|South|East|West)bound/i);
@@ -29,16 +28,13 @@ function formatLine(event) {
   const missing = Math.round(event.missing);
   const expected = Math.round(event.expectedActive);
   const pct = Math.round((event.missing / event.expectedActive) * 100);
-  // Headway is display-only; may be absent for mid-route-coverage hours with
-  // no trip-starts in the bucket. Fall back to a shorter sentence when so.
+  // Headway can be null mid-route-coverage hours; shorter sentence then.
   if (event.headway == null) {
     return `🚌 ${title} ${dir} · ${missing} of ${expected} missing (${pct}%)`;
   }
   const scheduledHeadway = Math.round(event.headway);
-  // When observed drops near zero, the effective-headway estimate explodes and
-  // looks like noise ("every ~180 min instead of ~10"). Above 3× the scheduled
-  // headway the number stops telling readers anything useful, so fall back to
-  // "scheduled every ~X min".
+  // Above 3× scheduled, the effective-headway display explodes into noise —
+  // fall back to "scheduled every ~X min".
   const ratio = event.expectedActive / Math.max(event.observedActive, 1);
   if (ratio > 3) {
     return `🚌 ${title} ${dir} · ${missing} of ${expected} missing (${pct}%) · scheduled every ~${scheduledHeadway} min`;
@@ -62,11 +58,8 @@ async function main() {
 
   const now = Date.now();
   const sinceTs = now - WINDOW_MS;
-  // Look up the schedule at the window's midpoint, not `now`. The cron fires
-  // at :07, so the 60-min window spans mostly the *previous* wall-clock hour
-  // (53 min of it) and only 7 min of the current hour. Looking up expected
-  // service at `now` would fetch the wrong hour at schedule-transition
-  // boundaries (e.g., afternoon-rush ramp-up) and produce spurious ghosts.
+  // Schedule lookup at the window midpoint — the 60-min window mostly covers
+  // the prior wall-clock hour, so `now` would mis-bucket at rush-hour transitions.
   const lookupAt = new Date(now - WINDOW_MS / 2);
 
   const events = await detectBusGhosts({

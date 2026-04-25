@@ -1,10 +1,5 @@
-// Web Mercator projection helpers. We compute map center + zoom ourselves
-// instead of using Mapbox's `auto` framing so that we know the projection
-// parameters and can overlay our own labels at pixel coordinates.
-//
-// Mapbox Static renders at 512-pixel tiles (not the 256 default of vanilla
-// Web Mercator) — verified empirically by comparing pin positions against
-// projected coordinates.
+// Manual center+zoom computation so SVG label overlays can use known pixel
+// coordinates. Mapbox Static uses 512px tiles (not the Web Mercator default 256).
 
 const TILE_SIZE = 512;
 

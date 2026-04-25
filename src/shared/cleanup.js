@@ -6,9 +6,7 @@ const ASSETS_DIR = Path.join(__dirname, '..', '..', 'assets');
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const TMP_MAX_AGE_MS = 24 * 60 * 60 * 1000;  // 1 day
 
-// Tmpdir prefixes used by the video capture modules. The normal path cleans
-// up with a `finally` block, but a SIGKILL or crash mid-capture leaks the
-// directory — hence this startup sweep.
+// Sweeps tmpdirs leaked by SIGKILL'd captures (normal path cleans via finally).
 const TMP_PREFIXES = ['cta-bunch-video-', 'cta-train-video-'];
 
 /**

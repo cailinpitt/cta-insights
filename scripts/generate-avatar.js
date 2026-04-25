@@ -1,13 +1,8 @@
 #!/usr/bin/env node
-// Render profile avatars for the bus / train / alerts accounts. Twemoji SVGs
-// are downloaded so the emoji renders identically regardless of the OS font —
-// macOS's emoji glyphs differ from Ubuntu's and we want consistency between
-// dev preview and the actual posted avatar.
+// Twemoji SVGs are downloaded so the emoji renders identically regardless of
+// host font — macOS and Ubuntu glyphs differ and we want dev/prod parity.
 //
-// Usage:
-//   node scripts/generate-avatar.js                  # generates all three
-//   node scripts/generate-avatar.js --kind=bus       # just one
-//   node scripts/generate-avatar.js --kind=alerts
+// Usage: node scripts/generate-avatar.js [--kind=bus|train|alerts]
 
 const Fs = require('fs-extra');
 const Path = require('path');
@@ -24,11 +19,6 @@ const H = 1024;
 const CIRCLE_R = 500;       // 24 px ring of safety against the bounding box
 const EMOJI_SIZE = 660;
 
-// Each kind has an emoji codepoint (Twemoji file name) and a two-stop radial
-// gradient. Colors hand-picked to feel cohesive across the three accounts:
-//   - bus: warm yellow (the CTA bus livery is yellow + white)
-//   - train: blue-gray (matches Train Tracker's branding)
-//   - alerts: orange-red (signals "warning" without going full stop-sign red)
 const CONFIGS = {
   bus: {
     codepoint: '1f68c',     // 🚌
@@ -57,10 +47,8 @@ async function renderOne(kind) {
   console.log(`[${kind}] fetching ${url}...`);
   const { data: svg } = await axios.get(url, { responseType: 'text', timeout: 30000 });
 
-  // Soft gradient circle behind the emoji. Drawn as a circle (not a rect) so
-  // the corners stay transparent — that way the visual identity is the disc
-  // itself, and the avatar reads correctly even on platforms that don't crop
-  // to a circle. Subtle inner ring adds depth without competing with the emoji.
+  // Disc on a transparent square so the avatar reads correctly even on
+  // platforms that don't crop to a circle.
   const cx = W / 2;
   const cy = H / 2;
   const composite = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
@@ -78,13 +66,10 @@ async function renderOne(kind) {
   const outPath = Path.join(__dirname, '..', 'assets', cfg.out);
   Fs.ensureDirSync(Path.dirname(outPath));
 
-  // Render the SVG onto a transparent canvas so the corners stay clear.
-  // The SVG declares explicit width/height, so the default density yields the
-  // intended W×H raster — overriding density would scale the canvas without
-  // scaling the emoji we composite on top.
+  // Default sharp density for SVGs with explicit width/height — overriding
+  // would scale the canvas without scaling the emoji composited on top.
   const bgBuffer = await sharp(Buffer.from(composite)).png().toBuffer();
-  // Rasterize emoji at high res, trim transparent padding (Twemoji SVGs have
-  // built-in whitespace that throws off centering), then resize to target.
+  // .trim() removes Twemoji's built-in transparent padding so center alignment works.
   const emojiBuffer = await sharp(Buffer.from(svg), { density: 600 })
     .png()
     .trim()

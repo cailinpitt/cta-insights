@@ -1,24 +1,7 @@
-// Builds data for the weekly/monthly recap from history.sqlite. Has two
-// loaders:
-//   - loadBusHeatmap / loadTrainHeatmap: aggregate posted bunching events by
-//     location (stop/station) over a time window, resolve to lat/lon, and
-//     return points sorted by frequency. Feeds the heatmap parent post.
-//   - loadGapLeaderboard: aggregates posted gap events by route/line over
-//     the same window. Feeds the threaded gap-chart reply. Gaps aren't
-//     plotted geographically because they're a line-level dispatch/headway
-//     phenomenon, not a location phenomenon.
-//
-// Locations are resolved lazily:
-//   - Bus: near_stop is the pattern stop name; direction is the pid. We
-//     load the cached pattern for that pid and find the stop by name.
-//     Patterns cached in data/patterns/ with a 7-day TTL (see patterns.js).
-//   - Train: near_stop is the station name; route is the line code. We
-//     look up trainStations.json filtered by line to disambiguate shared
-//     names like "Halsted" across Orange vs Blue.
-//
-// Only posted=1 rows are counted. Cooldown-suppressed rows (posted=0) are
-// duplicates of the same incident within an hour, so including them would
-// inflate counts for routes that detect the same bunch on every 5-min tick.
+// Heatmap aggregates bunching events to lat/lon hotspots. The gap leaderboard
+// stays line-level since gaps are a dispatch/headway phenomenon, not a
+// location one. Only posted=1 rows count — cooldown-suppressed duplicates
+// would inflate counts on chronically-bad routes.
 
 const Path = require('path');
 const Fs = require('fs-extra');
@@ -28,9 +11,8 @@ const trainStations = require('../train/data/trainStations.json');
 const PATTERNS_DIR = Path.join(__dirname, '..', '..', 'data', 'patterns');
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// Lazy pattern load — cached to disk already by src/bus/patterns.js, so we
-// just read whatever's on disk. If a pid's pattern isn't cached, we skip the
-// event rather than making a blocking network call during heatmap assembly.
+// Don't fetch patterns over the network during heatmap assembly — read from
+// disk only and skip events whose pid isn't cached.
 const _patternCache = new Map();
 function readCachedPattern(pid) {
   if (_patternCache.has(pid)) return _patternCache.get(pid);
@@ -48,9 +30,8 @@ function resolveBusStop({ direction, near_stop }) {
   return stop ? { lat: stop.lat, lon: stop.lon } : null;
 }
 
-// Fall back across every cached pattern if the event's pid pattern isn't
-// resolvable — e.g. the pattern file rolled off the 7-day cache window or
-// the event's direction column is blank. Lets stale events still contribute.
+// Last-resort fallback when the event's pid pattern is missing — search every
+// cached pattern by stop name. Lets stale events still contribute.
 function resolveBusStopAnywhere(stopName) {
   if (!stopName) return null;
   for (const file of Fs.readdirSync(PATTERNS_DIR)) {
@@ -85,10 +66,8 @@ function resolveTrainStation({ route, near_stop }) {
   return null;
 }
 
-// Bucket incidents by (label, rounded-lat, rounded-lon). We round coordinates
-// to 4 decimals (~11m) so two events at the same intersection land in the
-// same bucket even if different patterns give microscopically different stop
-// coordinates.
+// Round to 4 decimals (~11m) so events at the same intersection bucket
+// together even when patterns report slightly different stop coordinates.
 function bucket(events, resolve) {
   const buckets = new Map();
   for (const ev of events) {
@@ -136,10 +115,6 @@ function loadTrainHeatmap(since, until) {
   return bucket(events, resolveTrainStation);
 }
 
-// Gap leaderboard — groups posted gap events by route for a categorical
-// "which routes/lines had the worst headway gaps" summary. Gaps are a
-// line-level phenomenon so we aggregate by route rather than by stop; the
-// output feeds the threaded reply chart, not the heatmap.
 function loadGapLeaderboard(kind, since, until) {
   const db = getDb();
   const rows = db.prepare(`
@@ -151,10 +126,8 @@ function loadGapLeaderboard(kind, since, until) {
   return rows.map((r) => ({ route: r.route, count: r.count }));
 }
 
-// Find the UTC ms at which the given (year, month, day, hour) falls in
-// America/Chicago. Needed to compute CT calendar-month boundaries without a
-// tz library: we probe the two possible UTC offsets (CST=-6, CDT=-5) and
-// return whichever one renders back to the desired CT wall time.
+// Probe both CT offsets (CST=-6, CDT=-5) and pick the one that round-trips
+// to the desired wall time — avoids pulling in a tz library.
 function ctWallTimeAsUtcMs(year, month, day, hour) {
   for (const offsetHours of [5, 6]) {
     const candidate = Date.UTC(year, month - 1, day, offsetHours, 0, 0);
@@ -181,12 +154,9 @@ function ctDateParts(ms) {
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// Range for the recap window, plus a human-readable label used in the post
-// title, chart subtitle, and alt text.
-//   - week: rolling 7 days ending now
-//   - month: the prior calendar month in America/Chicago (e.g. on May 1, the
-//     range is all of April, labeled "Apr 1 – 30"). This matches how readers
-//     think about a "monthly recap" better than a 30-day rolling window.
+// `month` covers the prior calendar month in CT (e.g. on May 1, all of
+// April). Matches how readers think about "monthly recap" better than a
+// rolling 30-day window.
 function rangeForWindow(window, now = Date.now()) {
   if (window === 'week') {
     const until = now;
@@ -204,9 +174,7 @@ function rangeForWindow(window, now = Date.now()) {
     const lastDay = new Date(today.year, today.month - 1, 0).getDate();
     const start = { year: priorYear, month: priorMonth, day: 1 };
     const end = { year: priorYear, month: priorMonth, day: lastDay };
-    // Show the year when the recap covers a different calendar year than
-    // "now" — e.g. on Jan 1 2026 the label becomes "Dec 1 – 31, 2025" instead
-    // of a bare "Dec 1 – 31" that reads ambiguously.
+    // Year-disambiguate the label across calendar boundaries (Jan 1 → "Dec 1 – 31, 2025").
     const baseLabel = formatRangeLabel(start, end);
     const label = priorYear !== today.year ? `${baseLabel}, ${priorYear}` : baseLabel;
     return { since, until, label };

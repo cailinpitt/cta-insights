@@ -22,12 +22,8 @@ function loadAll() {
   return memo;
 }
 
-/**
- * Return OSM traffic-signal nodes inside the given bbox. Reads from a
- * pre-fetched city-wide snapshot (`npm run fetch-signals`) — runtime never
- * touches the network, so rendering is deterministic and Overpass outages
- * can't block a post.
- */
+// Reads from the pre-fetched city-wide snapshot — never hits the network at
+// runtime, so an Overpass outage can't block a post.
 function fetchSignalsInBbox(bbox) {
   return loadAll().filter((s) =>
     s.lat >= bbox.minLat && s.lat <= bbox.maxLat
@@ -35,9 +31,7 @@ function fetchSignalsInBbox(bbox) {
   );
 }
 
-// Perpendicular distance (feet) from a point to a polyline, computed as the
-// minimum across each segment. Uses planar projection of lon/lat — acceptable
-// here since signals we're filtering are already within a sub-mile bbox.
+// Planar projection — acceptable since the bbox is sub-mile.
 function perpDistFtToPolyline(point, linePts) {
   let best = Infinity;
   for (let i = 0; i < linePts.length - 1; i++) {
@@ -56,20 +50,11 @@ function perpDistFtToPolyline(point, linePts) {
   return best;
 }
 
-/**
- * Keep only signals within `maxPerpFt` of the route polyline. Filters out
- * intersections on side streets that happen to sit in the render bbox but
- * aren't actually on the route the buses are running.
- */
 function filterSignalsOnRoute(signals, routePoints, maxPerpFt = 120) {
   return signals.filter((s) => perpDistFtToPolyline(s, routePoints) <= maxPerpFt);
 }
 
-/**
- * Greedy dedupe: collapse signals within `minFt` of a previously-kept signal
- * into a single marker. OSM often tags the four corners of an intersection
- * as separate nodes, and we want one glyph per intersection.
- */
+// OSM tags intersection corners as separate nodes; collapse to one per intersection.
 function dedupeNearbySignals(signals, minFt = 150) {
   const kept = [];
   for (const s of signals) {
@@ -78,17 +63,9 @@ function dedupeNearbySignals(signals, minFt = 150) {
   return kept;
 }
 
-/**
- * Attach an `orientation` ('horizontal' | 'vertical') to each signal based on
- * the local route tangent at its nearest polyline point, and snap its lat/lon
- * to that nearest point. Real traffic lights are mounted perpendicular to
- * the direction of travel, so a route running east–west gets vertical signal
- * housings and a north–south route gets horizontal ones. Snapping keeps
- * signals visually centered on the bus line — OSM tags them at intersection
- * corners, which drift off-axis and look misaligned on a straight route.
- * Longitude is scaled by cos(lat) so the comparison is in true ground
- * distance, not raw degrees.
- */
+// Real traffic lights mount perpendicular to travel — east–west routes get
+// vertical housings, north–south get horizontal. Snapping to the nearest
+// polyline point also keeps signals visually centered on the bus line.
 function annotateSignalOrientations(signals, routePoints) {
   return signals.map((s) => {
     let bestDist = Infinity;

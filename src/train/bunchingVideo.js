@@ -17,7 +17,7 @@ const { buildLinePolyline, snapToLine, pointAlongLine } = require('./speedmap');
 const execP = promisify(exec);
 
 const DEFAULT_TICK_MS = 15_000;
-const DEFAULT_TICKS = 40; // 40 × 15s = 10 min of real time
+const DEFAULT_TICKS = 40; // 10 min of real time
 const DEFAULT_INTERPOLATE = 4;
 const DEFAULT_FRAMERATE = 16;
 
@@ -29,7 +29,7 @@ function trainsSpanFt(trains, linePts, lineCum) {
     const dists = trains.map((t) => snapToLine(t.lat, t.lon, linePts, lineCum));
     return Math.round(Math.max(...dists) - Math.min(...dists));
   }
-  // Fallback when we don't have a polyline: use farthest haversine pair.
+  // No polyline → farthest haversine pair.
   let max = 0;
   for (let i = 0; i < trains.length; i++) {
     for (let j = i + 1; j < trains.length; j++) {
@@ -40,13 +40,6 @@ function trainsSpanFt(trains, linePts, lineCum) {
   return Math.round(max);
 }
 
-/**
- * Captures a timelapse video of a train bunching event. Mirrors the bus
- * capture: poll every `tickMs`, keep only the originally-bunched trains by rn,
- * then render all frames on a shared base map with the bbox pre-expanded to
- * cover every sampled position. Interpolates `interpolate` frames between each
- * real sample for smooth motion.
- */
 async function captureTrainBunchingVideo(bunch, lineColors, trainLines, stations, opts = {}) {
   const tickMs = opts.tickMs || DEFAULT_TICK_MS;
   const ticks = opts.ticks || DEFAULT_TICKS;
@@ -75,19 +68,13 @@ async function captureTrainBunchingVideo(bunch, lineColors, trainLines, stations
 
   if (snapshots.length < 2) return null;
 
-  // Raw CTA positions mix GPS with next-station predictions, producing two
-  // artifacts the interpolator amplifies: lateral jitter off the track, and
-  // occasional backwards jumps that can visually flip the order of two trains.
-  // Fix both by snapping each reported position to the line polyline and then
-  // clamping the along-track distance per rn to be monotonically non-decreasing.
-  // Render positions are reconstructed from the clamped along-track value.
+  // Per-rn cleanup: snap to polyline → clamp non-decreasing → smooth.
+  // Removes lateral jitter and backward GPS/prediction swaps that would flip
+  // adjacent trains' apparent order.
   const { points: linePts, cumDist: lineCum } = buildLinePolyline(trainLines, bunch.line);
   const hasPolyline = linePts.length >= 2;
   if (hasPolyline) {
-    // Per rn: snap to line, clamp monotonically non-decreasing, then smooth
-    // with a 3-tap moving average so forward GPS lurches don't make
-    // tightly-bunched markers jockey between frames.
-    const seriesByRn = new Map(); // rn → [{ t, raw }]
+    const seriesByRn = new Map();
     for (const snap of snapshots) {
       for (const t of snap.trains) {
         const raw = snapToLine(t.lat, t.lon, linePts, lineCum);
@@ -116,10 +103,8 @@ async function captureTrainBunchingVideo(bunch, lineColors, trainLines, stations
   const view = computeTrainBunchingView(bunch, lineColors, trainLines, stations, extraTrains);
   const baseMap = await fetchTrainBunchingBaseMap(view);
 
-  // Interpolate between consecutive snapshots. Stable rn ordering across
-  // frames so `separateMarkers` gets a consistent input order when two
-  // trains are visually overlapped — otherwise the perpendicular nudge can
-  // flip sides tick-to-tick.
+  // Stable rn-sort across frames so `separateMarkers` gets consistent input
+  // order — otherwise the perpendicular nudge flips for overlapped trains.
   const trainFrames = [];
   const allRns = [...new Set(snapshots.flatMap((s) => s.trains.map((t) => t.rn)))].sort();
   for (let i = 0; i < snapshots.length - 1; i++) {
@@ -134,8 +119,7 @@ async function captureTrainBunchingVideo(bunch, lineColors, trainLines, stations
         const tb = b.get(rn);
         const from = ta || tb;
         const to = tb || ta;
-        // Interpolate along the line polyline when both endpoints have track
-        // distances — Cartesian lerp cuts diagonally across curves otherwise.
+        // Polyline interp when both endpoints are snapped; Cartesian fallback would cut across curves.
         let lat, lon;
         if (hasPolyline && from.track != null && to.track != null) {
           const track = from.track + (to.track - from.track) * t;

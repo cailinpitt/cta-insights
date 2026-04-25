@@ -18,10 +18,6 @@ const history = require('../../src/shared/history');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
 const { buildPostText, buildAltText, buildVideoPostText, buildVideoAltText } = require('../../src/bus/bunchingPost');
 
-// Soft daily cap — skips additional posts on the same route after 3 unless the
-// new bunch is strictly more severe than every post-today on that route. Keeps
-// a chronically-bad route (Route 66) from dominating the feed while still
-// surfacing a genuine escalation.
 const BUS_BUNCHING_DAILY_CAP = 3;
 
 async function main() {
@@ -41,18 +37,12 @@ async function main() {
     console.log(`  route ${b.route} pid ${b.pid} — ${b.vehicles.length} buses, span ${b.spanFt} ft, maxGap ${b.maxGapFt} ft`);
   }
 
-  // Walk candidates best-first, skipping any that are on cooldown or whose
-  // nearest-stop label is a pattern endpoint (terminal layover). The previous
-  // 500 ft pdist-based check missed bunches 500-1500 ft from the terminal that
-  // still labeled as "near [terminal]" because the penultimate stop is far away.
   let bunch = null;
   let pattern = null;
   let chosenStop = null;
   for (const candidate of bunches) {
-    // Terminal filter first (requires pattern): terminal layovers aren't real
-    // bunches and shouldn't be logged as detections at all. After that, a
-    // cooldown skip means a real bunch we're suppressing — log it with
-    // posted=0 so the analytics capture it.
+    // Terminal layovers aren't real bunches — filter before recording, so
+    // they don't pollute analytics. Cooldown skips DO record (posted=0).
     const candidatePattern = await loadPattern(candidate.pid);
     const firstBus = candidate.vehicles[0];
     const lastBus = candidate.vehicles[candidate.vehicles.length - 1];
@@ -60,8 +50,6 @@ async function main() {
     const stop = findNearestStop(candidatePattern, midPdist);
     const stops = candidatePattern.points.filter((p) => p.type === 'S' && p.stopName);
 
-    // Skip if the cluster's labeled nearest stop is the first/last stop, OR if
-    // the cluster is within the terminal zone of either pattern endpoint.
     const terminalZoneFt = terminalZoneFor(candidatePattern.lengthFt);
     const isAtStartTerminalStop = stop === stops[0];
     const isAtEndTerminalStop = stop === stops[stops.length - 1];
@@ -77,9 +65,7 @@ async function main() {
       continue;
     }
 
-    // Check both pid-level and route-level cooldown. The route cooldown prevents
-    // the same route from posting in opposite directions minutes apart, which
-    // feels spammy even though they're technically different pids.
+    // Route-level cooldown stops opposite-direction pids from posting minutes apart.
     const routeKey = `route:${candidate.route}`;
     if (!argv['dry-run']) {
       const pidCd = isOnCooldown(candidate.pid);
@@ -132,7 +118,7 @@ async function main() {
 
   const stop = chosenStop;
 
-  // Compute callouts BEFORE recording this event so we don't compare against ourselves.
+  // Callouts must be computed before recordBunching writes this event.
   const callouts = history.bunchingCallouts({
     kind: 'bus',
     route: bunch.route,
@@ -143,10 +129,8 @@ async function main() {
   if (callouts.length > 0) console.log(`Callouts: ${callouts.join(' · ')}`);
 
   console.log('Rendering map...');
-  // Scope the signal fetch to the full pattern bbox, not the tight still-image
-  // bbox. The video reframes to cover buses as they move, so a narrow fetch
-  // leaves intersections blank once the viewport drifts past them. Off-screen
-  // signals are cheap to carry — renderBunchingFrame clips them at project time.
+  // Full-pattern bbox (vs the still-image bbox) — the video reframes as buses
+  // move, so a narrow fetch leaves intersections blank when the viewport drifts.
   const patternBbox = {
     minLat: Math.min(...pattern.points.map((p) => p.lat)),
     maxLat: Math.max(...pattern.points.map((p) => p.lat)),
@@ -207,9 +191,7 @@ async function main() {
   if (!result) return;
   const { agent, primary } = result;
 
-  // Capture a timelapse of the bunch over the next few minutes and reply to
-  // the primary post with it. Failures here are non-fatal: the primary alert
-  // already went out, so we log and move on.
+  // Timelapse reply is non-fatal — the primary alert already went out.
   try {
     console.log('Capturing bunching timelapse...');
     const video = await captureBunchingVideo(bunch, pattern, { signals });

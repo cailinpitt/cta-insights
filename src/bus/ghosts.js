@@ -1,22 +1,19 @@
-// Ghost bus detection. Compares observed active bus count against the
-// scheduled active-trip count per hour (count of trips whose [dep, arr]
-// interval overlaps the current hour), which is the ground-truth number
-// of buses that should be simultaneously active per direction.
+// Compares observed active bus count against the scheduled active-trip count
+// per hour. The ground-truth number of buses that should be simultaneously
+// active per direction.
 
-const MISSING_PCT_THRESHOLD = 0.25;  // ≥25% of expected active buses unaccounted for
-const MISSING_ABS_THRESHOLD = 3;     // ...and ≥3 buses missing in absolute terms
-const MIN_SNAPSHOTS = 8;             // at a 5-min cadence the window holds ~12; 8 tolerates ≤4 dropped polls
-const MIN_OBSERVED = 2;              // observed ≥ 2 — "missing 7 of 9" with observed=0/1 is either a schedule bug or a genuine outage the gap bot already covers
-const MAX_EXPECTED_ACTIVE = 30;      // sanity ceiling — expected > 30 almost always means a bad GTFS bucket (e.g. sub-minute median) slipped through
-const RAMP_FILL_RATIO = 0.8;         // tail-of-window median ≥ this × expectedActive ⇒ pipeline is filling (service ramp-up), not a ghost
-const RAMP_TAIL_FRACTION = 0.25;     // tail = last 25% of snapshots, min 3
+const MISSING_PCT_THRESHOLD = 0.25;
+const MISSING_ABS_THRESHOLD = 3;
+const MIN_SNAPSHOTS = 8;             // tolerates ≤4 dropped polls in a ~12-poll window
+const MIN_OBSERVED = 2;              // observed=0/1 is either a schedule bug or a gap (already covered)
+const MAX_EXPECTED_ACTIVE = 30;      // sanity ceiling — most likely a bad GTFS bucket
+const RAMP_FILL_RATIO = 0.8;         // tail median ≥ this × expected → pipeline is filling, not ghosting
+const RAMP_TAIL_FRACTION = 0.25;     // tail = last 25%, min 3
 
 const { median } = require('../shared/stats');
 
-// Sort (ts, count) pairs chronologically and return the median of the last
-// `RAMP_TAIL_FRACTION` of them. Used to detect a filling pipeline: during AM
-// ramp-up the full-window median lags reality, but the tail median tracks
-// actual current service.
+// During AM ramp-up the full-window median lags reality but the tail tracks
+// current service — used to gate against firing on a filling pipeline.
 function tailMedian(perSnapshot) {
   const pairs = [...perSnapshot.entries()].sort((a, b) => a[0] - b[0]);
   const tailLen = Math.max(3, Math.ceil(pairs.length * RAMP_TAIL_FRACTION));
@@ -24,20 +21,6 @@ function tailMedian(perSnapshot) {
   return median(tail);
 }
 
-/**
- * Detect ghost buses for a set of routes over a time window.
- *
- * Dependencies are injected so this module can be tested without hitting the
- * DB, filesystem, or CTA API:
- *   - `getObservations(route)` → [{ ts, direction (pid), vehicle_id, ... }]
- *   - `getPattern(pid)` async → pattern object (has `direction` label)
- *   - `expectedHeadway(route, pattern)` → minutes or null (display only)
- *   - `expectedDuration(route, pattern)` → minutes or null (display only)
- *   - `expectedActive(route, pattern)` → count of trips scheduled to be
- *     in-progress during the current hour, or null
- *
- * Returns ghost events sorted by `missing` descending.
- */
 async function detectBusGhosts({
   routes,
   getObservations,
@@ -52,11 +35,9 @@ async function detectBusGhosts({
     const obs = getObservations(route);
     if (obs.length === 0) continue;
 
-    // Resolve each unique pid to a pattern once. If any pid we actually have
-    // observations for fails to resolve (fetch error, empty direction label,
-    // etc.), skip the whole route — expectedActive still counts those trips
-    // so dropping the observations alone would inflate `missing` and fire a
-    // spurious ghost.
+    // Skip the whole route on any pattern resolution failure — expectedActive
+    // still counts trips for that pid, so dropping observations alone would
+    // inflate `missing` and fire a spurious ghost.
     const pids = [...new Set(obs.map((o) => o.direction).filter(Boolean))];
     const patternByPid = new Map();
     const failedPids = [];
@@ -75,10 +56,8 @@ async function detectBusGhosts({
       continue;
     }
 
-    // Group observations by pattern.direction (the rider-facing label, e.g.
-    // "Northbound"). Multiple pids can share a direction on routes with weekday/
-    // express variants — merging is correct.
-    const byDir = new Map(); // dirLabel → { obs: [...], pattern: <any sample> }
+    // Group by rider-facing direction label so weekday/express pid variants merge.
+    const byDir = new Map();
     for (const o of obs) {
       const pattern = patternByPid.get(o.direction);
       if (!pattern) continue;
@@ -92,22 +71,17 @@ async function detectBusGhosts({
       const duration = expectedDuration(route, group.pattern);
       const active = expectedActive(route, group.pattern);
       if (active == null || active <= 0) continue;
-      // Headway/duration are only used for the display string; a missing
-      // value just means we fall back to generic wording downstream.
+      // Headway/duration are display-only — null falls back to generic wording.
 
-      // Even at full service you'd typically see ≥2 buses active per direction.
-      // Routes with expected < ~2 are too sparse to make ghost calls meaningfully
-      // (one missing bus isn't a story; two dropping to zero is a gap, which the
-      // gaps bot already covers).
+      // Sparse routes (active < 2) make ghost calls meaningless; one missing
+      // bus isn't a story, two→zero is a gap (covered by the gaps bot).
       if (active < 2) continue;
       if (active > MAX_EXPECTED_ACTIVE) {
         console.warn(`ghosts: ${route}/${direction} expectedActive=${active.toFixed(1)} exceeds cap (${MAX_EXPECTED_ACTIVE}) — skipping, likely schedule-index bug`);
         continue;
       }
 
-      // Count distinct vids per snapshot (ts). API returns all active vehicles
-      // in one shot, so each ts gives a clean snapshot of active buses.
-      const perSnapshot = new Map(); // ts → Set<vid>
+      const perSnapshot = new Map();
       for (const o of group.obs) {
         if (!perSnapshot.has(o.ts)) perSnapshot.set(o.ts, new Set());
         perSnapshot.get(o.ts).add(o.vehicle_id);
@@ -120,15 +94,13 @@ async function detectBusGhosts({
       if (missing < MISSING_ABS_THRESHOLD) continue;
       if (missing / active < MISSING_PCT_THRESHOLD) continue;
       if (observedActive < MIN_OBSERVED) continue;
-      // Stddev > observed → per-snapshot counts are wildly inconsistent, which
-      // usually means observer polling blackouts, not actually-missing vehicles.
+      // Wildly inconsistent counts usually indicate polling blackouts, not real ghosts.
       const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
       const variance = counts.reduce((a, b) => a + (b - mean) ** 2, 0) / counts.length;
       const stddev = Math.sqrt(variance);
       if (stddev > observedActive) continue;
-      // Service ramp-up gate: tail median ≥ 80% of expected means the pipeline
-      // has filled by the end of the window — the deficit is at the front of
-      // the hour, not now. Real outages persist into the tail.
+      // Ramp-up gate: a filled tail means the deficit is at the front of the
+      // hour, not now. Real outages persist into the tail.
       if (tailMedian(perSnapshot) >= RAMP_FILL_RATIO * active) continue;
 
       events.push({

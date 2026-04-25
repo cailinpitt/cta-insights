@@ -1,6 +1,4 @@
-// Bluesky enforces a 300-grapheme post limit. Emoji often render as multiple
-// UTF-16 code units but a single grapheme, so we count graphemes via
-// Intl.Segmenter rather than .length.
+// 300-grapheme cap. Emoji = multi-codeunit single-grapheme, so use Segmenter not .length.
 const POST_MAX_CHARS = 300;
 
 const _segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });

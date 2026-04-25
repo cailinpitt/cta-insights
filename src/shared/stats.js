@@ -5,9 +5,8 @@ function median(arr) {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-// 3-tap centered moving average; endpoints use a 2-tap window. Preserves
-// monotonicity when the input is monotonic (so bunching-video track sequences
-// stay non-decreasing after smoothing without needing a second clamp pass).
+// 3-tap centered MA, 2-tap at endpoints. Preserves monotonicity so video
+// track sequences stay non-decreasing after smoothing.
 function smoothSeries(values) {
   const n = values.length;
   if (n <= 2) return values.slice();

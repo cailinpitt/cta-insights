@@ -1,6 +1,5 @@
-// Fetch CTA GTFS schedule and build a headway index for gap detection.
-// Run weekly via cron; bot runtime reads the precomputed index so it doesn't
-// pay the parse cost on every invocation.
+// Builds a headway index for gap detection. Bot runtime reads the precomputed
+// JSON so it doesn't re-parse GTFS on every invocation.
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const axios = require('axios');
 const Fs = require('fs-extra');
@@ -15,10 +14,8 @@ const GTFS_URL = 'https://www.transitchicago.com/downloads/sch_data/google_trans
 const ZIP_PATH = '/tmp/cta-gtfs.zip';
 const OUT_PATH = Path.join(__dirname, '..', 'data', 'gtfs', 'index.json');
 
-// Restrict bus indexing to the routes the bot actually polls across any job.
-// Taking the union of every polled list avoids the footgun where a route added
-// to ghosts/gaps/speedmap but not bunching silently has no schedule and gets
-// skipped at runtime. Rail indexing is always all-lines — there are only eight.
+// Union of all polled lists — a route in ghosts/gaps but not bunching would
+// otherwise silently have no schedule. Rail is always all 8 lines.
 const { bunching, ghosts, gaps, speedmap } = require('../src/bus/routes');
 const BUS_ROUTES = [...new Set([...bunching, ...ghosts, ...gaps, ...speedmap])].sort();
 const RAIL_ROUTES = ['Red', 'Blue', 'Brn', 'G', 'Org', 'P', 'Pink', 'Y'];
@@ -53,8 +50,7 @@ function streamFromZip(filename, onLine) {
   });
 }
 
-// RFC 4180-aware CSV parser. Needed because stops.txt contains quoted
-// stop_desc fields with embedded commas ("Touhy & Lehigh, Eastbound, ...").
+// RFC 4180-aware — stops.txt has quoted fields with embedded commas.
 function parseCsvLine(line) {
   const out = [];
   let cur = '';
@@ -88,8 +84,7 @@ function parseCsv(text) {
   return rows;
 }
 
-// GTFS time fields can exceed 24h (e.g. "25:15:00" = 1:15am next day). Return
-// seconds since service-day start; caller mods by 86400 to get wall-clock hour.
+// GTFS times can exceed 24h ("25:15:00" = 1:15am next day). Caller mods by 86400.
 function parseGtfsTime(s) {
   if (!s) return null;
   const [h, m, sec] = s.split(':').map((x) => parseInt(x, 10));
@@ -103,9 +98,7 @@ function median(arr) {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-// Map a GTFS calendar.txt row to a coarse day_type bucket. Weekday service is
-// the common weekday pattern; we collapse Sat/Sun separately since headways
-// differ by a lot between weekends and weekdays.
+// Coarse day_type bucket — Sat/Sun stay separate since headways differ a lot.
 function dayTypeFor(cal) {
   const weekday = cal.monday === '1' && cal.tuesday === '1' && cal.wednesday === '1' && cal.thursday === '1' && cal.friday === '1';
   const sat = cal.saturday === '1';
@@ -117,9 +110,7 @@ function dayTypeFor(cal) {
   return null; // mixed/unusual services — skip so we don't mash weekday + weekend headways together
 }
 
-// Resolve a service_id → dayType map honoring calendar.txt date ranges plus
-// calendar_dates.txt exceptions for the target date. `todayStr` is YYYYMMDD
-// and `todayDow` is 'Sat' / 'Sun' / other (anything else → weekday).
+// Honors calendar.txt date ranges + calendar_dates.txt exceptions for today.
 function resolveServiceDayTypes({ calendars, calendarDates, todayStr, todayDow }) {
   const addForToday = new Set();
   const removeForToday = new Set();
@@ -145,11 +136,8 @@ function resolveServiceDayTypes({ calendars, calendarDates, todayStr, todayDow }
   return { serviceDayType: out, addForToday, removeForToday };
 }
 
-// Bus origin-dominance: picks a single origin per (route, dir) only when one
-// origin accounts for ≥60% of the day's trips. Otherwise returns no mapping
-// for that key — the caller keeps all origins. Threshold is the guardrail
-// against the Route 55 2 AM regression from the per-hour variant (commit
-// 775a151).
+// Day-level dominance, not per-hour: per-hour was too aggressive for Route 55
+// at 2 AM. ≥60% threshold means short-turn-only periods keep all origins.
 const BUS_DOMINANCE_THRESHOLD = 0.6;
 function computeBusDominantOrigin(tripMeta, firstStopId, { log = false } = {}) {
   const counts = new Map();
@@ -189,10 +177,8 @@ async function main() {
   const today = new Date();
   const todayStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
 
-  // calendar_dates.txt encodes holiday service: exception_type=1 force-adds a
-  // service_id for a specific date, =2 force-removes one. Without this, CTA
-  // holidays (Memorial Day, Thanksgiving, etc.) have observations against a
-  // holiday schedule but the index reflects regular weekday → mass false-ghosts.
+  // Holiday service: exception_type=1 force-adds, =2 force-removes. Without
+  // this, holidays (Memorial Day, Thanksgiving) ghost-fire en masse.
   console.log('Reading calendar_dates.txt...');
   let calendarDates = [];
   try {
@@ -208,9 +194,7 @@ async function main() {
   const trips = parseCsv(await readFromZip('trips.txt'));
   const busRouteSet = new Set(BUS_ROUTES);
   const railRouteSet = new Set(RAIL_ROUTES);
-  // tripMeta: trip_id → { route, dir, dayType, headsign, mode }
-  // mode: 'bus' or 'rail'. Drives which output bucket (`routes` vs `lines`)
-  // the eventual headway lands in.
+  // tripMeta.mode (bus|rail) routes results to `routes` or `lines` output bucket.
   const tripMeta = new Map();
   for (const t of trips) {
     let mode = null;
@@ -233,8 +217,7 @@ async function main() {
   console.log(`  ${busCount} bus trips, ${railCount} rail trips in scope`);
 
   console.log('Streaming stop_times.txt...');
-  // Per trip, track first-stop departure time (stop_sequence === min) and
-  // last-stop id (stop_sequence === max).
+  // Per trip: first-stop departure (min stop_sequence) and last-stop id (max).
   const firstDeparture = new Map(); // trip_id → seconds
   const firstSeq = new Map();
   const firstStopId = new Map();   // trip_id → stop_id (origin)
@@ -281,11 +264,8 @@ async function main() {
   const stops = parseCsv(await readFromZip('stops.txt'));
   const byStopId = new Map(stops.map((s) => [s.stop_id, s]));
 
-  // Even after the calendar-date filter, a single dayType can be served by
-  // multiple concurrent service_ids — most often a daytime service_id covering
-  // 4 AM–1 AM plus a separate "Owl" service_id covering overnight hours.
-  // Resolve dominance *per hour* so daytime hours pick the daytime service
-  // (owl has 0 trips there) and overnight hours pick the owl service.
+  // Concurrent service_ids (daytime + Owl) overlap one dayType — resolve
+  // dominance per hour so each picks the right one.
   const serviceTripCounts = new Map(); // key: route|dir|dayType|hour|serviceId → count
   for (const [tripId, meta] of tripMeta) {
     const dep = firstDeparture.get(tripId);
@@ -302,14 +282,9 @@ async function main() {
     if (!prev || c > prev.count) dominantService.set(rdth, { serviceId, count: c });
   }
 
-  // Rail route|dir → most-common origin stop_id. Blue/Red/etc. mix full
-  // terminal-to-terminal trips with short-turns (UIC-Halsted, Jefferson Park,
-  // etc.) that all share the same direction_id. Counting their first-departure
-  // gaps together collapses the apparent headway toward zero — a 10 AM Blue
-  // dir-1 hour bucket ends up at "2 min" because full trips from Forest Park
-  // and short-turns from mid-route stagger their start times. Lock on the
-  // dominant origin per direction so we only measure the full terminal→terminal
-  // run, which is what the CTA publishes as service frequency.
+  // Rail short-turns (UIC-Halsted, Jefferson Park) share direction_id with
+  // full runs — staggering their starts collapses apparent headway. Lock on
+  // dominant origin per (route, dir) to measure terminal→terminal only.
   const railOriginCounts = new Map(); // route|dir → Map(stopId → count)
   for (const [tripId, meta] of tripMeta) {
     if (meta.mode !== 'rail') continue;
@@ -330,28 +305,15 @@ async function main() {
     if (best) railDominantOrigin.set(k, best);
   }
 
-  // Same idea for buses: some routes have garage pullouts from a depot stop
-  // staggered with revenue trips from the main terminal. Merging them into
-  // the per-hour consecutive-departure-gap median pulls headway below the
-  // rider-facing frequency, inflating expectedActive and firing ghosts.
-  //
-  // Apply day-level (not per-hour) dominance at a ≥60% share threshold — the
-  // per-hour variant previously caused Route 55 EB 2 AM to narrow to two
-  // bunched trips (commit 775a151). Day-level dominance picks up the main
-  // terminal whenever one exists while leaving genuinely multi-origin routes
-  // untouched.
+  // Same logic for buses: garage pullouts staggered with revenue trips
+  // collapse the headway median below rider-facing frequency.
   const busDominantOrigin = computeBusDominantOrigin(tripMeta, firstStopId, { log: true });
 
   const buckets = new Map();
-  // Parallel bucket keyed the same way as `buckets`, storing per-trip durations
-  // (minutes). Kept as a display aid ("every ~X min") even though ghost
-  // detection now uses `activeBuckets` directly.
+  // Parallel to `buckets`, kept for display ("every ~X min").
   const durationBuckets = new Map();
-  // Count of trips whose [departure, arrival] interval overlaps each hour. This
-  // is the ground-truth expected-active-vehicle count and replaces the old
-  // `duration / headway` approximation, which broke during service ramp-up
-  // (sparse hours with a few bunched starts produced a misleadingly tight
-  // headway median). Keyed route|dir|dayType|hour → integer count.
+  // Ground-truth: count of trips whose [dep, arr] overlaps each hour.
+  // Replaces the old `duration / headway` approximation that broke during ramp-up.
   const activeBuckets = new Map();
   function bucketKey(route, dir, dayType, hour) {
     return `${route}|${dir}|${dayType}|${hour}`;
@@ -382,14 +344,9 @@ async function main() {
       if (!durationBuckets.has(key)) durationBuckets.set(key, []);
       durationBuckets.get(key).push(durMin);
 
-      // Accumulate average simultaneously-active trips per hour. For each
-      // hour [H, H+1) the trip's [dep, arr] crosses, add the fraction of
-      // that hour the trip spent in progress — `(min(arr, Hend) - max(dep,
-      // Hstart)) / 3600`. Summing across trips yields the mean simultaneous
-      // count, which is the right target to compare against observed
-      // snapshot counts. Naively incrementing by 1 per overlapping hour
-      // would conflate "trips that appeared at any point in the hour" with
-      // "trips simultaneously in service," wildly overstating PM peak.
+      // Mean simultaneously-active count: weight each hour by the fraction
+      // the trip spent in progress. Naive +1 per overlapping hour conflates
+      // "appeared at any point" with "simultaneously in service."
       const startHour = Math.floor(dep / 3600);
       const endHour = Math.floor((arr - 1) / 3600);
       for (let h = startHour; h <= endHour; h++) {
@@ -420,9 +377,8 @@ async function main() {
     }
   }
 
-  // Bucket keys are mode-agnostic; split into routes (bus) vs lines (rail)
-  // at output time so the runtime lookup can key on whichever makes sense.
-  const routeMode = new Map(); // route_id → 'bus' | 'rail' (derived from tripMeta)
+  // Bucket keys are mode-agnostic — split into routes/lines at output time.
+  const routeMode = new Map();
   for (const meta of tripMeta.values()) routeMode.set(meta.route, meta.mode);
 
   // For each bucket, compute median of consecutive departure gaps (minutes).
@@ -464,9 +420,8 @@ async function main() {
 
   }
 
-  // Emit active-trip counts separately. An hour can have zero trip-starts but
-  // still be served by trips that started earlier — those hours aren't in
-  // `buckets` but ARE in `activeBuckets`, and we need a count for them.
+  // Active-trip counts emit separately — hours with zero starts can still
+  // have trips in progress that began earlier.
   for (const [key, count] of activeBuckets) {
     const [route, dir, dayType, hourStr] = key.split('|');
     const hour = parseInt(hourStr, 10);

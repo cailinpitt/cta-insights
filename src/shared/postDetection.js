@@ -1,11 +1,6 @@
 const { acquireCooldown } = require('./state');
 
-// Final atomic acquire + post + record dance shared by bus/train bunching
-// and gap detectors. The candidate-selection loop differs by detector and
-// stays in each bin script; this helper covers the bit that's identical.
-//
-// On cooldown-race loss: calls recordSkip and returns null. On success:
-// returns { agent, primary } so the caller can attach a video reply.
+// Returns { agent, primary } on post, null on cooldown-race loss.
 async function commitAndPost({
   cooldownKeys, cooldownTtlMs, recordSkip, agentLogin, image, text, alt, recordPosted,
   postWithImage, postText,

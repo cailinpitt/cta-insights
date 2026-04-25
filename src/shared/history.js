@@ -132,42 +132,18 @@ function db() {
       ON observations(kind, route, ts);
   `);
 
-  // Migration: add pct_purple to speedmap_runs for trains' 5-bucket schema.
-  // Pre-existing rows leave this NULL, which is fine — we only read pct_* as
-  // per-row insert values, never aggregated across historical runs.
+  // Column migrations for DBs that predate the current schema.
   const speedmapCols = _db.prepare("PRAGMA table_info(speedmap_runs)").all().map((c) => c.name);
   if (!speedmapCols.includes('pct_purple')) {
     _db.exec('ALTER TABLE speedmap_runs ADD COLUMN pct_purple REAL');
   }
-
-  // Migration: add expires_at to cooldowns for per-key TTLs. Null means
-  // "use the caller's default COOLDOWN_MS window."
   const cooldownCols = _db.prepare("PRAGMA table_info(cooldowns)").all().map((c) => c.name);
   if (!cooldownCols.includes('expires_at')) {
     _db.exec('ALTER TABLE cooldowns ADD COLUMN expires_at INTEGER');
   }
-
-  // Migration: add lat/lon to observations so the pulse detector can project
-  // historical positions onto line polylines. Existing rows leave them null
-  // (still useful for ghost detection which only needs distinct-vid counts).
-  // pdist/heading/vehicle_ts let bunching+gaps consume the same snapshots
-  // observeGhosts already records — eliminating their duplicate getvehicles
-  // calls and cutting bus-API usage in half.
   const obsCols = _db.prepare("PRAGMA table_info(observations)").all().map((c) => c.name);
-  if (!obsCols.includes('lat')) {
-    _db.exec('ALTER TABLE observations ADD COLUMN lat REAL');
-  }
-  if (!obsCols.includes('lon')) {
-    _db.exec('ALTER TABLE observations ADD COLUMN lon REAL');
-  }
-  if (!obsCols.includes('pdist')) {
-    _db.exec('ALTER TABLE observations ADD COLUMN pdist REAL');
-  }
-  if (!obsCols.includes('heading')) {
-    _db.exec('ALTER TABLE observations ADD COLUMN heading INTEGER');
-  }
-  if (!obsCols.includes('vehicle_ts')) {
-    _db.exec('ALTER TABLE observations ADD COLUMN vehicle_ts INTEGER');
+  for (const [name, type] of [['lat', 'REAL'], ['lon', 'REAL'], ['pdist', 'REAL'], ['heading', 'INTEGER'], ['vehicle_ts', 'INTEGER']]) {
+    if (!obsCols.includes(name)) _db.exec(`ALTER TABLE observations ADD COLUMN ${name} ${type}`);
   }
 
   return _db;
@@ -183,11 +159,10 @@ function rolloffOld(now = Date.now()) {
   db().prepare('DELETE FROM speedmap_runs WHERE ts < ?').run(cutoff);
   db().prepare('DELETE FROM gap_events WHERE ts < ?').run(cutoff);
   db().prepare('DELETE FROM disruption_events WHERE ts < ?').run(cutoff);
-  // Alert posts roll off once the alert has been resolved for 90d.
+  // Alerts only roll off after they've been resolved for 90d — preserves the
+  // post URI so resolution replies can still thread to the original.
   db().prepare('DELETE FROM alert_posts WHERE resolved_ts IS NOT NULL AND resolved_ts < ?').run(cutoff);
 }
-
-// --- Alert posts (Feature 2: CTA alert ingestion) --------------------------
 
 function getAlertPost(alertId) {
   return db().prepare('SELECT * FROM alert_posts WHERE alert_id = ?').get(alertId) || null;
@@ -215,8 +190,6 @@ function listUnresolvedAlerts(kind) {
   return db().prepare('SELECT * FROM alert_posts WHERE kind = ? AND resolved_ts IS NULL').all(kind);
 }
 
-// --- Disruption events (Feature 1: pulse detector) -------------------------
-
 function recordDisruption({
   kind, line, direction, fromStation, toStation, source, posted, postUri,
 }, now = Date.now()) {
@@ -229,8 +202,6 @@ function recordDisruption({
     fromStation || null, toStation || null, source, posted ? 1 : 0, postUri || null,
   );
 }
-
-// --- Pulse detector state (Feature 1) --------------------------------------
 
 function getPulseState(line, direction) {
   return db().prepare('SELECT * FROM pulse_state WHERE line = ? AND direction = ?')
@@ -271,9 +242,8 @@ function clearPulseState(line, direction) {
   db().prepare('DELETE FROM pulse_state WHERE line = ? AND direction = ?').run(line, direction);
 }
 
-// Midnight Chicago time of the day containing `ts`, returned as a UTC epoch ms.
-// Uses the offset at that instant, which is stable enough for "today" windows
-// (DST transitions happen at 2am CT, so noon-to-noon queries are never split).
+// DST transitions happen at 2am CT, so any noon-anchored window is safe;
+// "today" queries against this aren't split by the Mar/Nov clock change.
 function chicagoStartOfDay(ts) {
   const d = new Date(ts);
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -318,24 +288,11 @@ function recordSpeedmap({
   );
 }
 
-/**
- * Callouts for a bunching detection about to post. Returns an array of short
- * human strings (zero or more) to prepend to the post body.
- *
- * #1 (frequency): "Nth <route> bunch reported today" — counts today's posted
- *   events on the same kind+route (cooldown-suppressed rows don't count, so
- *   the number matches what the bot actually posted).
- * #2 (severity): "tightest bunch on this <line> in N days" (train) or
- *   "largest bunch on this route in N days" (bus), emitted when the current
- *   event is more severe than every prior posted event in the window.
- *
- * Severity semantics differ by kind:
- *   - bus: larger vehicle_count is worse; tiebreak by larger span.
- *   - train: always 2 trains, smaller severity_ft (distance) is tighter/worse.
- *
- * Uses the DB as it stood BEFORE recording this event, so callers must
- * compute callouts before calling recordBunching.
- */
+// Must be called BEFORE recordBunching writes the current event, otherwise
+// the callouts compare against the event itself.
+//
+// Severity semantics: for buses larger vehicle_count wins (tiebreak on span),
+// for trains smaller severity_ft (the inter-train distance) wins.
 function bunchingCallouts({ kind, route, routeLabel, vehicleCount, severityFt }, now = Date.now()) {
   const out = [];
   const startOfDay = chicagoStartOfDay(now);
@@ -343,16 +300,13 @@ function bunchingCallouts({ kind, route, routeLabel, vehicleCount, severityFt },
     SELECT COUNT(*) AS c FROM bunching_events
     WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ?
   `).get(kind, route, startOfDay).c;
-  // todayCount is PRIOR events today. The event we're about to post is the
-  // (todayCount + 1)th.
   const nth = todayCount + 1;
   if (nth >= 2) {
     const label = routeLabel ? `${routeLabel} bunch` : 'bunch';
     out.push(`${ordinal(nth)} ${label} reported today`);
   }
 
-  // Severity — compare against posted events in the last 30 days (excluding
-  // today's). Need at least 3 prior to make the callout meaningful.
+  // 3-prior-event minimum keeps cold-start runs from emitting "worst in 0 days."
   const windowDays = 30;
   const windowStart = now - windowDays * DAY_MS;
   if (kind === 'bus') {
@@ -382,14 +336,6 @@ function bunchingCallouts({ kind, route, routeLabel, vehicleCount, severityFt },
   return out;
 }
 
-/**
- * Callouts for a speedmap run. Severity only — frequency is uninteresting for
- * speedmaps since they run on a schedule.
- *
- * Compares avg_mph against posted runs on the same kind+route in the last 14
- * days. Requires at least 3 prior samples to avoid meaningless "slowest in 0
- * days" on cold start.
- */
 function speedmapCallouts({ kind, route, avgMph }, now = Date.now()) {
   if (avgMph == null) return [];
   const out = [];
@@ -428,12 +374,8 @@ function recordGap({
   );
 }
 
-/**
- * Callouts for a gap detection about to post. Mirrors bunchingCallouts:
- * "Nth gap today" for frequency, "worst reported in N days" for severity.
- * Severity here uses the ratio (observed/expected) — that normalizes across
- * high-frequency and low-frequency routes.
- */
+// Severity uses ratio (observed/expected) to normalize across high- and
+// low-frequency routes.
 function gapCallouts({ kind, route, routeLabel, ratio }, now = Date.now()) {
   const out = [];
   const startOfDay = chicagoStartOfDay(now);
@@ -471,19 +413,8 @@ function formatCallouts(callouts) {
   return `📊 ${callouts.join(' · ')}`;
 }
 
-/**
- * Soft daily cap for bunching posts. Returns true if the candidate is allowed
- * to post, either because the route is under the cap or because the candidate
- * is strictly more severe than every bunching posted on the route today. The
- * cap fixes feed-dominance by chronically-bad routes (Route 66 bunches every
- * hour) without suppressing a genuine escalation ("3-bus pileup became a 6").
- *
- * Severity comparison differs by kind:
- *   - bus: larger vehicle_count wins; tiebreak on larger span_ft.
- *   - train: always 2 trains, so smaller span_ft (tighter bunch) wins.
- *
- * `candidate`: { vehicleCount, severityFt }
- */
+// Soft cap: a chronically-bad route gets `cap` posts/day, but a strictly-more-
+// severe escalation ("3-bus pileup → 6") still gets through.
 function bunchingCapAllows({ kind, route, candidate, cap }, now = Date.now()) {
   const events = db().prepare(`
     SELECT vehicle_count AS vc, severity_ft AS sev
@@ -501,13 +432,6 @@ function bunchingCapAllows({ kind, route, candidate, cap }, now = Date.now()) {
   });
 }
 
-/**
- * Soft daily cap for gap posts. Mirrors `bunchingCapAllows` but with a single
- * severity axis: ratio (gap_min / expected_min). A larger ratio means "emptier
- * than schedule implies" — the gap is more severe.
- *
- * `candidate`: { ratio }
- */
 function gapCapAllows({ kind, route, candidate, cap }, now = Date.now()) {
   const events = db().prepare(`
     SELECT ratio FROM gap_events
@@ -517,17 +441,9 @@ function gapCapAllows({ kind, route, candidate, cap }, now = Date.now()) {
   return events.every((ev) => candidate.ratio > ev.ratio);
 }
 
-/**
- * Pick the route from `candidates` whose last posted speedmap is oldest,
- * falling back to never-posted routes first. Keeps speedmap coverage fair
- * across a growing route list — a uniform random pick left popular routes
- * re-covered within a day while long-tail routes went weeks between posts.
- *
- * Only `posted=1` rows count: skipped/empty runs shouldn't make a route
- * look "recently covered." Ties are broken by the order candidates were
- * passed in (stable & predictable; operator can re-order routes.js to
- * influence the rotation).
- */
+// Only posted=1 rows count: a skipped/empty run shouldn't make a route look
+// "recently covered." Ties break in candidate order, so routes.js ordering
+// influences the rotation.
 function leastRecentlyPostedSpeedmapRoute(kind, candidates) {
   if (!candidates || candidates.length === 0) return null;
   const rows = db().prepare(`

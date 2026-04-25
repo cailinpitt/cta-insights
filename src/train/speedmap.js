@@ -4,10 +4,8 @@ const { haversineFt, cumulativeDistances } = require('../shared/geo');
 
 const FEET_PER_DEG_LAT = 364567;
 
-// Default pair-sampling thresholds for train data. Trains hit 55–65 mph
-// between stops on the Red/Blue lines, so the maxMph cap sits above that
-// cruise speed. maxDtMs matches the bus cadence — a gap >3 min generally
-// means the train vanished from the feed (tunnel, out of service).
+// 70 mph cap covers the 55–65 cruise speed on Red/Blue. >3 min dt usually
+// means the train vanished from the feed (tunnel / out of service).
 const DEFAULT_TRAIN_SAMPLE_OPTS = {
   maxDtMs: 3 * 60 * 1000,
   maxMph: 70,
@@ -19,16 +17,9 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/**
- * Shift a polyline perpendicular to its direction of travel by `offsetFt` feet.
- * Positive offset = left of travel (counter-clockwise rotation of the segment
- * tangent); negative = right. Used to render two directional speedmap ribbons
- * side-by-side on the same base line.
- *
- * Each vertex is offset along the perpendicular to the *average* of its
- * incoming and outgoing segment tangents, which keeps the offset polyline
- * continuous through bends without gaps or overlaps.
- */
+// Positive offset = left of travel; negative = right. Each vertex offsets
+// along the perpendicular to the AVERAGE of incoming/outgoing tangents, which
+// keeps the offset polyline continuous through bends without gaps.
 function offsetPolyline(points, offsetFt) {
   const feetPerDegLon = (lat) => FEET_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180);
   const out = [];
@@ -49,7 +40,7 @@ function offsetPolyline(points, offsetFt) {
     const dyFt = dLat * FEET_PER_DEG_LAT;
     const len = Math.sqrt(dxFt * dxFt + dyFt * dyFt);
     if (len === 0) { out.push([lat, lon]); continue; }
-    // Perpendicular (rotate tangent 90° CCW): (dx,dy) -> (-dy, dx).
+    // Perpendicular = tangent rotated 90° CCW: (dx,dy) → (-dy, dx).
     const perpDxFt = (-dyFt / len) * offsetFt;
     const perpDyFt = (dxFt / len) * offsetFt;
     out.push([
@@ -60,17 +51,9 @@ function offsetPolyline(points, offsetFt) {
   return out;
 }
 
-/**
- * Snap a lat/lon point onto the nearest segment of a polyline (array of
- * [lat, lon] pairs) and return its cumulative distance along that polyline.
- *
- * Projects perpendicularly onto each segment rather than snapping to the
- * nearest vertex. With sparse polylines (e.g. CTA train lines, ~80 vertices
- * across 20 mi) vertex-snapping puts the result anywhere from hundreds to
- * thousands of feet off, which silently corrupts both bunching detection
- * (false positives when two distant trains happen to snap to vertices with
- * similar cumDist) and speedmap binning.
- */
+// Perpendicular projection (not vertex-snap). With CTA's sparse train
+// polylines (~80 vertices over 20 mi), vertex-snapping would put the result
+// hundreds-to-thousands of feet off, breaking bunching and speedmap binning.
 function snapToLine(lat, lon, linePoints, cumDist) {
   let bestDist = Infinity;
   let bestCum = 0;
@@ -96,13 +79,8 @@ function snapToLine(lat, lon, linePoints, cumDist) {
   return bestCum;
 }
 
-/**
- * Same as snapToLine but also returns the perpendicular distance from the
- * query point to the snapped position. Used to reject samples that are far
- * from the polyline — key for branched lines (Green) where a train on the
- * Cottage Grove branch should not contribute to the Ashland/63rd branch's
- * bins just because snapToLine projects it onto the latter.
- */
+// perpDist enables off-branch rejection: a train on Green's Cottage Grove
+// branch projects onto the Ashland/63rd polyline from far away.
 function snapToLineWithPerp(lat, lon, linePoints, cumDist) {
   let bestDist = Infinity;
   let bestCum = 0;
@@ -128,33 +106,18 @@ function snapToLineWithPerp(lat, lon, linePoints, cumDist) {
   return { cumDist: bestCum, perpDist: bestDist };
 }
 
-/**
- * Build a single merged polyline and cumulative distance array for a line from
- * the trainLines segments. Most lines have a single segment; Green has two
- * branches. We pick the longest segment as the "main" line for speedmap
- * purposes — the branch with fewer trains would produce sparse data anyway.
- *
- * Round-trip polylines (Orange/Brown/Purple/Pink all start and end at the same
- * terminal) are truncated at the apex vertex — the point farthest from the
- * start by haversine distance. Without this, `snapToLine` splits each train's
- * observations between outbound and inbound branches of an identical physical
- * track: consecutive readings jump thousands of feet across branches and get
- * filtered as noise, leaving most of the route with no samples. Using the
- * one-way half means both trDr directions map onto the same polyline (the
- * physical distance from the terminal), which is what we actually want.
- */
+// Round-trip polylines (Orange/Brown/Purple/Pink end at their start) are
+// truncated at the apex — both trDr directions map onto the same outbound
+// polyline. Without this, `snapToLine` splits observations between outbound
+// and inbound branches over identical track and most samples get noise-filtered.
 function processSegment(seg) {
   const first = { lat: seg[0][0], lon: seg[0][1] };
   const last = { lat: seg[seg.length - 1][0], lon: seg[seg.length - 1][1] };
   const isRoundTrip = haversineFt(first, last) < 500;
   let pruned = seg;
   if (isRoundTrip) {
-    // Find the apex (farthest point from terminal), then keep all trailing
-    // points whose distance from the terminal stays within 90% of the apex —
-    // this preserves the full Loop circuit (Orange/Brown/Pink/Purple all trace
-    // ~4 corners of the elevated rectangle after reaching their apex). Stop
-    // when distance drops below the plateau: that's the return leg retracing
-    // outbound tracks, which we want to drop.
+    // Keep apex + plateau (the Loop's elevated rectangle), drop the return leg
+    // retracing outbound tracks. Plateau threshold = 90% of apex distance.
     const dists = seg.map(([lat, lon]) => haversineFt(first, { lat, lon }));
     let apexIdx = 0;
     for (let i = 1; i < dists.length; i++) {
@@ -176,21 +139,11 @@ function processSegment(seg) {
   return { points: pruned, cumDist, totalFt: cumDist[cumDist.length - 1] };
 }
 
-/**
- * Return all branches of a line as an array. Most lines have one branch; Green
- * has two (Harlem/Lake → Ashland/63rd and Harlem/Lake → Cottage Grove). Each
- * branch gets its own polyline, cumDist, and totalFt. Round-trip polylines are
- * still truncated at their apex — see `processSegment`.
- */
 function buildLineBranches(trainLines, line) {
   const segments = trainLines[line] || [];
   return segments.map(processSegment);
 }
 
-/**
- * Back-compat wrapper returning the single longest branch. Used by
- * trainBunching / renderTrainBunching which expect one polyline.
- */
 function buildLinePolyline(trainLines, line) {
   const branches = buildLineBranches(trainLines, line);
   if (branches.length === 0) return { points: [], cumDist: [] };
@@ -201,13 +154,9 @@ function buildLinePolyline(trainLines, line) {
   return best;
 }
 
-/**
- * Poll train positions for a specific line at fixed intervals and return
- * per-train tracks keyed by run number and direction.
- */
 async function collectTrains(line, durationMs, pollIntervalMs) {
-  const tracks = new Map(); // rn -> Map<trDr, [{t, lat, lon}, ...]>
-  const destByRnDir = new Map(); // rn -> Map<trDr, destination>
+  const tracks = new Map();
+  const destByRnDir = new Map();
   const start = Date.now();
   let pollCount = 0;
 
@@ -237,20 +186,11 @@ async function collectTrains(line, durationMs, pollIntervalMs) {
   return { tracks, destByRnDir };
 }
 
-/**
- * Derive per-direction speed samples from collected train tracks by snapping
- * each position onto the line polyline to get a distance-along-route. Also
- * returns which rns contributed to each direction so callers can look up
- * per-direction destinations from raw train data.
- *
- * `maxPerpFt` keeps branched-line bins (Green's Ashland vs Cottage Grove) from
- * cross-contaminating: a train on the other branch projects onto this
- * polyline from thousands of feet away and gets dropped.
- */
+// `maxPerpFt` rejects off-branch projections (Green Ashland vs Cottage Grove).
 function computeTrainSamples(tracks, linePoints, cumDist, opts = {}) {
   const { maxDtMs, maxMph, minAlongFt, maxPerpFt } = { ...DEFAULT_TRAIN_SAMPLE_OPTS, ...opts };
-  const byDir = new Map(); // trDr -> [{startFt, endFt, mph}, ...]
-  const rnsByDir = new Map(); // trDr -> Set<rn>
+  const byDir = new Map();
+  const rnsByDir = new Map();
   const stats = { offLine: 0, stationary: 0, dropped: 0 };
 
   for (const [rn, byDirForTrain] of tracks) {
@@ -284,9 +224,6 @@ function computeTrainSamples(tracks, linePoints, cumDist, opts = {}) {
   return { byDir, rnsByDir, stats };
 }
 
-/**
- * Pick the direction with the most speed samples.
- */
 function pickTargetDir(samplesByDir) {
   let best = null;
   for (const [trDr, samples] of samplesByDir) {
@@ -295,9 +232,7 @@ function pickTargetDir(samplesByDir) {
   return best?.trDr;
 }
 
-// Inverse of `snapToLine`: given a cumulative-distance position along the
-// polyline, return the {lat, lon} on the line at that distance. Used to
-// render a train at its snapped/clamped position rather than raw GPS.
+// Inverse of snapToLine — used to render trains at their snapped (vs raw GPS) position.
 function pointAlongLine(linePoints, cumDist, dist) {
   if (linePoints.length === 0) return null;
   if (dist <= cumDist[0]) return { lat: linePoints[0][0], lon: linePoints[0][1] };
@@ -317,10 +252,7 @@ function pointAlongLine(linePoints, cumDist, dist) {
   return { lat: a[0] + t * (b[0] - a[0]), lon: a[1] + t * (b[1] - a[1]) };
 }
 
-// Truncate a branch {points, cumDist, totalFt} at a cumulative distance, keeping
-// all vertices up to that distance and interpolating an exact endpoint vertex.
-// Used to render Purple's shuttle-only polyline (Linden↔Howard) during hours
-// when express service isn't running.
+// Used for Purple's shuttle-only polyline (Linden↔Howard) when express isn't running.
 function truncateBranchToDistance(branch, maxDistFt) {
   const { points, cumDist } = branch;
   const kept = [];

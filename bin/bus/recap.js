@@ -12,19 +12,11 @@ const {
   buildGapReplyText, buildGapReplyAlt,
 } = require('../../src/shared/recapPost');
 
-// Cap the gap chart to the worst-N routes so the square canvas stays legible.
-// Below that floor the bars get noise-thin; above it the text gets cramped.
 const GAP_CHART_CAP = 10;
-
-// Noise floor: don't plot locations with fewer than this many incidents in
-// the window. Keeps the map legible on low-volume windows.
 const MIN_COUNT = { week: 3, month: 3 };
-// Cap plotted circles so the citywide view stays legible; the text summary
-// still reflects the full count above the floor.
 const RENDER_CAP = 40;
 
-// Sort bus routes naturally: numeric ones by number, letter-prefixed (X9, J14)
-// after. Keeps "4, 22, 146, X9" readable instead of "146, 22, 4, X9".
+// Numeric routes first by number, then letter-prefixed (X9, J14, etc.).
 function formatBusRoutes(routes) {
   if (!routes || routes.length === 0) return '';
   const sorted = [...routes].sort((a, b) => {

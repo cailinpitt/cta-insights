@@ -1,29 +1,13 @@
 const STALE_MS = 3 * 60 * 1000;
-// Convert pdist-feet to a time estimate. Typical in-city bus speed sits around
-// 10 mph ≈ 880 ft/min once stops/signals are factored in. A crude conversion
-// but we only use it to filter on a ratio vs. GTFS-scheduled headway — not an
-// absolute ETA.
+// 10 mph ≈ 880 ft/min once stops + signals are factored in. Crude, but only
+// used as a ratio against GTFS-scheduled headway — not an absolute ETA.
 const TYPICAL_SPEED_FT_PER_MIN = 880;
 const { terminalZoneFt } = require('../shared/geo');
-// Flag a gap when observed time-gap exceeds this multiple of scheduled headway,
-// AND exceeds the absolute floor (so low-frequency routes with 30-min schedule
-// don't spam on every 31-min drift).
+// Absolute floor protects low-frequency routes (30-min schedule) from
+// spamming on every 31-min drift.
 const RATIO_THRESHOLD = 2.5;
 const ABSOLUTE_MIN_MIN = 15;
 
-/**
- * Detect oversized gaps between consecutive buses on the same pattern.
- *
- * For each pid, sort vehicles by pdist and look at consecutive pairs. A gap
- * is the pdist distance between two successive buses — the inverse of a
- * bunch. We need at least 2 vehicles to define one.
- *
- * `expectedHeadwayForPid(pid)` returns scheduled headway in minutes or null
- * if the route isn't indexed; null means we can't evaluate severity so the
- * pair is skipped.
- *
- * Returns gap events sorted worst-first by ratio (observed/expected).
- */
 function detectAllGaps(vehicles, expectedHeadwayForPid, patternForPid, now = new Date()) {
   const fresh = vehicles.filter((v) => now - v.tmstmp < STALE_MS);
 
@@ -51,11 +35,8 @@ function detectAllGaps(vehicles, expectedHeadwayForPid, patternForPid, now = new
       const gapFt = b.pdist - a.pdist;
       const gapMin = gapFt / TYPICAL_SPEED_FT_PER_MIN;
 
-      // Skip pairs that straddle a terminal zone on either side — the bus
-      // just past the start or about to finish isn't in "service territory"
-      // for headway purposes, and the bus behind/ahead of it gets a misleading
-      // gap measurement. Zone scales with route length (10%, capped at 1500 ft)
-      // to match bunching detection.
+      // Buses inside the terminal zone aren't in "service territory" yet —
+      // their headway measurement against the next bus is misleading.
       if (a.pdist < zoneFt) continue;
       if (patternLengthFt - b.pdist < zoneFt) continue;
 
@@ -66,9 +47,8 @@ function detectAllGaps(vehicles, expectedHeadwayForPid, patternForPid, now = new
       gaps.push({
         pid,
         route: a.route,
-        // sorted ascending by pdist → a is upstream (behind), b is downstream
-        // (ahead). A rider standing near `leading` has just watched it pass and
-        // is now waiting for `trailing`.
+        // a is upstream (sorted by pdist asc) — a rider near `leading` (b) just
+        // watched it pass and is waiting on `trailing` (a).
         leading: b,
         trailing: a,
         gapFt,

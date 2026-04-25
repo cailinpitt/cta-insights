@@ -1,27 +1,12 @@
 const { buildLinePolyline, snapToLine } = require('./speedmap');
 const { terminalZoneFt: terminalZoneFor } = require('../shared/geo');
 
-// Trains cruise faster than buses — typical average between stations on the
-// rapid-transit lines is ~25 mph with dwell time mixed in ≈ 2200 ft/min. Only
-// used to convert an along-track distance to a rough time gap for ratio
-// filtering; refined at post time if we add prediction support.
+// 25 mph cruise + dwell ≈ 2200 ft/min. Used as a ratio against GTFS headway,
+// not an absolute ETA.
 const TYPICAL_TRAIN_SPEED_FT_PER_MIN = 2200;
 const RATIO_THRESHOLD = 2.5;
 const ABSOLUTE_MIN_MIN = 10;
 
-/**
- * Detect oversized gaps between consecutive trains on the same line + trDr.
- *
- * Mirrors `detectAllGaps` for buses: snap each train onto the line polyline,
- * sort by along-track distance, measure consecutive gaps. A gap qualifies
- * when its time estimate is both ≥ ABSOLUTE_MIN_MIN and ≥ RATIO_THRESHOLD ×
- * scheduled headway.
- *
- * `expectedHeadwayForLine(line, destinationStation)` returns scheduled minutes
- * or null. `destinationStation` is a {lat, lon} used to pick direction.
- *
- * Returns gap events sorted worst-first by ratio.
- */
 function detectAllTrainGaps(trains, trainLines, stations, stationsByName, expectedHeadwayForLine, now = Date.now()) {
   const groups = new Map();
   for (const t of trains) {
@@ -37,8 +22,7 @@ function detectAllTrainGaps(trains, trainLines, stations, stationsByName, expect
     return lineCache.get(line);
   }
 
-  // Precompute stations' along-track distance per line so midpoint-station
-  // lookup is a quick scan instead of re-snapping on every gap.
+  // Precomputed so per-gap midpoint lookup is a scan, not re-snapping.
   const stationTrackCache = new Map();
   function getStationsOnLine(line) {
     if (stationTrackCache.has(line)) return stationTrackCache.get(line);
@@ -63,8 +47,7 @@ function detectAllTrainGaps(trains, trainLines, stations, stationsByName, expect
       .map((t) => ({ train: t, trackDist: snapToLine(t.lat, t.lon, points, cumDist) }))
       .sort((a, b) => a.trackDist - b.trackDist);
 
-    // Use any train on the group as the destination sample — same trDr means
-    // same destination for the purposes of picking a scheduled headway.
+    // Same trDr → same scheduled-headway destination, so any sample works.
     const sampleDest = group.find((t) => t.destination)?.destination;
     const destStation = sampleDest ? stationsByName(line, sampleDest) : null;
     const expectedMin = expectedHeadwayForLine(line, destStation);
@@ -76,7 +59,6 @@ function detectAllTrainGaps(trains, trainLines, stations, stationsByName, expect
       const gapFt = b.trackDist - a.trackDist;
       if (gapFt <= 0) continue;
 
-      // Skip pairs that touch a terminal zone — same reasoning as bus gaps.
       if (a.trackDist < terminalZoneFt) continue;
       if (totalFt - b.trackDist < terminalZoneFt) continue;
 
@@ -85,8 +67,7 @@ function detectAllTrainGaps(trains, trainLines, stations, stationsByName, expect
       if (gapMin < ABSOLUTE_MIN_MIN) continue;
       if (ratio < RATIO_THRESHOLD) continue;
 
-      // Station nearest the midpoint — used in post copy so "near X" points to
-      // the empty stretch rather than one of the trains' next stations.
+      // Midpoint station so "near X" points to the empty stretch, not either train's next stop.
       const midTrack = (a.trackDist + b.trackDist) / 2;
       const onLine = getStationsOnLine(line);
       let nearStation = null;
@@ -99,8 +80,7 @@ function detectAllTrainGaps(trains, trainLines, stations, stationsByName, expect
       gaps.push({
         line,
         trDr,
-        // a is upstream (behind), b is downstream (ahead). A rider standing
-        // at a stop just past `leading` is waiting for `trailing`.
+        // a is upstream — rider near `leading` (b) just watched it pass and is waiting on `trailing` (a).
         leading: b.train,
         trailing: a.train,
         leadingTrackDist: b.trackDist,

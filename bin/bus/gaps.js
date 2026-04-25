@@ -31,17 +31,14 @@ async function main() {
   const { vehicles, now, source } = await getVehiclesCachedOrFresh(routes);
   console.log(`Got ${vehicles.length} vehicles (${source}, snapshot ${new Date(now).toISOString()})`);
 
-  // Resolve pattern + expected headway per unique pid once, lazily. We can't
-  // pre-fetch because we don't know which pids have candidate gaps until the
-  // detector runs, and the detector needs pattern+headway to filter. Solution:
-  // pass memoized fetchers into the detector.
+  // Memoized fetchers passed into the detector — pattern.route isn't on the
+  // pattern object so we sample any vehicle to get it.
   const patternCache = new Map();
   const headwayCache = new Map();
   async function primePid(pid) {
     if (!patternCache.has(pid)) patternCache.set(pid, await loadPattern(pid));
     const pattern = patternCache.get(pid);
     if (!headwayCache.has(pid)) {
-      // Pattern object doesn't embed route — pull it from any vehicle on this pid.
       const sample = vehicles.find((v) => v.pid === pid);
       const exp = sample ? expectedHeadwayMin(sample.route, pattern) : null;
       headwayCache.set(pid, exp);
@@ -73,13 +70,11 @@ async function main() {
   let chosenStop = null;
   for (const candidate of gaps) {
     const candidatePattern = patternCache.get(candidate.pid);
-    // Anchor the stop at the leading bus's position: that's where a rider just
-    // watched the leading bus pass and the reported gap minutes = how long they
-    // wait for the trailing bus. Using the geographic midpoint misleads — a
-    // rider at the midpoint only waits ~half the posted gap.
+    // Anchor at the leading bus: the gap minutes describe a rider who just
+    // watched it pass. The geographic midpoint misleads — a rider there only
+    // waits half the posted gap.
     const stop = findNearestStop(candidatePattern, candidate.leading.pdist);
 
-    // Skip if stop resolution landed on a terminal — same reasoning as bunching.
     const stops = candidatePattern.points.filter((p) => p.type === 'S' && p.stopName);
     if (stop === stops[0] || stop === stops[stops.length - 1]) {
       console.log(`  skip pid ${candidate.pid}: nearest stop "${stop.stopName}" is a terminal`);
@@ -139,19 +134,13 @@ async function main() {
     return;
   }
 
-  // Refine gapMin with CTA BusTime predictions. Rider framing: standing at a
-  // stop just past the leading bus, how long until the trailing bus arrives?
-  //
-  // BusTime only predicts ~30 min out, so big gaps (the ones we care about
-  // most) never return a direct prediction at the leading bus's stop. Instead
-  // we pull all predictions for the trailing bus, find its *farthest* predicted
-  // stop that's still on this pattern, and add the remaining distance from
-  // there to the leading bus at a typical 10 mph. This anchors the estimate on
-  // BusTime's real-time ETA and uses the crude constant only for the tail.
+  // BusTime caps predictions at ~30 min, so the big gaps (the ones we care
+  // about) never have a direct prediction at the leading bus's stop. Anchor
+  // on the trailing bus's farthest on-pattern predicted stop and extrapolate
+  // the remaining distance at 10 mph.
   try {
     const leadingStop = findNearestStop(pattern, gap.leading.pdist);
     const preds = await getPredictions({ vid: gap.trailing.vid });
-    // Map stpid → pattern stop with a pdist so we can measure distance.
     const stopsByStpid = new Map();
     for (const pt of pattern.points) {
       if (pt.type === 'S' && pt.stopId) stopsByStpid.set(String(pt.stopId), pt);
@@ -166,8 +155,7 @@ async function main() {
       .filter((x) => x.stop && x.min != null && x.stop.pdist < gap.leading.pdist);
 
     if (onPattern.length > 0) {
-      // Pick the stop with the largest pdist (closest to leading bus) so the
-      // extrapolation tail is as short as possible.
+      // Pick the closest-to-leading stop so the extrapolation tail is shortest.
       const anchor = onPattern.reduce((best, x) => (x.stop.pdist > best.stop.pdist ? x : best));
       const remainingFt = gap.leading.pdist - anchor.stop.pdist;
       const tailMin = remainingFt / 880; // 10 mph ≈ 880 ft/min
@@ -182,7 +170,7 @@ async function main() {
     console.warn(`Prediction refinement failed: ${e.message}; keeping distance estimate`);
   }
 
-  // Re-check thresholds in case the refined ETA moved us below the bar.
+  // Re-check thresholds: refinement may have moved us below the bar.
   const { RATIO_THRESHOLD, ABSOLUTE_MIN_MIN } = require('../../src/bus/gaps');
   if (gap.gapMin < ABSOLUTE_MIN_MIN || gap.ratio < RATIO_THRESHOLD) {
     console.log(`After refinement, gap no longer meets threshold (${gap.gapMin} min, ${gap.ratio.toFixed(2)}x); skipping`);

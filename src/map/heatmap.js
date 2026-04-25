@@ -7,12 +7,8 @@ const {
   xmlEscape,
 } = require('./common');
 
-// Chicago citywide bbox — covers every bus route and train line we track
-// with a bit of padding on each side. Explicit (not auto-framed) so we can
-// project incident circles to pixel coords deterministically.
-// North edge reaches Linden (Purple, 42.073) and Dempster-Skokie (Yellow,
-// 42.039) so the northern termini don't get clipped. South edge covers
-// 95th/Dan Ryan (Red).
+// Explicit citywide bbox so circle projection is deterministic. North reaches
+// Linden/Dempster-Skokie; south reaches 95th/Dan Ryan.
 const CHICAGO_BBOX = {
   minLat: 41.64,
   maxLat: 42.08,
@@ -20,9 +16,8 @@ const CHICAGO_BBOX = {
   maxLon: -87.52,
 };
 
-// Chicago Loop elevated tracks bbox — matches the snapshot inset so the two
-// posts frame the same area. Five lines share the Loop rectangle, so chronic
-// spots downtown pile up into one dot at citywide zoom.
+// Five lines share the Loop rectangle, so chronic downtown spots merge into
+// one dot at citywide zoom. The inset frames the same area as the snapshot post.
 const LOOP_BBOX = {
   minLat: 41.874,
   maxLat: 41.891,
@@ -34,16 +29,13 @@ const LOOP_INSET_MARGIN = 20;
 
 const CIRCLE_COLOR = '#ff2a6d';
 const CIRCLE_STROKE = '#fff';
-// Circle radius (pixels) by incident count. Log-ish scaling so a 10-incident
-// spot stays ~3× the size of a 1-incident spot rather than 10×.
+// Log scaling so 10 incidents → ~3× a 1-incident spot, not 10×.
 function radiusForCount(count) {
   return Math.round(12 + 14 * Math.log2(count + 1));
 }
 
 function buildCircles(points, centerLat, centerLon, zoom, width, height, radiusFn) {
-  // Smallest-first so bigger circles composite on top — a chronic downtown
-  // spot with count 7 must not end up hidden behind an adjacent count-3 spot
-  // drawn after it. SVG paints in document order, so this controls z-order.
+  // Smallest-first → bigger circles paint last (SVG = document order).
   const sortedPoints = [...points].sort((a, b) => a.count - b.count);
   return sortedPoints.map((p) => {
     const { x, y } = project(p.lat, p.lon, centerLat, centerLon, zoom, width, height);
@@ -63,8 +55,7 @@ async function renderLoopInset({ points, trainLines, lineColors }) {
     lon >= LOOP_BBOX.minLon && lon <= LOOP_BBOX.maxLon;
   const loopPoints = points.filter((p) => inBbox(p.lat, p.lon));
 
-  // Concentric ring stacking so the five lines that share the Loop elevated
-  // rectangle all stay visible. Matches the snapshot inset rendering.
+  // Concentric rings so all five Loop-sharing lines stay visible.
   const RING_ORDER = ['brn', 'g', 'org', 'p', 'pink'];
   const ringIdx = Object.fromEntries(RING_ORDER.map((l, i) => [l, i]));
   const overlays = [];
@@ -90,8 +81,7 @@ async function renderLoopInset({ points, trainLines, lineColors }) {
   const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlays.join(',')}/${centerLon.toFixed(5)},${centerLat.toFixed(5)},${zoom.toFixed(2)}/${LOOP_INSET_SIZE}x${LOOP_INSET_SIZE}@2x?access_token=${token}`;
   const baseMap = await fetchMapboxStatic(url);
 
-  // Smaller radius in the inset so even a count-7 dot doesn't swallow the
-  // whole Loop rectangle.
+  // Smaller radius so a count-7 dot doesn't swallow the Loop rectangle.
   const insetRadius = (count) => Math.round(8 + 8 * Math.log2(count + 1));
   const circles = buildCircles(loopPoints, centerLat, centerLon, zoom, LOOP_INSET_SIZE, LOOP_INSET_SIZE, insetRadius);
 
@@ -116,10 +106,8 @@ async function renderHeatmap({ points, kind, trainLines = null, lineColors = nul
   const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 40);
   const zoom = Math.max(9, Math.min(13, rawZoom));
 
-  // For train heatmaps, overlay the line shapes as thin colored paths so the
-  // circles sit over visible track. For bus, the basemap streets already
-  // give enough spatial context — overlaying 100+ bus routes would blow the
-  // Mapbox URL limit.
+  // Train: overlay line shapes so circles sit on visible track. Bus: basemap
+  // streets are enough context — 100+ route overlays would blow the URL limit.
   const overlays = [];
   if (kind === 'train' && trainLines && lineColors) {
     for (const [line, segments] of Object.entries(trainLines)) {

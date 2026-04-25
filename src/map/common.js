@@ -13,11 +13,8 @@ const ROUTE_CORE_STROKE = 8;
 const SPEEDMAP_SEGMENT_STROKE = 8;
 const SPEEDMAP_HALO_STROKE = 12;
 
-// Direction-of-travel arrow rendered as an SVG path (not a Unicode glyph) so
-// the result is identical across hosts. librsvg's font fallback differs
-// between macOS (Helvetica) and Ubuntu (DejaVu), which warped the arrow shape.
-// Two strokes — chevron head + straight shaft — to match the Helvetica ↑ look:
-// thin shaft, open chevron, white-on-black outline.
+// SVG path so cross-host rendering is identical (librsvg font fallback differs
+// between macOS Helvetica and Ubuntu DejaVu, which warped the Unicode arrow).
 const ARROW_PATH_D = 'M -40,-30 L 0,-75 L 40,-30 M 0,-75 L 0,75';
 
 function buildDirectionArrow(cx, cy, bearingDeg) {
@@ -29,14 +26,10 @@ function buildDirectionArrow(cx, cy, bearingDeg) {
   ].join('');
 }
 
-// Twemoji 🚌 (U+1F68C) paths, 36x36 viewBox. Inlined so sharp/librsvg can render
-// the emoji without needing a color emoji font on the host system.
+// Inlined Twemoji paths so rendering doesn't need a color emoji font.
 const TWEMOJI_BUS_INNER = '<path fill="#808285" d="M0 21v7c0 1.657 1.343 3 3 3h30c1.657 0 3-1.343 3-3v-7H0z"/><path fill="#CCD6DD" d="M36 22v-9c0-1.657-3.343-3-5-3H11c-8 0-11 2.343-11 4v8h36z"/><path fill="#939598" d="M0 22h36v3H0z"/><path fill="#BCBEC0" d="M7 25c-3.063 0-5.586 2.298-5.95 5.263.526.453 1.202.737 1.95.737h10c0-3.313-2.686-6-6-6zm27.95 5.263C34.586 27.298 32.063 25 29 25c-3.313 0-6 2.687-6 6h10c.749 0 1.425-.284 1.95-.737z"/><circle cx="7" cy="31" r="4"/><circle fill="#99AAB5" cx="7" cy="31" r="2"/><circle cx="29" cy="31" r="4"/><circle fill="#99AAB5" cx="29" cy="31" r="2"/><path fill="#F4900C" d="M0 25h1v2H0zm35-2h1v2h-1z"/><path fill="#58595B" d="M1 13h35v10H1z"/><path fill="#292F33" d="M2 13H.342C.11 13.344 0 13.685 0 14v11h2c1.104 0 2-.896 2-2v-8c0-1.104-.896-2-2-2z"/><path fill="#55ACEE" d="M31 20c0 .553-.447 1-1 1H7c-.552 0-1-.447-1-1v-4c0-.552.448-1 1-1h23c.553 0 1 .448 1 1v4z"/><path fill="#FFAC33" d="M35 19h1v2h-1z"/><path fill="#55ACEE" d="M1 15H0v8h1c.552 0 1-.447 1-1v-6c0-.552-.448-1-1-1z"/>';
 
-// Simplified house glyph, 36x36 viewBox. Marks the end-of-line terminal in
-// bunching renders so viewers can see which direction the buses/trains are
-// heading toward. Not a full Twemoji trace — we only need "reads as a house"
-// at ~40px against the dark base map.
+// Simplified house, sized for ~40px on a dark basemap.
 const TWEMOJI_HOUSE_INNER = [
   // chimney (sits behind the roof peak)
   '<rect fill="#6D3A2C" x="24" y="4" width="4.5" height="2"/>',
@@ -63,9 +56,7 @@ const TWEMOJI_HOUSE_INNER = [
   '<rect fill="#fff" x="23.7" y="25.85" width="4.6" height="0.3"/>',
 ].join('');
 
-// Simplified checkered flag glyph, 36x36 viewBox. Marks the end-of-line
-// destination so direction reads at a glance alongside the house (origin)
-// marker. Pole on the left, 4×3 checker on the right half.
+// Checkered flag — destination marker, paired with the house at origin.
 const TWEMOJI_FLAG_INNER = [
   // pole
   '<rect fill="#3B2412" x="7.5" y="3" width="2" height="30"/>',
@@ -84,9 +75,6 @@ const TWEMOJI_FLAG_INNER = [
   '<rect fill="none" stroke="#000" stroke-width="0.6" x="9.5" y="6" width="22" height="12"/>',
 ].join('');
 
-// Shared renderer for origin/destination markers (house at start, flag at end).
-// Same circle styling across bus/train so the two markers read as a matched
-// pair on every map.
 function buildTerminalMarker(x, y, radius, glyph) {
   const iconSize = radius * 1.6;
   const iconX = x - iconSize / 2;
@@ -112,9 +100,7 @@ function requireMapboxToken() {
 }
 
 async function fetchMapboxStatic(url, timeoutMs = 30000) {
-  // One retry with jittered backoff to absorb transient 429/5xx without
-  // killing the post entirely. If the second attempt also fails, callers
-  // can decide whether to text-only fallback or surface the error.
+  // One retry with jittered backoff for transient 429/5xx.
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -131,16 +117,8 @@ async function fetchMapboxStatic(url, timeoutMs = 30000) {
   throw lastErr;
 }
 
-/**
- * Slice a polyline into N ordered groups by cumulative distance along the line.
- * Each slice is anchored by interpolated start/end points at exact bin
- * boundaries so sparse polylines (e.g. CTA train lines with ~80 vertices
- * across 20 mi) still produce a renderable segment per bin instead of dropping
- * bins where vertices happen to be absent.
- *
- * Normalized on {lat, lon} point objects. Callers holding [[lat, lon], ...]
- * pairs convert with one .map() before/after.
- */
+// Interpolated start/end points at exact bin boundaries — sparse polylines
+// (CTA train lines have ~80 vertices over 20 mi) would otherwise drop bins.
 function sliceIntoSegments(points, cumDist, numBins) {
   const total = cumDist[cumDist.length - 1];
   const segLen = total / numBins;
@@ -177,19 +155,9 @@ function sliceIntoSegments(points, cumDist, numBins) {
   return slices;
 }
 
-/**
- * Nudge overlapping marker pixel positions apart so every marker stays visible
- * when buses/trains are geographically close (e.g. a tight bunch).
- *
- * Iteratively resolves pairwise overlaps. When `opts.axis` (a unit vector in
- * pixel space) is provided, pushes are applied along ±axis only, preserving
- * the perpendicular component of each pair's offset. Passing the axis
- * perpendicular to the route bearing keeps buses at their true along-route
- * position and only fans them sideways — important on straight roads, where
- * pushing along the route makes a bunch look more spread out than it is.
- *
- * Order of input is preserved and the returned array has the same length.
- */
+// `opts.axis` (pixel-space unit vector) constrains pushes to ±axis. Pass the
+// route-perpendicular axis so a bunch fans sideways instead of spreading along
+// the road, which would make tight bunches look spread out.
 function separateMarkers(points, minDist, opts = {}) {
   const { axis, maxIterations = 60 } = opts;
   const out = points.map((p) => ({ ...p }));
@@ -203,18 +171,13 @@ function separateMarkers(points, minDist, opts = {}) {
         if (dist2 >= minDist * minDist) continue;
 
         if (axis) {
-          // Component of (j - i) along the axis; the rest is perpendicular and
-          // we leave it alone. If the perpendicular component alone already
-          // clears minDist, we're done.
+          // Project onto axis; if the perpendicular component already clears minDist, we're done.
           const a = dx * axis.x + dy * axis.y;
           const perp2 = Math.max(0, dist2 - a * a);
           if (perp2 >= minDist * minDist) continue;
           const targetAbs = Math.sqrt(minDist * minDist - perp2);
-          // When the natural axis offset is small, GPS noise can flip
-          // Math.sign(a) frame-to-frame in a video, which flips which side
-          // each marker sits on and produces a visible jockeying shimmer.
-          // Fall back to caller-order sign (i goes -, j goes +) whenever the
-          // offset is below a small fraction of the separation distance.
+          // Below STABLE_THRESH, GPS noise can flip Math.sign(a) frame-to-frame
+          // and produce a video shimmer — fall back to caller-order sign.
           const STABLE_THRESH = minDist * 0.2;
           const sign = Math.abs(a) < STABLE_THRESH ? 1 : Math.sign(a);
           const targetA = sign * targetAbs;
@@ -249,10 +212,7 @@ function separateMarkers(points, minDist, opts = {}) {
   return out;
 }
 
-// Pixel-space perpendicular to a compass bearing (degrees, 0 = north, clockwise).
-// Screen convention: +x right, +y down. Along-route direction in screen pixels
-// is (sin β, -cos β); perpendicular (rotated 90° clockwise, i.e. to the right
-// of travel) is (cos β, sin β).
+// Compass bearing → pixel-space perpendicular (rotated 90° CW = right of travel).
 function perpendicularFromBearing(bearingDeg) {
   const rad = (bearingDeg * Math.PI) / 180;
   return { x: Math.cos(rad), y: Math.sin(rad) };

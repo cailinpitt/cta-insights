@@ -1,20 +1,5 @@
-// Post text/alt builders for CTA alert-sourced posts.
-//
-// Two shapes:
-//   1) Rich: we successfully extracted "between X and Y" stations and the
-//      station names resolve against trainStations.json. The caller renders
-//      the map via src/map/disruption.js and posts with image.
-//   2) Plain: extraction failed. Caller posts text-only.
-//
-// Post text always:
-//   - Leads with a severity emoji + headline
-//   - Credits CTA
-//   - Includes the alert URL when present (gives readers the official source)
-//
-// Keep bodies short — Bluesky caps at 300 graphemes.
-
 const { graphemeLength } = require('./post');
-const { LINE_NAMES, LINE_EMOJI } = require('../train/api');
+const { LINE_NAMES } = require('../train/api');
 
 const EMOJI_BUS = '🚌';
 const EMOJI_WARN = '⚠';
@@ -35,10 +20,7 @@ function buildAlertPostText({ alert, kind, disruption, shorten = true }) {
 
   let text = parts.join('\n');
   if (graphemeLength(text) <= 300) return text;
-
-  // Fallback: drop the body and just post the headline + footer.
-  const compact = `${prefix} ${head}\n\nPer CTA. transitchicago.com`;
-  return compact;
+  return `${prefix} ${head}\n\nPer CTA. transitchicago.com`;
 }
 
 function buildAlertAltText({ alert, kind, disruption }) {

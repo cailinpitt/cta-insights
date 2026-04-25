@@ -13,26 +13,12 @@ const { snapToLine, pointAlongLine } = require('../train/speedmap');
 const execP = promisify(exec);
 
 const DEFAULT_TICK_MS = 15_000;
-const DEFAULT_TICKS = 40; // 40 × 15s = 10 min of real time
-// Interpolate this many output frames between each pair of real samples. 4×
-// turns 16 real samples into 61 frames of smooth motion instead of jumps.
-const DEFAULT_INTERPOLATE = 4;
-// With interpolation=4, framerate=16 keeps the clip length ~4s (~16× speed).
-const DEFAULT_FRAMERATE = 16;
+const DEFAULT_TICKS = 40; // 10 min of real time
+const DEFAULT_INTERPOLATE = 4; // turns 16 real samples → 61 smoothed frames
+const DEFAULT_FRAMERATE = 16; // ~4s clip at 16× speed
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * Captures a timelapse video of a bunching event.
- *
- * Polls the bus API every `tickMs` for `ticks` samples, keeping only the
- * vehicles that were in the original bunch (matched by vid). Frames are
- * rendered on a shared base map with a bbox expanded to cover every sampled
- * position, so the viewport is stable for the entire clip.
- *
- * Returns { buffer, ticksCaptured, elapsedSec, initialSpanFt, finalSpanFt } or
- * null if we ended up with fewer than 2 usable frames.
- */
 async function captureBunchingVideo(bunch, pattern, opts = {}) {
   const tickMs = opts.tickMs || DEFAULT_TICK_MS;
   const ticks = opts.ticks || DEFAULT_TICKS;
@@ -54,7 +40,6 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
       continue;
     }
     if (vehicles.length === 0) {
-      // All bunched buses disappeared from the feed — stop capturing.
       console.log(`video capture: all bunched buses dropped at tick ${i}, stopping`);
       break;
     }
@@ -63,15 +48,8 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
 
   if (snapshots.length < 2) return null;
 
-  // Raw CTA positions have lateral GPS jitter and occasional backwards jumps
-  // (prediction/GPS swaps). Three-step cleanup, applied per vid across the
-  // full snapshot sequence:
-  //   1. Snap each reported position onto the route pattern polyline.
-  //   2. Clamp along-track distance to be monotonically non-decreasing.
-  //   3. Smooth the clamped sequence with a 3-tap centered moving average so
-  //      forward lurches (the clamp only removes backward ones) don't make
-  //      tightly-bunched markers jockey visually frame-to-frame.
-  // Same cleanup as the train video — see trainBunchingVideo.js.
+  // Per-vid cleanup: snap to polyline → clamp non-decreasing → smooth.
+  // Removes lateral GPS jitter and backward jumps (prediction/GPS swaps).
   const linePts = pattern.points.map((p) => [p.lat, p.lon]);
   const lineCum = cumulativeDistances(pattern.points);
   const hasPolyline = linePts.length >= 2;
@@ -105,14 +83,8 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
   const view = computeBunchingView(bunch, pattern, extraVehicles);
   const baseMap = await fetchBunchingBaseMap(view);
 
-  // Build the interpolated vehicle sequence. For each consecutive pair of real
-  // samples (s[i], s[i+1]), emit `interpolate` frames lerping each vehicle's
-  // position by vid. If a vehicle is missing from one side of the pair (e.g.
-  // dropped from the feed mid-capture), it holds at its last known position.
-  // Stable iteration order across frames: sort by vid. Without this, the API
-  // can return vehicles in a different order each tick, which flips the
-  // input order passed to `separateMarkers` — and when markers are tightly
-  // overlapped, that flips their perpendicular nudge direction tick-to-tick.
+  // Stable vid-sort across frames: API can return vehicles in different
+  // orders each tick, which flips the perpendicular nudge in separateMarkers.
   const vehicleFrames = [];
   const allVids = [...new Set(snapshots.flatMap((s) => s.vehicles.map((v) => v.vid)))].sort();
   for (let i = 0; i < snapshots.length - 1; i++) {
@@ -127,10 +99,8 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
         const vb = b.get(vid);
         const from = va || vb;
         const to = vb || va;
-        // Interpolate along the pattern polyline when we have track distances
-        // on both endpoints — otherwise straight-line lerp cuts diagonally
-        // across turns. Fall back to Cartesian if the polyline is missing or a
-        // vehicle hasn't been snapped (e.g. it was off-pattern).
+        // Polyline interp when both endpoints are snapped; Cartesian fallback
+        // (straight-line lerp would cut across turns).
         let lat, lon;
         if (hasPolyline && from.track != null && to.track != null) {
           const track = from.track + (to.track - from.track) * t;
@@ -152,8 +122,7 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
       vehicleFrames.push(vehicles);
     }
   }
-  // Always include the final real snapshot as the last interpolated frame,
-  // in the same stable vid order the interpolated frames used.
+  // Final real snapshot → last frame, in the same stable vid order.
   const finalByVid = new Map(snapshots[snapshots.length - 1].vehicles.map((v) => [v.vid, v]));
   vehicleFrames.push(allVids.filter((vid) => finalByVid.has(vid)).map((vid) => finalByVid.get(vid)));
 
@@ -165,8 +134,7 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
       await Fs.writeFile(framePath, buf);
     }
 
-    // Repeat the last frame to create a ~1s hold at the end so viewers can
-    // read the final state before the clip loops.
+    // ~1s hold on the last frame so viewers can read the final state before loop.
     const holdFrames = framerate;
     const lastIdx = vehicleFrames.length - 1;
     const lastPath = Path.join(tmpDir, `frame_${String(lastIdx).padStart(3, '0')}.jpg`);
@@ -176,8 +144,7 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
     }
 
     const outPath = Path.join(tmpDir, 'out.mp4');
-    // yuv420p requires even dims; our WIDTH/HEIGHT are even, but scale filter
-    // is cheap insurance and also normalizes any base-map resize drift.
+    // yuv420p requires even dims — scale filter is cheap insurance.
     const cmd = [
       'ffmpeg -y -hide_banner -loglevel error',
       `-framerate ${framerate}`,

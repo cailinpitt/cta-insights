@@ -1,5 +1,3 @@
-// Small string formatters shared across bot entrypoints and post builders.
-
 function formatDistance(ft) {
   if (ft < 1000) return `${Math.round(ft)} ft`;
   return `${(ft / 5280).toFixed(2)} mi`;

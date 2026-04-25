@@ -1,9 +1,7 @@
 const trainStations = require('./data/trainStations.json');
 
-// Destinations Train Tracker emits that don't match any station name verbatim.
-// Mapped values must match `name` in trainStations.json exactly (case sensitive).
-// `null` entries mean "deliberately unresolvable" — the caller should treat them
-// as unknown and skip the direction (e.g. "Loop" has no single terminus).
+// Aliases for non-verbatim destination strings. `null` means "deliberately
+// unresolvable" — caller skips (e.g. "Loop" has no single terminus).
 const DESTINATION_ALIASES = {
   '95th/dan ryan': '95th/Dan Ryan',
   '95th': '95th/Dan Ryan',
@@ -14,14 +12,9 @@ const DESTINATION_ALIASES = {
 
 const _loggedMisses = new Set();
 
-// Match on the train's own line so we don't collide on repeated station names
-// like "Halsted" (Orange vs Blue). Tiered:
-//   1) alias table (deliberate hand-curation for known non-verbatim strings)
-//   2) exact name match (case-insensitive)
-//   3) exact base-name match before parenthetical (e.g. "Harlem (Blue - ...)")
-// Loose `startsWith`/`includes` tiers were removed — they cross-matched
-// station names on prefix collisions. Unresolvable destinations log once so
-// new aliases surface in the cron log.
+// Line-scoped match so "Halsted" (Orange vs Blue) doesn't collide. Tiered:
+// alias table → exact name → exact base-name (strip parenthetical). Loose
+// startsWith/includes tiers caused cross-matches on prefix collisions.
 function findStationByDestination(line, destination, stations = trainStations) {
   if (!destination) return null;
   const norm = destination.toLowerCase().trim();

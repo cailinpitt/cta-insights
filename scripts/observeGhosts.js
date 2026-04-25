@@ -1,9 +1,6 @@
 #!/usr/bin/env node
-// Dedicated bus observer for ghost detection. Fetches positions for the
-// `ghosts` route list on a fixed cadence so the hourly rollup has consistent
-// coverage — independent of bunching/gaps polling. The observation logger
-// inside `getVehicles` writes every vehicle to SQLite; this script exists
-// purely to trigger that fetch.
+// Dedicated bus observer — keeps ghost-detection coverage consistent
+// independent of when bunching/gaps happen to poll.
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 const { getVehicles } = require('../src/bus/api');

@@ -1,8 +1,3 @@
-// Tiny harness shared by bin entrypoints. Covers the repetitive boilerplate
-// — asset pruning, history rolloff, dry-run image writing, and the top-level
-// crash handler — without trying to abstract the detection/post flow itself,
-// since each job's middle section is meaningfully different.
-
 const Fs = require('fs-extra');
 const Path = require('path');
 const { pruneOldAssets } = require('./cleanup');
@@ -23,10 +18,7 @@ function writeDryRunAsset(buffer, filename) {
 }
 
 function runBin(main) {
-  // --check exits successfully without invoking main(). All requires at the
-  // top of the bin script have already resolved by the time we get here, so
-  // a typo'd import would have crashed before this point. Useful as a CI
-  // smoke test — runs in milliseconds and needs no env vars or network.
+  // --check verifies imports resolved (CI smoke test — no env vars / network needed).
   if (process.argv.includes('--check')) {
     console.log('OK: imports resolved');
     return;

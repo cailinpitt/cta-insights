@@ -1,12 +1,6 @@
 #!/usr/bin/env node
-// One-shot helper: log into each of the three CTA bot accounts and have it
-// follow the other two. Idempotent — re-following an account you already
-// follow is a no-op on AtProto. Run after creating a new bot account or
-// whenever the follow graph drifts.
-//
-// Usage:
-//   node scripts/cross-follow.js
-//   node scripts/cross-follow.js --dry-run     # log only, don't write
+// Idempotent — re-following on AtProto is a no-op. Run after creating a new
+// bot account or whenever the follow graph drifts.
 
 require('../src/shared/env');
 const argv = require('minimist')(process.argv.slice(2), { boolean: ['dry-run'] });
@@ -69,8 +63,6 @@ async function followFromAccount(account, others) {
       await agent.follow(did);
       console.log(`  followed ${target.identifier}`);
     } catch (e) {
-      // AtProto returns 200 on duplicate follow; if we still hit an error,
-      // it's an actual auth/network issue worth surfacing.
       console.warn(`  follow ${target.identifier} failed: ${e.message}`);
     }
   }

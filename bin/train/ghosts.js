@@ -37,8 +37,7 @@ function formatLine(event) {
 
 
 function buildPostText(events) {
-  // Reserve the disclaimer's grapheme budget (+2 for the blank-line separator)
-  // up front so buildRollupPost's truncation accounts for the footer.
+  // Reserve disclaimer budget so buildRollupPost truncates around the footer.
   const reserved = DISCLAIMER.length + 2;
   const body = buildRollupPost('👻 Ghost trains, past hour', events.map(formatLine), POST_MAX_CHARS - reserved);
   if (!body) return null;

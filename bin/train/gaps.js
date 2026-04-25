@@ -16,9 +16,6 @@ const { buildPostText, buildAltText } = require('../../src/train/gapPost');
 const trainLines = require('../../src/train/data/trainLines.json');
 const trainStations = require('../../src/train/data/trainStations.json');
 
-// Destination strings from Train Tracker don't always match trainStations.json
-// verbatim (e.g. "95th/Dan Ryan" vs "95th"). Match on the train's own line so
-// we don't collide on repeated station names like "Halsted" (Orange vs Blue).
 const { findStationByDestination } = require('../../src/train/findStation');
 
 const TRAIN_GAP_DAILY_CAP = 2;

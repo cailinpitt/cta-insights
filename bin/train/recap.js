@@ -17,14 +17,11 @@ const trainLines = require('../../src/train/data/trainLines.json');
 const MIN_COUNT = { week: 3, month: 3 };
 const RENDER_CAP = 40;
 
-// Canonical line order so "Red, Brown, Purple" reads the same way every time
-// regardless of which event happened to land in the bucket first.
 const LINE_ORDER = ['red', 'blue', 'brn', 'g', 'org', 'p', 'pink', 'y'];
 const LINE_NAME_SET = new Set(Object.values(LINE_NAMES));
-// Strip a trailing " (Red/Brown/Purple)"-style line-list from a station label
-// so it doesn't duplicate the routes shown after the em-dash. Leaves richer
-// parentheticals like "Harlem (Blue - O'Hare Branch)" intact since stripping
-// those would collide "Harlem (Blue - Forest Park Branch)" into the same label.
+// Drops trailing " (Red/Brown)" from station labels — but leaves richer
+// parentheticals like "Harlem (Blue - O'Hare Branch)" intact (otherwise
+// "Harlem (Blue - Forest Park Branch)" would collide into the same label).
 function stripLineParens(label) {
   const m = label.match(/^(.+?)\s*\(([^()]+)\)\s*$/);
   if (!m) return label;
@@ -76,8 +73,7 @@ async function main() {
   const text = buildPostText({ mode: 'train', window, windowLabel, points, totalIncidents });
   const alt = buildAltText({ mode: 'train', window, windowLabel, points, totalIncidents });
 
-  // Show every line in canonical order — even zero-gap lines — so the chart
-  // conveys the whole system picture rather than just the worst offenders.
+  // Include zero-gap lines so the chart shows the whole system, not just offenders.
   const gapCounts = new Map(loadGapLeaderboard('train', since, until).map((e) => [e.route, e.count]));
   const gapEntries = LINE_ORDER.map((line) => ({ route: line, count: gapCounts.get(line) || 0 }));
   const totalGaps = gapEntries.reduce((s, e) => s + e.count, 0);

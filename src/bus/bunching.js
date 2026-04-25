@@ -1,19 +1,9 @@
-const BUNCHING_THRESHOLD_FT = 1000; // ~0.19 mi, ~3 Chicago city blocks
-const STALE_MS = 3 * 60 * 1000; // ignore vehicles that haven't reported in 3 min
-const TERMINAL_PDIST_FT = 500; // bunches where all buses are within this of the start are layovers, not bunching
+const BUNCHING_THRESHOLD_FT = 1000; // ~3 Chicago city blocks
+const STALE_MS = 3 * 60 * 1000;
+const TERMINAL_PDIST_FT = 500; // start-terminal layovers, not real bunching
 
-/**
- * Detect all bunching events across all vehicles, ranked best-first.
- *
- * Strategy: group vehicles by pid (pattern = route + direction), sort by
- * pdist (distance along route in feet), find consecutive pairs within the
- * threshold, and extend each cluster as long as neighbors are also close.
- * Ranks clusters by size desc, then max-gap asc (larger/tighter = more severe).
- *
- * Returns an array of bunch events (may be empty). The entry point picks the
- * first one whose pid isn't on cooldown — so a persistent bunch on route A
- * doesn't stop us from posting a fresh event on route B in the same run.
- */
+// Returns clusters ranked best-first by size desc, then max-gap asc — the
+// caller picks the first whose pid isn't on cooldown.
 function detectAllBunching(vehicles, now = new Date()) {
   const fresh = vehicles.filter((v) => now - v.tmstmp < STALE_MS);
 
@@ -41,8 +31,6 @@ function detectAllBunching(vehicles, now = new Date()) {
         j++;
       }
       const cluster = sorted.slice(i, j + 1);
-      // Skip start-terminal layovers: any bus within TERMINAL_PDIST_FT of pdist 0
-      // means the cluster is the terminal lineup shaking out, not real bunching.
       if (cluster[0].pdist < TERMINAL_PDIST_FT) {
         i = j + 1;
         continue;
@@ -58,7 +46,7 @@ function detectAllBunching(vehicles, now = new Date()) {
     }
   }
 
-  // Sort best-first: more buses is more severe; tie-break on tighter max gap.
+  // More buses → more severe; tie-break on tighter max gap.
   bunches.sort((a, b) => {
     if (a.vehicles.length !== b.vehicles.length) return b.vehicles.length - a.vehicles.length;
     return a.maxGapFt - b.maxGapFt;
@@ -67,7 +55,6 @@ function detectAllBunching(vehicles, now = new Date()) {
   return bunches;
 }
 
-// Back-compat wrapper for any callers that want just the single best bunch.
 function detectBunching(vehicles, now = new Date()) {
   const all = detectAllBunching(vehicles, now);
   return all[0] || null;

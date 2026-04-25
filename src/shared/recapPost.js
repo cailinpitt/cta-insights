@@ -1,11 +1,4 @@
-// Post builders for the weekly/monthly recap: the heatmap parent post plus
-// the threaded gap-leaderboard reply. Single module for both bus and train
-// since the structure is identical; only the noun ("stops" vs "stations")
-// and emoji differ.
-
 const WINDOW_LABELS = { week: 'this week', month: 'this month' };
-// Appended to every non-empty heatmap/gap post so readers know the numbers
-// are a sample of what the bot caught, not an exhaustive system-wide count.
 const OBSERVED_FOOTER = 'Only what the bot observed; real totals may be higher.';
 
 function titleFor(mode, window, windowLabel) {

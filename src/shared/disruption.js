@@ -1,23 +1,9 @@
-// Post + alt builders for a service-disruption post. Consumes a Disruption
-// object and produces the text payload for a Bluesky post.
-//
 // Disruption shape:
-//   {
-//     line: 'red' | 'blue' | 'brn' | 'g' | 'org' | 'p' | 'pink' | 'y',
-//     suspendedSegment: { from: string, to: string },
-//     alternative:
-//       | { type: 'shortTurn', from: string, to: string }
-//       | { type: 'shuttle',   from: string, to: string }
-//       | null,
-//     reason?: string,
-//     source: 'cta-alert' | 'observed',
-//     detectedAt: number,
-//   }
+//   { line, suspendedSegment: {from, to}, alternative: {type, from, to}|null,
+//     reason?, source: 'cta-alert'|'observed', detectedAt }
 //
-// The `source` drives the footer phrasing: 'cta-alert' posts quote CTA's
-// alert and point readers at transitchicago.com; 'observed' posts make
-// clear the bot is inferring disruption from live positions, not quoting
-// a CTA alert.
+// `source` drives footer phrasing: 'cta-alert' quotes CTA, 'observed' makes
+// clear the bot is inferring from live positions.
 
 const { LINE_NAMES } = require('../train/api');
 

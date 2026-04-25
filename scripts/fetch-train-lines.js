@@ -1,9 +1,5 @@
-// Fetch CTA L line polylines from the authoritative CTA GTFS feed.
-// Run manually when line geometries change (new stations, reroutes).
-//
-// Why GTFS instead of OSM: GTFS ships one ordered polyline per direction
-// (shape_id), so we don't need to chain OSM ways, filter out closed-loop
-// junctions, or dedupe parallel northbound/southbound tracks.
+// Run manually on line-geometry changes. GTFS over OSM: one ordered polyline
+// per direction, no way-chaining or parallel-track dedupe.
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const axios = require('axios');
 const Fs = require('fs-extra');
@@ -14,8 +10,7 @@ const readline = require('readline');
 
 const execAsync = promisify(exec);
 
-// Stream-read a file from the zip line by line. Used for stop_times.txt which
-// is too large to buffer in memory.
+// Stream-read for stop_times.txt — too large to buffer.
 async function streamFromZip(filename, onLine) {
   return new Promise((resolve, reject) => {
     const proc = spawn('unzip', ['-p', ZIP_PATH, filename]);
@@ -29,8 +24,7 @@ async function streamFromZip(filename, onLine) {
 const GTFS_URL = 'https://www.transitchicago.com/downloads/sch_data/google_transit.zip';
 const ZIP_PATH = '/tmp/cta-gtfs.zip';
 
-// Map CTA's GTFS route_id values to our internal line keys. Discovered by
-// inspecting routes.txt — CTA uses 1-char codes for most lines.
+// CTA route_id → internal line key.
 const ROUTE_ID_MAP = {
   Red:  'red',
   Blue: 'blue',
@@ -61,9 +55,7 @@ async function readFromZip(filename) {
   return stdout;
 }
 
-// Minimal CSV parser. GTFS files are standard RFC 4180 — fields with commas
-// or newlines are quoted. We don't have any quoted newlines to worry about in
-// routes/trips/shapes, so a straightforward split per line works.
+// Minimal CSV — routes/trips/shapes have no quoted newlines, so a per-line split works.
 function parseCsv(text) {
   const lines = text.split('\n').filter((l) => l.length > 0);
   const header = lines[0].split(',').map((s) => s.replace(/"/g, '').trim());
@@ -77,8 +69,7 @@ function parseCsv(text) {
   return rows;
 }
 
-// Perpendicular distance from point p to the line segment a–b, in degrees.
-// Good enough for comparing relative distances within a small geographic area.
+// Perpendicular distance in degrees — fine for relative comparison locally.
 function perpendicularDist(p, a, b) {
   const dx = b.lon - a.lon;
   const dy = b.lat - a.lat;
@@ -91,8 +82,7 @@ function perpendicularDist(p, a, b) {
   return Math.sqrt((p.lon - projLon) ** 2 + (p.lat - projLat) ** 2);
 }
 
-// Ramer-Douglas-Peucker simplification. Preserves points where the shape
-// changes direction (e.g. Loop corners) while reducing straight segments.
+// RDP simplification — preserves direction changes (Loop corners), drops straight runs.
 function rdpSimplify(points, epsilon) {
   if (points.length <= 2) return points;
   let maxDist = 0;
@@ -114,8 +104,7 @@ function rdpSimplify(points, epsilon) {
   return [first, last];
 }
 
-// Simplify a polyline to approximately targetCount points using RDP.
-// Binary-searches for the right epsilon to hit near the target count.
+// Binary-search epsilon to hit near the target point count.
 function decimateTo(points, targetCount) {
   if (points.length <= targetCount) return points;
   let lo = 0;
@@ -174,14 +163,9 @@ async function main() {
   }
   for (const pts of pointsByShape.values()) pts.sort((a, b) => a.seq - b.seq);
 
-  // Keep only direction_id='0' shapes. GTFS ships separate geometries for
-  // direction 0 (outbound) and direction 1 (inbound); they trace each physical
-  // track with slight offsets, so rendering both creates parallel-line artifacts
-  // at spots where the offsets diverge (e.g. Red Line at Ranch Triangle).
-  //
-  // For single-trunk lines this leaves us with one polyline.
-  // For Green (branched), each branch has its own direction-0 shape, so we
-  // still get both Ashland/63rd and Cottage Grove branches — but only once.
+  // direction_id=0 only — direction-1 shapes parallel direction-0 with slight
+  // offsets, producing rendering artifacts where they diverge (Red @ Ranch Triangle).
+  // Branched lines (Green) still get both branches via separate dir-0 shapes.
   const directionByShape = new Map();
   for (const trip of trips) {
     if (!directionByShape.has(trip.shape_id)) {

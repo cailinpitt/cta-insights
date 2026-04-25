@@ -1,7 +1,7 @@
 const sharp = require('sharp');
 const { xmlEscape } = require('./common');
 
-// Square canvas — Bluesky crops/distorts non-square images in the feed.
+// Square — Bluesky crops non-square images in the feed.
 const SIZE = 1200;
 const BG = '#1a1a1d';
 const GRID = '#2d2d33';

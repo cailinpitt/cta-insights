@@ -1,30 +1,14 @@
-// CTA alerts ingest.
-//
-// Endpoint: http://lapi.transitchicago.com/api/1.0/alerts.aspx
 // Docs: https://www.transitchicago.com/developers/alerts/
 //
-// The feed is XML by default but accepts outputType=JSON. Each Alert has:
-//   - AlertId (stable per alert lifecycle)
-//   - Headline, ShortDescription, FullDescription
-//   - SeverityScore (1–5), SeverityColor, ImpactedService (list of services)
-//   - EventStart / EventEnd, MajorAlert flag
-//
-// We post when all of the following hold:
-//   - MajorAlert === "1" (filters low-severity "elevator out" style noise)
-//   - ImpactedService routes intersect with the kind we're posting (bus or train)
-//   - We have not already posted this alert_id
-//
-// When an alert_id that we posted is no longer returned by activeonly=true, we
-// post a threaded resolution reply and mark resolved_ts. Any alert_id still in
-// the feed resets last_seen_ts so future-outage detection can use staleness as
-// a proxy for resolution.
+// Resolution model: an alert disappearing from activeonly=true means CTA
+// considers it cleared. The bin schedules a threaded resolution reply on the
+// next tick that doesn't see it.
 
 const axios = require('axios');
 const { withRetry } = require('./retry');
 
 const BASE = 'http://lapi.transitchicago.com/api/1.0/alerts.aspx';
 
-// CTA rail route_id (`Red`, `Blue`, ...) → our internal line code.
 const RAIL_ROUTE_TO_LINE = {
   Red: 'red', Blue: 'blue', Brn: 'brn', G: 'g',
   Org: 'org', P: 'p', Pink: 'pink', Y: 'y',
@@ -40,8 +24,7 @@ async function fetchAlerts({ activeOnly = true, routeid = null } = {}) {
 }
 
 function parseAlerts(data) {
-  // CTA's JSON wraps alerts under CTAAlerts.Alert. When there are zero or one,
-  // the shape degrades to missing/object — normalize to an array.
+  // CTAAlerts.Alert is missing when zero, an object when one, an array otherwise.
   const raw = data && data.CTAAlerts && data.CTAAlerts.Alert;
   const arr = Array.isArray(raw) ? raw : raw ? [raw] : [];
   return arr.map(normalizeAlert).filter(Boolean);
@@ -76,21 +59,20 @@ function normalizeAlert(raw) {
   };
 }
 
-// Strip any rudimentary HTML the feed embeds, collapse whitespace.
 function cleanText(s) {
   if (s == null) return null;
   const str = typeof s === 'string' ? s : (s['#cdata-section'] || s.toString());
   return str.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 }
 
-// CTA returns dates like "20260424 12:45:00". Treat as America/Chicago local.
+// CTA returns dates like "20260424 12:45:00" as America/Chicago wall time.
 function parseCtaDate(s) {
   const m = /^(\d{4})(\d{2})(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/.exec(s);
   if (!m) return null;
-  // Build UTC ms for the wall time, then shift by the CT offset at that instant.
   const [, y, mo, d, h, mi, se] = m;
   const asUtc = Date.UTC(+y, +mo - 1, +d, +h, +mi, +se);
-  // Approximate: CT is UTC-5 in DST, UTC-6 otherwise. Check which rendering matches.
+  // Try both possible CT offsets (DST: -5, standard: -6) — pick the one that
+  // round-trips to the same wall time in America/Chicago.
   for (const offsetHours of [5, 6]) {
     const candidate = asUtc + offsetHours * 3600 * 1000;
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -106,9 +88,7 @@ function parseCtaDate(s) {
   return asUtc;
 }
 
-// Best-effort extraction of "between X and Y" station names from alert text.
-// Returns { from, to } or null. Conservative: callers should fall back to
-// plain-text posts when this returns null.
+// Returns { from, to } or null. Caller falls back to text-only when null.
 const BETWEEN_PATTERNS = [
   /\bbetween\s+([A-Z][A-Za-z0-9./&\- ]+?)\s+and\s+([A-Z][A-Za-z0-9./&\- ]+?)(?:[.,;]| stations?\b| on\b| due\b| while\b)/,
   /\bfrom\s+([A-Z][A-Za-z0-9./&\- ]+?)\s+to\s+([A-Z][A-Za-z0-9./&\- ]+?)(?:[.,;]| stations?\b| on\b| due\b| while\b)/,
@@ -122,25 +102,9 @@ function extractBetweenStations(text) {
   return null;
 }
 
-// Decide whether an alert is significant enough to post.
-//
-// CTA's `MajorAlert` flag is necessary but not sufficient — the feed still
-// flags single-stop closures, temporary reroutes around block parties, and
-// elevator/escalator outages as MajorAlert=1. We only want service-level
-// disruptions: "no trains between X and Y", "line suspended", "shuttle buses
-// running", "major delays line-wide".
-//
-// Heuristics (all must pass):
-//   1. major === true
-//   2. Severity score ≥ MIN_SEVERITY (when present), OR headline matches a
-//      high-signal pattern regardless of score
-//   3. Headline/description does NOT match a known-minor pattern (reroute,
-//      detour, stop closed, elevator/escalator, etc.)
-//   4. For bus alerts: not a bus-stop-only closure
-//
-// Errs on the side of silence — false negatives (we miss a real outage) are
-// less embarrassing than false positives (spamming followers with "stop at
-// Clark & Lake closed this weekend").
+// MajorAlert=1 alone is too noisy: CTA flags single-stop closures, block-party
+// reroutes, and elevator outages as Major. Errs on silence — false negatives
+// (miss a real outage) beat false positives (spam followers with stop closures).
 const MIN_SEVERITY = 3;
 
 const MAJOR_PATTERNS = [
@@ -180,16 +144,11 @@ function isSignificantAlert(alert) {
     .filter(Boolean).join(' \n ');
   if (!text) return false;
 
-  // Minor wins if it matches — a headline like "Red Line: bus stop at
-  // Belmont temporarily closed" should be dropped even though it mentions a
-  // rail line.
+  // Minor-wins: "No trains stopping at Belmont (elevator construction)" looks
+  // major by headline alone but should drop on the elevator keyword.
   for (const re of MINOR_PATTERNS) if (re.test(text)) return false;
-
-  // High-signal keywords override a low severity score.
   for (const re of MAJOR_PATTERNS) if (re.test(text)) return true;
-
   if (alert.severityScore != null && alert.severityScore >= MIN_SEVERITY) return true;
-
   return false;
 }
 

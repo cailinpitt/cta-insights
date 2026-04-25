@@ -1,7 +1,5 @@
-// Ghost train detection. Mirrors detectBusGhosts — compares observed active
-// train count (median per snapshot) against the scheduled active-trip count
-// per hour (trips whose [dep, arr] interval overlaps the current hour),
-// grouped by (line, trDr).
+// Compares median observed-active per snapshot against scheduled active-trip
+// count, grouped by (line, trDr). Mirrors detectBusGhosts.
 
 const { MISSING_PCT_THRESHOLD, MISSING_ABS_THRESHOLD, MIN_SNAPSHOTS, MIN_OBSERVED, MAX_EXPECTED_ACTIVE, RAMP_FILL_RATIO, RAMP_TAIL_FRACTION } = require('../bus/ghosts');
 const { median } = require('../shared/stats');
@@ -13,20 +11,9 @@ function tailMedian(perSnapshot) {
   return median(tail);
 }
 
-/**
- * Detect ghost trains for a set of lines over a time window.
- *
- * Dependencies injected:
- *   - `getObservations(line)` → [{ ts, direction (trDr), vehicle_id, destination }]
- *   - `findStation(line, destinationName)` → { lat, lon, name } | null
- *   - `expectedHeadway(line, destinationStation)` → minutes or null
- *   - `expectedDuration(line, destinationStation)` → minutes or null
- *   - `isLoopLine(line)` → true for lines whose GTFS ships a single
- *     direction_id covering the full round trip (Brown/Orange/Pink/Purple/
- *     Yellow). Optional; defaults to false. Loop lines can't be split by
- *     trDr without halving the expected count — it's simpler to compare the
- *     line-wide observed vehicle count against the line-wide expected.
- */
+// Loop lines (Brown/Orange/Pink/Purple/Yellow) ship a single GTFS direction_id
+// covering the full round trip — splitting by trDr would halve the expected
+// count, so we aggregate line-wide instead.
 async function detectTrainGhosts({
   lines,
   getObservations,
@@ -42,10 +29,6 @@ async function detectTrainGhosts({
     const obs = getObservations(line);
     if (obs.length === 0) continue;
 
-    // Loop lines: aggregate across trDrs. GTFS gives us one duration (full
-    // Midway→Loop→Midway leg) and one headway for the whole line, so
-    // `duration / headway` is the total active train count line-wide — which
-    // is what we need to compare against.
     if (isLoopLine && isLoopLine(line)) {
       const headway = expectedHeadway(line, null);
       const duration = expectedDuration(line, null);
@@ -91,9 +74,7 @@ async function detectTrainGhosts({
       continue;
     }
 
-    // Bi-directional lines: group by trDr and use the direction-specific
-    // GTFS headway/duration selected by destination.
-    const byDir = new Map(); // trDr → observations[]
+    const byDir = new Map();
     for (const o of obs) {
       if (!o.direction) continue;
       if (!byDir.has(o.direction)) byDir.set(o.direction, []);
@@ -101,12 +82,10 @@ async function detectTrainGhosts({
     }
 
     for (const [trDr, group] of byDir) {
-      // Prefer a destination that resolves to a flagged terminal station.
-      // Short-turn destinations (e.g. UIC-Halsted on the Blue) would otherwise
-      // point the headway lookup at a mid-route station whose terminalLat/Lon
-      // doesn't match either GTFS direction cleanly, producing an unreliable
-      // expectedActive. Skip the direction entirely if no terminal destination
-      // was seen — safety > coverage.
+      // Skip directions where no observation has a true terminal destination.
+      // Short-turns (UIC-Halsted on Blue) point the headway lookup at a
+      // mid-route station whose terminalLat/Lon doesn't match either GTFS
+      // direction cleanly, producing an unreliable expectedActive.
       const destinations = [...new Set(group.map((o) => o.destination).filter(Boolean))];
       let bestDest = null;
       let destStation = null;

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Fetches every OSM traffic_signals node across the CTA service area and
-// writes data/signals/chicago.json. Run periodically (monthly is plenty —
-// signals rarely move). Exits non-zero if every mirror fails so cron surfaces it.
+// Monthly OSM Overpass fetch of traffic_signals nodes. Exits nonzero if every
+// mirror fails so cron surfaces it.
 
 const Fs = require('fs-extra');
 const Path = require('path');
@@ -20,11 +19,8 @@ const BBOX = { minLat: 41.60, maxLat: 42.10, minLon: -87.95, maxLon: -87.50 };
 const OUT_PATH = Path.join(__dirname, '..', 'data', 'signals', 'chicago.json');
 
 async function main() {
-  // Two OSM tagging conventions for signalized intersections: a standalone
-  // `highway=traffic_signals` node, or `crossing=traffic_signals` on each
-  // pedestrian crossing node. Many Chicago intersections (e.g. Irving Park
-  // & Kostner) only have the crossing-style tags, so we pull both. Dedupe
-  // at render time collapses the multiple crossing nodes per intersection.
+  // Pull both highway= and crossing= tagging — many Chicago intersections
+  // only have the crossing-style tags. Render-time dedupe handles overlap.
   const bbox = `${BBOX.minLat},${BBOX.minLon},${BBOX.maxLat},${BBOX.maxLon}`;
   const q = `[out:json][timeout:120];(node["highway"="traffic_signals"](${bbox});node["crossing"="traffic_signals"](${bbox}););out;`;
 
@@ -37,10 +33,8 @@ async function main() {
       });
       if (data.remark) throw new Error(`Overpass remark: ${data.remark}`);
       const signals = (data.elements || []).map((el) => ({ lat: el.lat, lon: el.lon }));
-      // Chicago has thousands of signals — a near-empty response means the
-      // mirror returned a partial or empty result (e.g. silent rate limit).
-      // Treat as a failure and try the next mirror rather than clobbering
-      // a good cache with garbage.
+      // Below 1000 signals likely means a silently rate-limited / partial
+      // response — try the next mirror rather than clobbering the cache.
       if (signals.length < 1000) throw new Error(`Suspiciously low count: ${signals.length}`);
       Fs.ensureDirSync(Path.dirname(OUT_PATH));
       Fs.writeJsonSync(OUT_PATH, signals);

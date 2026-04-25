@@ -11,9 +11,8 @@ async function get(endpoint, params) {
   }), { label: `CTA bus ${endpoint}` });
   const body = data['bustime-response'];
   if (body.error) {
-    // "No data found" is CTA's way of saying a route has no active vehicles
-    // right now (e.g. express routes off-peak). The response still contains
-    // vehicles from the other routes in the batch, so just log and continue.
+    // "No data found" just means a route has no active vehicles (e.g. express
+    // routes off-peak); other routes in the batch still return data.
     const errors = Array.isArray(body.error) ? body.error : [body.error];
     const fatal = errors.filter((e) => !/no data found/i.test(e.msg || ''));
     const benign = errors.filter((e) => /no data found/i.test(e.msg || ''));
@@ -42,10 +41,9 @@ function parseVehicle(v) {
   };
 }
 
+// Resolves CTA's "20260415 15:52:13" America/Chicago wall-time strings to UTC
+// without a tz library by round-tripping through Intl.DateTimeFormat.
 function parseBusTime(s) {
-  // CTA returns wall-clock Chicago time as "20260415 15:52:13" with no
-  // timezone. Compute the UTC instant by finding the offset that, applied
-  // to the parsed wall-clock, lands back on the same Chicago wall-clock.
   const [d, t] = s.split(' ');
   const y = +d.slice(0, 4), mo = +d.slice(4, 6), da = +d.slice(6, 8);
   const [h, mi, se] = t.split(':').map(Number);
@@ -63,7 +61,7 @@ function parseBusTime(s) {
 
 async function getVehicles(routes) {
   if (routes.length === 0) return [];
-  // API allows up to 10 routes per call
+  // API caps at 10 routes per call.
   const chunks = [];
   for (let i = 0; i < routes.length; i += 10) chunks.push(routes.slice(i, i + 10));
 
@@ -72,9 +70,7 @@ async function getVehicles(routes) {
     const body = await get('getvehicles', { rt: chunk.join(','), tmres: 's' });
     for (const v of body.vehicle || []) results.push(parseVehicle(v));
   }
-  // Log observations so ghost detection sees every vehicle fetched by any job.
-  // Uses its own `now` rather than per-vehicle `tmstmp` so a single fetch is
-  // bucketed as one polling snapshot.
+  // Single `now` for the whole call so this batch reads as one polling snapshot.
   recordBusObservations(results);
   return results;
 }
@@ -99,15 +95,7 @@ async function getPattern(pid) {
   };
 }
 
-/**
- * Fetch BusTime predictions. `vid` filters to a specific vehicle, `stpid`
- * narrows to a stop. Returned fields include:
- *   vid, stpid, stpnm, rt, prdtm ("20260418 15:52:13"), prdctdn ("DUE"|"N"|"DLY"),
- *   typ ("A" arrival | "D" departure), dly (boolean).
- *
- * prdctdn is a string — may be "DUE" or "DLY" instead of a number. Caller
- * should parse defensively.
- */
+// `prdctdn` is a string and may be "DUE" or "DLY" rather than a number.
 async function getPredictions({ stpid, vid, rt, top }) {
   const params = {};
   if (stpid) params.stpid = Array.isArray(stpid) ? stpid.join(',') : stpid;
@@ -118,23 +106,9 @@ async function getPredictions({ stpid, vid, rt, top }) {
   return body.prd || [];
 }
 
-/**
- * Return vehicles for `routes`, preferring the latest snapshot already in the
- * observations DB if it's fresh enough. Falls back to a live `getVehicles`
- * fetch when the cache is empty or stale.
- *
- * Returns `{ vehicles, now, source }`:
- *   - `vehicles`: array of Vehicle-shaped objects
- *   - `now`: the timestamp the caller should pass to detectors as their `now`
- *     (so per-vehicle `tmstmp` staleness gates fire against the snapshot's
- *     reference time, not the cron's wall clock)
- *   - `source`: 'cache' or 'fetch' — for logging
- *
- * `maxStaleMs` defaults to 4 min, which sits comfortably between the
- * 5-min observeGhosts cadence and the 3-min per-vehicle staleness floor in
- * the detectors. The DB snapshot is at most 5 min old; vehicle tmstmps inside
- * are <= snapshotTs.
- */
+// Returns `{ vehicles, now, source }`. The default 4 min maxStaleMs sits
+// between the 5-min observeGhosts cadence and the 3-min per-vehicle staleness
+// floor — the cached snapshot is at most 5 min old.
 async function getVehiclesCachedOrFresh(routes, { maxStaleMs = 4 * 60 * 1000 } = {}) {
   const cached = getLatestBusSnapshot(routes, maxStaleMs);
   if (cached && cached.vehicles.length > 0) {

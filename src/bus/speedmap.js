@@ -1,19 +1,13 @@
 const { getVehicles } = require('./api');
 
-// Default pair-sampling thresholds tuned for bus data. Callers can override.
-// Bus max mph sits well above the ~35 mph ceiling observed on CTA bus routes;
-// a full 70 (train-class) would risk letting a GPS jump past a whole block
-// through as a sample.
+// 60 mph cap — above CTA's ~35 mph route ceiling, but tighter than the
+// train-class 70 to reject a GPS jump past a whole block.
 const DEFAULT_BUS_SAMPLE_OPTS = {
-  maxDtMs: 3 * 60 * 1000, // Ignore vehicle tick pairs > 3 min apart (likely a pattern change)
+  maxDtMs: 3 * 60 * 1000,
   minMph: 0,
   maxMph: 60,
 };
 
-/**
- * Speed color ramp. Returns a 3/6-char hex (no leading #) for Mapbox path overlays.
- * null speed (no data) returns a muted gray so empty segments still show the route.
- */
 function colorForBusSpeed(mph) {
   if (mph == null) return '444';   // no data — dim gray
   if (mph < 5) return 'ff2a2a';    // red
@@ -22,9 +16,8 @@ function colorForBusSpeed(mph) {
   return '2ad17f';                 // green
 }
 
-// Train speed buckets align with CTA's slow-zone categories (15/25/35 mph),
-// with an extra "purple" band for track that's well above the slowest zones
-// but not yet at line speed, and green reserved for full-speed track (~45+).
+// Buckets align with CTA's slow-zone categories (15/25/35 mph). Extra purple
+// band sits above slow zones but below line speed; green is full-speed (~45+).
 function colorForTrainSpeed(mph) {
   if (mph == null) return '444';   // no data — dim gray
   if (mph < 15) return 'ff2a2a';   // red
@@ -38,12 +31,8 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/**
- * Poll `getvehicles` for a route at fixed intervals and return per-vehicle tracks,
- * keyed by `vid` then `pid`. Resetting the sub-key on pid change means a single
- * vehicle that changes direction mid-window doesn't produce a bogus negative-speed
- * sample across the boundary.
- */
+// Sub-keying by pid means a vehicle that changes direction mid-window doesn't
+// produce a bogus negative-speed sample across the boundary.
 async function collect(route, durationMs, pollIntervalMs) {
   const tracks = new Map(); // vid -> Map<pid, [{t, pdist, lat, lon}, ...]>
   const start = Date.now();
@@ -71,22 +60,9 @@ async function collect(route, durationMs, pollIntervalMs) {
   return tracks;
 }
 
-/**
- * Derive per-pid speed samples from the collected tracks.
- *
- * A sample is a speed in mph measured between two consecutive pdist observations
- * for the same vehicle on the same pid, tagged with the midpoint pdist so we can
- * attribute it to a segment of the route.
- *
- * Returns { byPid, stats } where stats carries counters useful for operator
- * logging (`restarts` = pairs where the vehicle crossed a pattern boundary,
- * `dropped` = pairs rejected as too-long-dt or out-of-range mph).
- *
- * On a pattern restart (vehicle completed the route and pdist reset near 0)
- * the boundary pair is skipped — we can't interpolate across the reset. The
- * next pair (p2→p3) is valid on its own, so this costs at most one sample per
- * restart.
- */
+// A sample is mph between two consecutive same-vid same-pid observations,
+// tagged with the midpoint pdist for segment binning. Pattern restarts (pdist
+// resets near 0) cost the boundary pair — the next pair is valid on its own.
 function computeSamples(tracks, opts = {}) {
   const { maxDtMs, minMph, maxMph } = { ...DEFAULT_BUS_SAMPLE_OPTS, ...opts };
   const byPid = new Map(); // pid -> [{pdist, mph}, ...]
@@ -115,10 +91,6 @@ function computeSamples(tracks, opts = {}) {
   return { byPid, stats };
 }
 
-/**
- * Pick the direction with the most speed samples. Routes are bidirectional but
- * we render one direction at a time for clarity.
- */
 function pickTargetPid(samplesByPid) {
   let best = null;
   for (const [pid, samples] of samplesByPid) {
@@ -127,10 +99,6 @@ function pickTargetPid(samplesByPid) {
   return best?.pid;
 }
 
-/**
- * Bucket samples into N equal-length pdist segments and return the average speed
- * per bucket, or null if no samples fell in that bucket.
- */
 function binSamples(samples, patternLengthFt, numBins) {
   const segLen = patternLengthFt / numBins;
   const buckets = Array.from({ length: numBins }, () => []);
@@ -142,14 +110,9 @@ function binSamples(samples, patternLengthFt, numBins) {
   return buckets.map((b) => (b.length === 0 ? null : b.reduce((a, v) => a + v, 0) / b.length));
 }
 
-/**
- * Bucket train-style segment samples (`{startFt, endFt, mph}`) by length-weighted
- * overlap with each bin. A sample describes the train's speed across the entire
- * [startFt, endFt] stretch, so every bin the segment intersects receives the
- * speed weighted by how much of the bin the segment covered. Per-bin value is
- * the weighted average over contributing segments. This eliminates interior
- * no-data bins caused by midpoint-only bucketing on sparse polls.
- */
+// Length-weighted overlap binning — each segment contributes to every bin it
+// intersects, weighted by overlap length. Eliminates interior no-data bins
+// that midpoint-only bucketing produces on sparse polls.
 function binSegments(segments, patternLengthFt, numBins) {
   const segLen = patternLengthFt / numBins;
   const sums = new Array(numBins).fill(0);
@@ -172,14 +135,9 @@ function binSegments(segments, patternLengthFt, numBins) {
   return sums.map((v, i) => (weights[i] === 0 ? null : v / weights[i]));
 }
 
-/**
- * Summary stats for post text / alt text.
- *
- * Thresholds are the lower bound of each non-red bucket — e.g. for buses
- * { orange: 5, yellow: 10, green: 15 } means red is <5, orange is 5–10, etc.
- * A `purple` key opts into the 5-bucket train schema (red/orange/yellow/purple/
- * green); without it, callers get the 4-bucket shape with purple omitted.
- */
+// Thresholds are lower bounds of each non-red bucket (red is <orange).
+// A `purple` key opts into the 5-bucket train schema; otherwise callers get
+// the 4-bucket shape (purple omitted).
 function summarize(speeds, thresholds = { orange: 5, yellow: 10, green: 15 }) {
   const valid = speeds.filter((s) => s != null);
   const base = thresholds.purple == null

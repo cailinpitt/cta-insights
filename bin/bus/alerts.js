@@ -1,10 +1,6 @@
 #!/usr/bin/env node
-// Auto-post CTA bus service alerts.
-//
-// Bus alerts are text-only (no equivalent of the train disruption map since
-// bus "service between X and Y" is rare — most bus alerts are reroutes/detours
-// that don't map cleanly to a polyline segment). Otherwise identical in
-// dedup/resolution behavior to bin/train/alerts.js.
+// Bus alerts post text-only — bus reroutes don't map cleanly onto a polyline
+// segment, so there's no equivalent of the rail disruption map.
 
 require('../../src/shared/env');
 
@@ -22,8 +18,8 @@ const busRoutes = require('../../src/bus/routes');
 const DRY_RUN = process.env.ALERTS_DRY_RUN === '1' || process.argv.includes('--dry-run');
 const KIND = 'bus';
 
-// Only post bus alerts for routes the bot actively covers — avoids a firehose
-// of route-57-branch-reroute alerts that our followers don't care about.
+// Filter to routes the bot actively tracks; CTA's bus alert volume is huge
+// and most of it concerns routes followers don't care about.
 const TRACKED = new Set([
   ...busRoutes.bunching, ...busRoutes.gaps, ...busRoutes.speedmap, ...busRoutes.ghosts,
 ]);

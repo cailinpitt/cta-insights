@@ -8,9 +8,7 @@ const {
 } = require('./common');
 const { LINE_NAMES } = require('../train/api');
 
-// Rough meters between a [lat, lon] tuple and a { lat, lon } object.
-// Good enough for ranking nearest polyline vertex to a station (short
-// distances over central Chicago); not a great-circle computation.
+// Equirectangular — fine for ranking nearest vertex over central Chicago.
 function latLonDistMeters([lat, lon], loc) {
   const dLat = (lat - loc.lat) * 111320;
   const dLon = (lon - loc.lon) * 111320 * Math.cos(loc.lat * Math.PI / 180);
@@ -27,23 +25,11 @@ function findNearestIndex(poly, loc) {
   return { index: best, distMeters: bestD };
 }
 
-// Split each polyline segment into "active" and "suspended" runs by walking
-// the polyline and projecting every vertex onto the from→to axis. A vertex
-// is "in the affected stretch" when its projection parameter t lies in
-// [~0, ~1] — i.e. between the two stations along the direction of travel.
-//
-// Projection (not bbox) is the right call because it:
-//   1. ends the dim region exactly at the station (no buffer overshoot past
-//      Thorndale like a bbox pad would cause), and
-//   2. naturally handles round-trip polylines — the Purple Line runs
-//      Linden → Howard → Loop → Howard → Linden, and both passes through
-//      the Linden↔Howard stretch produce t ∈ [0, 1], so both get dimmed
-//      and the bright return leg can't sit on top of the dim forward leg.
+// Project each vertex onto the from→to axis and split runs by whether the
+// parameter t is in [0,1]. Bbox-based splitting overshoots stations and
+// can't handle round-trip polylines (Purple's Linden→Howard→Loop→Howard→Linden).
 function splitSegments(segments, fromLoc, toLoc) {
-  // Work in a rough equirectangular pixel space so the projection handles
-  // lat/lon with equal weighting at Chicago's latitude. (Raw lat/lon would
-  // squash longitude distances since a degree of lon ≈ 0.74 × a degree of
-  // lat at 41.9°.)
+  // Equirectangular pixel space at Chicago's latitude (lon ≈ 0.74×lat).
   const cosLat = Math.cos(fromLoc.lat * Math.PI / 180);
   const toXY = ([lat, lon]) => ({ x: lon * cosLat, y: lat });
   const A = toXY([fromLoc.lat, fromLoc.lon]);
@@ -59,11 +45,8 @@ function splitSegments(segments, fromLoc, toLoc) {
   };
   const inAffected = (t) => t >= T_MIN && t <= T_MAX;
 
-  // Interpolate the [lat, lon] point on the chord P→Q whose projection
-  // parameter equals tTarget. Used to insert an exact boundary vertex at
-  // t=0 or t=1 — otherwise the last-in-run vertex and first-of-next-run
-  // vertex can sit far from the actual station (CTA polylines have sparse
-  // sampling), leaving the dim/bright transition hundreds of meters off.
+  // Inserted at t=0 / t=1 boundaries so the dim/bright transition lands at
+  // the station, not on whatever sparse vertex is nearby.
   const interpolateAt = (P, Q, tP, tQ, tTarget) => {
     const s = (tTarget - tP) / (tQ - tP);
     return [P[0] + s * (Q[0] - P[0]), P[1] + s * (Q[1] - P[1])];
@@ -91,10 +74,7 @@ function splitSegments(segments, fromLoc, toLoc) {
       } else if (isIn === currentIsSuspended) {
         current.push(pt);
       } else {
-        // Crossing a boundary (t=0 or t=1). Interpolate the exact point on
-        // the chord where t hits that boundary and use it as the end of
-        // the current run and the start of the next one — this keeps the
-        // dim/bright transition precisely at the station.
+        // Boundary crossing (t=0 or t=1) — emit an interpolated vertex on both sides.
         const tTarget = currentIsSuspended
           ? (prevT < t ? T_MAX : T_MIN)
           : (prevT < t ? T_MIN : T_MAX);
@@ -113,8 +93,6 @@ function splitSegments(segments, fromLoc, toLoc) {
   return { active, suspended };
 }
 
-// Resolve a station name on a given line to {lat, lon}. Prefers stations
-// that list the line; falls back to any station if needed.
 function resolveStation(stations, line, name) {
   const norm = name.toLowerCase();
   const onLine = stations.filter((s) => s.lines?.includes(line));
@@ -146,9 +124,7 @@ async function renderDisruption({ disruption, trainLines, lineColors, trains = [
   const { active, suspended } = splitSegments(segments, fromLoc, toLoc);
 
   const overlays = [];
-  // Suspended segments render in the line color at reduced opacity — keeps
-  // the line's identity ("this is the Yellow Line") while the thinner stroke
-  // + dimmer alpha contrast against the active stretch's bright thick line.
+  // Suspended: line color at reduced opacity + thinner stroke for contrast.
   for (const seg of suspended) {
     if (!seg || seg.length < 2) continue;
     overlays.push(`path-4+${color}-0.4(${encodeURIComponent(encode(seg))})`);
@@ -157,16 +133,12 @@ async function renderDisruption({ disruption, trainLines, lineColors, trains = [
     if (!seg || seg.length < 2) continue;
     overlays.push(`path-10+${color}-0.95(${encodeURIComponent(encode(seg))})`);
   }
-  // Live trains on this line as small pins — helpful context: readers see
-  // where service currently exists and where it's absent.
   for (const t of trains) {
     if (t.line !== line) continue;
     overlays.push(`pin-s+${color}(${t.lon.toFixed(4)},${t.lat.toFixed(4)})`);
   }
 
-  // Frame on the suspended stretch (plus buffer) rather than the whole line.
-  // Readers care about where service is out, not the full route; the dim
-  // segment gets lost at citywide zoom for short suspensions.
+  // Frame on the suspended stretch + buffer; citywide zoom would lose short suspensions.
   const bbox = paddedBbox(bboxOf(suspended.flat()), 0.5, 0.02);
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
@@ -180,8 +152,6 @@ async function renderDisruption({ disruption, trainLines, lineColors, trains = [
   const titleText = `⚠ ${lineName} Line suspended`;
   const titleWidth = 90 + titleText.length * 24;
 
-  // Project the two suspension endpoints so we can label them by name.
-  // Labels render as dark pills with white text — works on any basemap tile.
   const fromPx = project(fromLoc.lat, fromLoc.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
   const toPx = project(toLoc.lat, toLoc.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
   const labels = [stationLabel(fromLoc.name, fromPx), stationLabel(toLoc.name, toPx)]
@@ -212,9 +182,7 @@ function bboxOf(points) {
   return { minLat, maxLat, minLon, maxLon };
 }
 
-// Expand a bbox by a fractional margin plus a minimum degrees floor.
-// The floor keeps very short suspensions (a single stop-pair) from
-// producing a street-level zoom with no surrounding context.
+// Floor prevents single-stop suspensions from rendering at street-level zoom.
 function paddedBbox(bbox, fracMargin, minSpanDeg) {
   const latSpan = Math.max(bbox.maxLat - bbox.minLat, minSpanDeg);
   const lonSpan = Math.max(bbox.maxLon - bbox.minLon, minSpanDeg);
@@ -230,8 +198,7 @@ function paddedBbox(bbox, fracMargin, minSpanDeg) {
   };
 }
 
-// Reserve the top-left for the title pill so station labels don't crash
-// into it. If a label would land inside this box, we flip it below the dot.
+// Title-pill keepout — labels that would intersect get flipped below the dot.
 const TITLE_KEEPOUT = { x: 0, y: 0, w: 800, h: 130 };
 
 function stationLabel(name, px) {

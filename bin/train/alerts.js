@@ -1,17 +1,4 @@
 #!/usr/bin/env node
-// Auto-post CTA train service alerts.
-//
-// Runs every ~10 min. For each active MajorAlert impacting a rail line:
-//   - If we have not posted this alert_id: build a Disruption when possible
-//     from "between X and Y" extraction + findStation; otherwise text-only.
-//     Post and record alert_posts row with the post URI.
-//   - If we have posted it: update last_seen_ts so we know it's still active.
-//
-// For each alert_id we previously posted that no longer appears in the feed:
-//   - Post a threaded ✅ resolution reply, mark resolved_ts.
-//
-// Gated by ALERTS_DRY_RUN=1 for initial rollout.
-
 require('../../src/shared/env');
 
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
@@ -33,7 +20,8 @@ const DRY_RUN = process.env.ALERTS_DRY_RUN === '1' || process.argv.includes('--d
 const KIND = 'train';
 
 function tryBuildDisruption(alert) {
-  if (alert.trainLines.length !== 1) return null; // avoid ambiguity when an alert touches multiple lines
+  // Multi-line alerts can't render to a single Disruption — skip the rich path.
+  if (alert.trainLines.length !== 1) return null;
   const line = alert.trainLines[0];
   const text = alert.fullDescription || alert.shortDescription || alert.headline;
   const between = extractBetweenStations(text);
@@ -99,18 +87,15 @@ async function postResolution(alertRow, agentGetter) {
     return;
   }
 
+  // Original post is missing (dry-run or pre-feature) — mark resolved silently.
   if (!alertRow.post_uri) {
-    // We never had a parent URI (prior posts predated Feature 2 or were in dry-run).
-    // Record resolution without posting.
     recordAlertResolved({ alertId: alertRow.alert_id, replyUri: null });
     return;
   }
 
   const agent = await agentGetter();
   try {
-    // Build the reply ref. AtProto requires both root and parent URIs+CIDs.
-    // Our recorded post_uri is just the URI; for a threaded reply the CID is
-    // required. Look it up on the fly.
+    // AtProto reply refs need a CID; look it up since we only stored the URI.
     const [repo, collection, rkey] = parseAtUri(alertRow.post_uri);
     const { data: record } = await agent.com.atproto.repo.getRecord({ repo, collection, rkey });
     const ref = { uri: alertRow.post_uri, cid: record.cid };
@@ -124,7 +109,6 @@ async function postResolution(alertRow, agentGetter) {
 }
 
 function parseAtUri(uri) {
-  // at://did:plc:xxxx/app.bsky.feed.post/rkey
   const m = /^at:\/\/([^/]+)\/([^/]+)\/(.+)$/.exec(uri);
   if (!m) throw new Error(`Invalid at:// URI: ${uri}`);
   return [m[1], m[2], m[3]];

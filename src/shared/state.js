@@ -2,16 +2,10 @@ const { getDb } = require('./history');
 
 const COOLDOWN_MS = 60 * 60 * 1000; // 1 hour default
 
-// Cooldowns live in the shared SQLite DB so overlapping bot instances (timelapse
-// captures can run ~10 min while cron fires every few minutes) see a consistent
-// view and serialize on the DB's file lock. `acquireCooldown` is the only
-// safe way to commit to a post — `isOnCooldown` is a cheap read used for early
-// filtering in candidate loops, where a race producing a false-negative is
-// still caught by the later acquire call.
-//
-// A key can carry an explicit expires_at (per-key TTL). When set, the row is
-// "on cooldown" while now < expires_at. When null, the legacy behavior applies:
-// on cooldown while now < ts + COOLDOWN_MS.
+// Cooldowns persist in SQLite so overlapping cron instances (timelapse captures
+// can run ~10 min while cron fires every few minutes) serialize on the file
+// lock. `acquireCooldown` is the only safe gate before posting; `isOnCooldown`
+// is a cheap pre-filter where a false-negative gets caught by the later acquire.
 
 function isOnCooldown(key, now = Date.now()) {
   const row = getDb().prepare('SELECT ts, expires_at FROM cooldowns WHERE key = ?').get(key);
@@ -20,18 +14,9 @@ function isOnCooldown(key, now = Date.now()) {
   return now < row.ts + COOLDOWN_MS;
 }
 
-/**
- * Atomically try to acquire cooldowns for every key in `keys`. If any key is
- * already on cooldown, nothing is written and the function returns false.
- * Otherwise every key's ts is set to `now` and the function returns true.
- *
- * `ttlMs` (optional): if provided, sets expires_at = now + ttlMs for every key.
- *   Otherwise expires_at stays null and the legacy COOLDOWN_MS default applies.
- *
- * Cross-process safety comes from SQLite's file-level locking: the transaction
- * observes a consistent snapshot, and two processes calling this with
- * overlapping keys cannot both succeed.
- */
+// All-or-nothing acquire: returns false if any key is on cooldown, otherwise
+// stamps `now` (and optional expires_at) on every key. SQLite file lock keeps
+// two processes calling this with overlapping keys from both succeeding.
 function acquireCooldown(keys, now = Date.now(), ttlMs = null) {
   const db = getDb();
   const check = db.prepare('SELECT ts, expires_at FROM cooldowns WHERE key = ?');
@@ -52,11 +37,6 @@ function acquireCooldown(keys, now = Date.now(), ttlMs = null) {
   return tx(Array.isArray(keys) ? keys : [keys]);
 }
 
-/**
- * Clear cooldowns for the given keys. Used when an event resolves early and
- * we want to re-arm the detector (e.g. a posted CTA alert goes resolved, or
- * the pulse detector sees clear signals for N consecutive ticks).
- */
 function clearCooldown(keys) {
   const db = getDb();
   const del = db.prepare('DELETE FROM cooldowns WHERE key = ?');

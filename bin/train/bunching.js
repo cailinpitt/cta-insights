@@ -36,12 +36,8 @@ async function main() {
     console.log(`  ${LINE_NAMES[b.line]} Line toward ${b.trains[0].destination} — ${b.trains.length} trains span ${Math.round(b.spanFt)}ft, maxGap ${Math.round(b.maxGapFt)}ft`);
   }
 
-  // Two cooldown layers, mirroring the bus bunching model:
-  //   - line+direction: blocks the same direction of the same line from
-  //     reposting for 1hr (same as bus `pid` cooldown — direction-specific).
-  //   - line: blocks ANY direction of the same line for 1hr, so opposite
-  //     directions of the Red Line don't both post back-to-back (same as
-  //     bus `route:X` cooldown — direction-agnostic).
+  // Two cooldown layers: line+direction (specific) and line-wide (prevents
+  // opposite-direction posts within the hour). Mirrors bus pid + route cooldowns.
   let bunch = null;
   let dirCooldownKey = null;
   let lineCooldownKey = null;
@@ -157,7 +153,7 @@ async function main() {
   if (!result) return;
   const { agent, primary } = result;
 
-  // Capture a timelapse and reply to the primary post. Failures are non-fatal.
+  // Timelapse reply is non-fatal — primary alert already went out.
   try {
     console.log('Capturing train bunching timelapse...');
     const video = await captureTrainBunchingVideo(bunch, LINE_COLORS, trainLines, trainStations);

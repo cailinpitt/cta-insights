@@ -16,10 +16,8 @@ const { expectedTrainTripMinutes } = require('../../src/shared/gtfs');
 const trainLines = require('../../src/train/data/trainLines.json');
 const trainStations = require('../../src/train/data/trainStations.json');
 
-// ~0.5 mi per bin keeps spatial resolution uniform across lines. A flat bin
-// count made Yellow (~5 mi) look sparse: with only 2 trains in service and
-// 660-ft bins, most bins ended a 60-min window empty and rendered as no-data
-// grey. Floor at 8 so trivially short branches still produce a readable ribbon.
+// 0.5 mi/bin gives uniform spatial resolution across lines (a flat bin count
+// left Yellow's 5-mi route mostly no-data). Floor keeps short branches readable.
 const FT_PER_BIN = 2640;
 const MIN_BINS = 8;
 const POLL_INTERVAL_MS = 30 * 1000;
@@ -29,10 +27,8 @@ function formatAvg(summary) {
   return summary.avg == null ? 'n/a' : `${summary.avg.toFixed(1)} mph`;
 }
 
-// Pick the most common destination among the rns contributing to this branch +
-// direction. Needed for branched lines (Green) where trDr=5 can mean either
-// "Toward Ashland/63rd" or "Toward Cottage Grove" depending on which branch
-// the train is actually on.
+// Branched lines (Green) have ambiguous trDr — pick the dominant destination
+// among rns that contributed to this branch+direction.
 function destForBranchDir(rns, trDr, destByRnDir) {
   const counts = new Map();
   for (const rn of rns) {
@@ -91,13 +87,9 @@ async function main() {
     process.exit(1);
   }
 
-  // Purple's polyline covers the full Linden→Loop express route, but outside
-  // rush hours the service is a Linden↔Howard shuttle and the express portion
-  // renders as a long grey halo to nowhere. Use the scheduled trip duration
-  // (GTFS) as the signal: an express trip is ~95 min end-to-end, a shuttle
-  // trip is ~14 min, so anything above ~50 min means express is running.
-  // Check both ends of the collection window so a boundary-straddling run
-  // (e.g. 08:30–09:30) still gets the full polyline.
+  // Purple shuttle (Linden↔Howard) hours: GTFS trip duration (~14 min vs ~95
+  // express) tells us to truncate the express portion of the polyline.
+  // Check both window edges to cover boundary-straddling runs.
   if (line === 'p') {
     const windowStart = new Date();
     const windowEnd = new Date(windowStart.getTime() + durationMs);
@@ -122,13 +114,10 @@ async function main() {
   const { tracks, destByRnDir } = await collectTrains(line, durationMs, POLL_INTERVAL_MS);
   const endTime = new Date();
 
-  // Process each branch independently: snap samples to this branch's polyline
-  // (rejecting ones > MAX_SNAP_PERP_FT away), bin per direction, resolve the
-  // dominant destination per direction from the rns that contributed. On Green,
-  // trDr=5 samples on branch 0 resolve to "Ashland/63rd" and on branch 1 to
-  // "Cottage Grove", giving each branch its own correct label.
+  // Per-branch processing — each branch's samples resolve to its own destination
+  // labels (Green's trDr=5 → "Ashland/63rd" on branch 0, "Cottage Grove" on 1).
   const branchData = [];
-  const dirSummaries = []; // [{ dest, summary }] — one entry per (branch, direction)
+  const dirSummaries = [];
   for (let i = 0; i < branches.length; i++) {
     const { points, cumDist, totalFt } = branches[i];
     const { byDir, rnsByDir, stats } = computeTrainSamples(tracks, points, cumDist);
@@ -148,9 +137,7 @@ async function main() {
     branchData.push({ points, cumDist, binSpeedsByDir });
   }
 
-  // Collapse duplicate destinations (e.g. "Toward Harlem/Lake" appears on both
-  // Green branches' trunk direction) — keep the one with the highest sample
-  // count so the caption isn't repetitive.
+  // Collapse duplicate destinations (Green's trunk direction shows up twice).
   const dedupedByDest = new Map();
   for (const entry of dirSummaries) {
     const key = entry.dest || `unknown-${dedupedByDest.size}`;
@@ -160,9 +147,7 @@ async function main() {
   }
   const finalDirs = Array.from(dedupedByDest.values());
 
-  // If no direction has a valid average speed, the line wasn't running during
-  // the window (common for the non-24/7 lines — Yellow, Purple express, etc.,
-  // overnight gaps). Skip rather than posting an empty speedmap.
+  // No averages → line wasn't running this window (Yellow/Purple express/owl gaps).
   if (finalDirs.every((d) => d.summary.avg == null)) {
     console.log(`No train samples for ${LINE_NAMES[line]} Line during the window — not posting`);
     if (!argv['dry-run']) {
@@ -179,9 +164,8 @@ async function main() {
     return;
   }
 
-  // Line-level avg across directions (simple mean of per-direction averages)
-  // drives the severity callout. Using an average keeps the semantic "this
-  // line was slow today" rather than attributing it to one direction.
+  // Mean of per-direction averages — the callout reads "this line was slow today",
+  // not "this direction was slow."
   const dirAvgs = finalDirs.map((d) => d.summary.avg).filter((v) => v != null);
   const lineAvgMph = dirAvgs.length > 0 ? dirAvgs.reduce((a, v) => a + v, 0) / dirAvgs.length : null;
   const callouts = history.speedmapCallouts({
@@ -204,8 +188,7 @@ async function main() {
 
   const agent = await loginTrain();
   const result = await postWithImage(agent, text, image, alt);
-  // One row per run (line-level aggregation) so callout MIN/MAX is
-  // apples-to-apples with the line avg we compute on each run.
+  // One row per run so callout MIN/MAX is apples-to-apples with lineAvgMph.
   const totals = finalDirs.reduce((acc, { summary }) => {
     acc.red += summary.red;
     acc.orange += summary.orange;

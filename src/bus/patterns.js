@@ -3,14 +3,10 @@ const Fs = require('fs-extra');
 const { getPattern } = require('./api');
 
 const CACHE_DIR = Path.join(__dirname, '..', '..', 'data', 'patterns');
-// Shortened from 7d → 24h so a mid-week reroute (detour, terminal moved)
-// gets picked up within a day instead of a week. Patterns are tiny and the
-// CTA pattern endpoint is fast, so the extra fetches are cheap.
+// 24h TTL so mid-week reroutes (detours, terminal moves) propagate within a day.
 const TTL_MS = 24 * 60 * 60 * 1000;
 
-// Stable identifier for the served geometry: length + first/last point. If
-// CTA reissues the pattern with different coords or stop count, the signature
-// changes and downstream code can detect the drift without re-fetching.
+// Length + first/last point — drift-detectable without re-fetching.
 function patternSignature(pattern) {
   const first = pattern.points[0];
   const last = pattern.points[pattern.points.length - 1];
@@ -28,9 +24,7 @@ async function loadPattern(pid) {
   try {
     pattern = await getPattern(pid);
   } catch (e) {
-    // One-shot retry on transient failure before giving up. The caller (ghost
-    // detection) skips the whole route if this still throws, so a short retry
-    // pays for itself many times over.
+    // One-shot retry — ghost detection skips the entire route if this throws.
     await new Promise((r) => setTimeout(r, 250));
     pattern = await getPattern(pid);
   }
@@ -39,9 +33,6 @@ async function loadPattern(pid) {
   return pattern;
 }
 
-// Nearest on-pattern stop to a given pdist. Used by bunching/gap post builders
-// so the "near X" label comes from the pattern's stop list rather than the
-// raw bus position.
 function findNearestStop(pattern, pdist) {
   const stops = pattern.points.filter((p) => p.type === 'S' && p.stopName);
   let best = stops[0];
