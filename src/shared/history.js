@@ -67,7 +67,52 @@ function db() {
 
     CREATE TABLE IF NOT EXISTS cooldowns (
       key TEXT PRIMARY KEY,
-      ts INTEGER NOT NULL
+      ts INTEGER NOT NULL,
+      expires_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS alert_posts (
+      alert_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      routes TEXT,
+      headline TEXT,
+      first_seen_ts INTEGER NOT NULL,
+      last_seen_ts INTEGER NOT NULL,
+      post_uri TEXT,
+      resolved_ts INTEGER,
+      resolved_reply_uri TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_alert_posts_kind
+      ON alert_posts(kind);
+
+    CREATE TABLE IF NOT EXISTS disruption_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      line TEXT NOT NULL,
+      direction TEXT,
+      from_station TEXT,
+      to_station TEXT,
+      source TEXT NOT NULL,
+      posted INTEGER NOT NULL DEFAULT 0,
+      post_uri TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_disruption_kind_line_ts
+      ON disruption_events(kind, line, ts);
+
+    CREATE TABLE IF NOT EXISTS pulse_state (
+      line TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      run_lo_ft INTEGER,
+      run_hi_ft INTEGER,
+      from_station TEXT,
+      to_station TEXT,
+      started_ts INTEGER,
+      last_seen_ts INTEGER,
+      consecutive_ticks INTEGER NOT NULL DEFAULT 0,
+      clear_ticks INTEGER NOT NULL DEFAULT 0,
+      posted_cooldown_key TEXT,
+      PRIMARY KEY (line, direction)
     );
 
     CREATE TABLE IF NOT EXISTS observations (
@@ -76,7 +121,9 @@ function db() {
       route TEXT NOT NULL,
       direction TEXT,
       vehicle_id TEXT NOT NULL,
-      destination TEXT
+      destination TEXT,
+      lat REAL,
+      lon REAL
     );
     CREATE INDEX IF NOT EXISTS idx_obs_kind_route_ts
       ON observations(kind, route, ts);
@@ -88,6 +135,24 @@ function db() {
   const speedmapCols = _db.prepare("PRAGMA table_info(speedmap_runs)").all().map((c) => c.name);
   if (!speedmapCols.includes('pct_purple')) {
     _db.exec('ALTER TABLE speedmap_runs ADD COLUMN pct_purple REAL');
+  }
+
+  // Migration: add expires_at to cooldowns for per-key TTLs. Null means
+  // "use the caller's default COOLDOWN_MS window."
+  const cooldownCols = _db.prepare("PRAGMA table_info(cooldowns)").all().map((c) => c.name);
+  if (!cooldownCols.includes('expires_at')) {
+    _db.exec('ALTER TABLE cooldowns ADD COLUMN expires_at INTEGER');
+  }
+
+  // Migration: add lat/lon to observations so the pulse detector can project
+  // historical positions onto line polylines. Existing rows leave them null
+  // (still useful for ghost detection which only needs distinct-vid counts).
+  const obsCols = _db.prepare("PRAGMA table_info(observations)").all().map((c) => c.name);
+  if (!obsCols.includes('lat')) {
+    _db.exec('ALTER TABLE observations ADD COLUMN lat REAL');
+  }
+  if (!obsCols.includes('lon')) {
+    _db.exec('ALTER TABLE observations ADD COLUMN lon REAL');
   }
 
   return _db;
@@ -102,6 +167,93 @@ function rolloffOld(now = Date.now()) {
   db().prepare('DELETE FROM bunching_events WHERE ts < ?').run(cutoff);
   db().prepare('DELETE FROM speedmap_runs WHERE ts < ?').run(cutoff);
   db().prepare('DELETE FROM gap_events WHERE ts < ?').run(cutoff);
+  db().prepare('DELETE FROM disruption_events WHERE ts < ?').run(cutoff);
+  // Alert posts roll off once the alert has been resolved for 90d.
+  db().prepare('DELETE FROM alert_posts WHERE resolved_ts IS NOT NULL AND resolved_ts < ?').run(cutoff);
+}
+
+// --- Alert posts (Feature 2: CTA alert ingestion) --------------------------
+
+function getAlertPost(alertId) {
+  return db().prepare('SELECT * FROM alert_posts WHERE alert_id = ?').get(alertId) || null;
+}
+
+function recordAlertSeen({ alertId, kind, routes, headline, postUri }, now = Date.now()) {
+  const existing = getAlertPost(alertId);
+  if (existing) {
+    db().prepare('UPDATE alert_posts SET last_seen_ts = ?, post_uri = COALESCE(?, post_uri) WHERE alert_id = ?')
+      .run(now, postUri || null, alertId);
+    return;
+  }
+  db().prepare(`
+    INSERT INTO alert_posts (alert_id, kind, routes, headline, first_seen_ts, last_seen_ts, post_uri)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(alertId, kind, routes || null, headline || null, now, now, postUri || null);
+}
+
+function recordAlertResolved({ alertId, replyUri }, now = Date.now()) {
+  db().prepare('UPDATE alert_posts SET resolved_ts = ?, resolved_reply_uri = ? WHERE alert_id = ?')
+    .run(now, replyUri || null, alertId);
+}
+
+function listUnresolvedAlerts(kind) {
+  return db().prepare('SELECT * FROM alert_posts WHERE kind = ? AND resolved_ts IS NULL').all(kind);
+}
+
+// --- Disruption events (Feature 1: pulse detector) -------------------------
+
+function recordDisruption({
+  kind, line, direction, fromStation, toStation, source, posted, postUri,
+}, now = Date.now()) {
+  db().prepare(`
+    INSERT INTO disruption_events
+      (ts, kind, line, direction, from_station, to_station, source, posted, post_uri)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    now, kind, line, direction || null,
+    fromStation || null, toStation || null, source, posted ? 1 : 0, postUri || null,
+  );
+}
+
+// --- Pulse detector state (Feature 1) --------------------------------------
+
+function getPulseState(line, direction) {
+  return db().prepare('SELECT * FROM pulse_state WHERE line = ? AND direction = ?')
+    .get(line, direction) || null;
+}
+
+function upsertPulseState({
+  line, direction, runLoFt, runHiFt, fromStation, toStation,
+  startedTs, lastSeenTs, consecutiveTicks, clearTicks, postedCooldownKey,
+}) {
+  db().prepare(`
+    INSERT INTO pulse_state
+      (line, direction, run_lo_ft, run_hi_ft, from_station, to_station,
+       started_ts, last_seen_ts, consecutive_ticks, clear_ticks, posted_cooldown_key)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(line, direction) DO UPDATE SET
+      run_lo_ft = excluded.run_lo_ft,
+      run_hi_ft = excluded.run_hi_ft,
+      from_station = excluded.from_station,
+      to_station = excluded.to_station,
+      started_ts = excluded.started_ts,
+      last_seen_ts = excluded.last_seen_ts,
+      consecutive_ticks = excluded.consecutive_ticks,
+      clear_ticks = excluded.clear_ticks,
+      posted_cooldown_key = excluded.posted_cooldown_key
+  `).run(
+    line, direction,
+    runLoFt == null ? null : Math.round(runLoFt),
+    runHiFt == null ? null : Math.round(runHiFt),
+    fromStation || null, toStation || null,
+    startedTs || null, lastSeenTs || null,
+    consecutiveTicks || 0, clearTicks || 0,
+    postedCooldownKey || null,
+  );
+}
+
+function clearPulseState(line, direction) {
+  db().prepare('DELETE FROM pulse_state WHERE line = ? AND direction = ?').run(line, direction);
 }
 
 // Midnight Chicago time of the day containing `ts`, returned as a UTC epoch ms.
@@ -391,5 +543,13 @@ module.exports = {
   leastRecentlyPostedSpeedmapRoute,
   bunchingCapAllows,
   gapCapAllows,
+  getAlertPost,
+  recordAlertSeen,
+  recordAlertResolved,
+  listUnresolvedAlerts,
+  recordDisruption,
+  getPulseState,
+  upsertPulseState,
+  clearPulseState,
   getDb,
 };

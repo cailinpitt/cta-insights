@@ -110,4 +110,13 @@ async function postText(agent, text, replyRef = null) {
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
-module.exports = { login, postWithImage, postWithVideo, postText };
+// Login helper for the dedicated alerts/disruptions account. Used by
+// bin/{bus,train}/alerts.js (CTA-sourced alerts) and bin/train/pulse.js
+// (auto-detected service disruptions). Kept separate from the analytics-
+// focused bus/train accounts so followers can opt into one stream or the
+// other.
+function loginAlerts() {
+  return login(process.env.BLUESKY_ALERTS_IDENTIFIER, process.env.BLUESKY_ALERTS_APP_PASSWORD);
+}
+
+module.exports = { login, loginAlerts, postWithImage, postWithVideo, postText };

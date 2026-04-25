@@ -7,10 +7,10 @@ const { acquireCooldown } = require('./state');
 // On cooldown-race loss: calls recordSkip and returns null. On success:
 // returns { agent, primary } so the caller can attach a video reply.
 async function commitAndPost({
-  cooldownKeys, recordSkip, agentLogin, image, text, alt, recordPosted,
+  cooldownKeys, cooldownTtlMs, recordSkip, agentLogin, image, text, alt, recordPosted,
   postWithImage, postText,
 }) {
-  if (!acquireCooldown(cooldownKeys)) {
+  if (!acquireCooldown(cooldownKeys, Date.now(), cooldownTtlMs || null)) {
     console.log('Lost cooldown race to another instance, skipping post');
     recordSkip();
     return null;

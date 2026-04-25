@@ -42,13 +42,20 @@ function recordTrainObservations(trains, now = Date.now()) {
   if (!trains || trains.length === 0) return;
   try {
     const stmt = getDb().prepare(`
-      INSERT INTO observations (ts, kind, route, direction, vehicle_id, destination)
-      VALUES (?, 'train', ?, ?, ?, ?)
+      INSERT INTO observations (ts, kind, route, direction, vehicle_id, destination, lat, lon)
+      VALUES (?, 'train', ?, ?, ?, ?, ?, ?)
     `);
     const tx = getDb().transaction((items) => {
       for (const t of items) {
         if (!t.rn || !t.line) continue;
-        stmt.run(now, String(t.line), t.trDr != null ? String(t.trDr) : null, String(t.rn), t.destination || null);
+        stmt.run(
+          now, String(t.line),
+          t.trDr != null ? String(t.trDr) : null,
+          String(t.rn),
+          t.destination || null,
+          Number.isFinite(t.lat) ? t.lat : null,
+          Number.isFinite(t.lon) ? t.lon : null,
+        );
       }
     });
     tx(trains);
@@ -71,10 +78,23 @@ function getBusObservations(route, sinceTs) {
 
 function getTrainObservations(line, sinceTs) {
   return getDb().prepare(`
-    SELECT ts, direction, vehicle_id, destination
+    SELECT ts, direction, vehicle_id, destination, lat, lon
     FROM observations
     WHERE kind = 'train' AND route = ? AND ts >= ?
   `).all(String(line), sinceTs);
+}
+
+/**
+ * Recent positioned observations across all train lines since `sinceTs`.
+ * Only rows with non-null lat/lon are returned — used by the pulse detector
+ * which needs to project historical positions onto line polylines.
+ */
+function getRecentTrainPositions(sinceTs) {
+  return getDb().prepare(`
+    SELECT ts, route AS line, direction AS trDr, vehicle_id AS rn, lat, lon
+    FROM observations
+    WHERE kind = 'train' AND ts >= ? AND lat IS NOT NULL AND lon IS NOT NULL
+  `).all(sinceTs);
 }
 
 module.exports = {
@@ -82,5 +102,6 @@ module.exports = {
   recordTrainObservations,
   getBusObservations,
   getTrainObservations,
+  getRecentTrainPositions,
   rolloffOldObservations,
 };
