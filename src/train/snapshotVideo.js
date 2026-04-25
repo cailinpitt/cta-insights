@@ -107,7 +107,28 @@ async function captureSnapshotVideo(initialTrains, lineColors, trainLines, opts 
       prev = next;
       clamped.push(next);
     }
-    const smoothed = smoothSeries(clamped);
+    // CTA's upstream feed refreshes every ~60s, but we poll every 15s, so
+    // consecutive snapshots often share an identical track value. The
+    // monotonic clamp above also collapses backward jitter into plateaus.
+    // Both look like the train "pausing" in the timelapse. Linearly
+    // interpolate across runs of equal values so motion between real
+    // updates is spread evenly across the intermediate ticks.
+    const deplateaued = clamped.slice();
+    let i = 0;
+    while (i < deplateaued.length) {
+      let j = i;
+      while (j + 1 < deplateaued.length && deplateaued[j + 1] === deplateaued[i]) j++;
+      if (j > i && j + 1 < deplateaued.length) {
+        const startVal = deplateaued[i];
+        const endVal = deplateaued[j + 1];
+        const span = j + 1 - i;
+        for (let k = 1; k < span; k++) {
+          deplateaued[i + k] = startVal + ((endVal - startVal) * k) / span;
+        }
+      }
+      i = j + 1;
+    }
+    const smoothed = smoothSeries(deplateaued);
     for (let i = 0; i < series.length; i++) {
       const entry = series[i];
       entry.branch = bestBranch;
