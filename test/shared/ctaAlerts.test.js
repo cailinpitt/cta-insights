@@ -136,9 +136,20 @@ test('significant: planned shuttle replacement with MajorAlert=0 (Yellow Line sc
   );
 });
 
-test('significant: high severity alone is sufficient', () => {
+test('not significant: high severity alone (no major flag, no major keyword)', () => {
+  // Service-info posts ("Cubs night games", "expanded beach service") routinely
+  // score 9-12 without being real disruptions. Severity alone isn't enough.
   assert.equal(
-    isSignificantAlert(makeAlert({ major: false, severityScore: 7, headline: 'Service advisory' })),
+    isSignificantAlert(
+      makeAlert({ major: false, severityScore: 11, headline: 'Service advisory' }),
+    ),
+    false,
+  );
+});
+
+test('significant: MajorAlert=1 + severity >= MIN_SEVERITY admits', () => {
+  assert.equal(
+    isSignificantAlert(makeAlert({ major: true, severityScore: 4, headline: 'Service advisory' })),
     true,
   );
 });
@@ -244,7 +255,8 @@ test('minor pattern wins even when major phrasing is present', () => {
   );
 });
 
-test('falls back to severityScore when no keyword matches', () => {
+test('falls back to MajorAlert=1 + severityScore when no keyword matches', () => {
+  // major=true (default in makeAlert), sev=4 → admits via combined signal.
   assert.equal(
     isSignificantAlert(
       makeAlert({
@@ -255,12 +267,56 @@ test('falls back to severityScore when no keyword matches', () => {
     ),
     true,
   );
+  // major=true but sev<MIN_SEVERITY → reject.
   assert.equal(
     isSignificantAlert(
       makeAlert({
         headline: 'Service advisory',
         shortDescription: 'Expect crowded conditions during the game.',
         severityScore: 2,
+      }),
+    ),
+    false,
+  );
+  // major=false even with high sev → reject without keyword.
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        headline: 'Service advisory',
+        shortDescription: 'Expect crowded conditions during the game.',
+        severityScore: 12,
+      }),
+    ),
+    false,
+  );
+});
+
+test('not significant: real-world Cubs night-game announcement (sev=11, MajorAlert=0)', () => {
+  // Modeled on AlertId 113896 — service info, not a disruption.
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        severityScore: 11,
+        headline: 'Service for 2026 Cubs Night Games and Wrigley Field Concerts',
+        shortDescription:
+          'Additional svc from Howard will operate on the Yellow Line for Cubs night games.',
+      }),
+    ),
+    false,
+  );
+});
+
+test('not significant: real-world expanded beach service (sev=11, MajorAlert=0)', () => {
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        severityScore: 11,
+        headline: 'CTA Service to the Beaches',
+        shortDescription:
+          'Service to the lakefront and beaches will be expanded on the #35, #63, #72, and #78 bus routes on weekends and holidays.',
       }),
     ),
     false,

@@ -179,13 +179,17 @@ function db() {
   if (!pulseCols.includes('active_post_ts')) {
     _db.exec('ALTER TABLE pulse_state ADD COLUMN active_post_ts INTEGER');
   }
-  // Loop-line per-direction keys changed from `branch-N` to
-  // `branch-N-outbound`/`branch-N-inbound` in Phase 3c. Clear stale rows so
-  // pulse_state rebuilds against the new keys; outage state is ephemeral and
-  // self-rebuilds within ~2 ticks.
-  _db.exec(
-    "DELETE FROM pulse_state WHERE direction LIKE 'branch-%' AND direction NOT LIKE '%-outbound' AND direction NOT LIKE '%-inbound'",
-  );
+  // One-time cleanup of stale `branch-N` direction keys from before the
+  // stable-direction-key change. Gated on user_version so this runs exactly
+  // once per DB; without the gate the DELETE fired on every cron startup and
+  // wiped in-flight pulse_state rows, defeating the debounce.
+  const userVersion = _db.pragma('user_version', { simple: true });
+  if (userVersion < 1) {
+    _db.exec(
+      "DELETE FROM pulse_state WHERE direction GLOB 'branch-[0-9]' OR direction GLOB 'branch-[0-9][0-9]'",
+    );
+    _db.pragma('user_version = 1');
+  }
 
   return _db;
 }

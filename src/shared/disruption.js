@@ -9,7 +9,7 @@ const { LINE_NAMES } = require('../train/api');
 
 function titleFor(d) {
   const lineName = LINE_NAMES[d.line] || d.line;
-  return `⚠ ${lineName} Line service suspended`;
+  return `⚠️ ${lineName} Line service suspended`;
 }
 
 function buildPostText(d) {

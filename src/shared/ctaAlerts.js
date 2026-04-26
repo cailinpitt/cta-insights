@@ -180,7 +180,10 @@ const MINOR_PATTERNS = [
   /\bdetour/i,
   /\btemporar(y|ily)\b/i,
   /\bstop\s+(closed|closure|relocat)/i,
-  /\bbus\s+stop\b/i,
+  // "bus stop" alone is too loose — the Yellow shuttle-substitution alert
+  // mentions "bus stop" repeatedly to describe shuttle pickup locations.
+  // Require "bus stop" to be paired with a minor-disruption verb.
+  /\bbus\s+stop\s+(closed|closure|relocat|temporar|chang)/i,
   /\belevator\b/i,
   /\bescalator\b/i,
   /\bentrance\b/i,
@@ -193,12 +196,16 @@ const MINOR_PATTERNS = [
   /\bweekend\s+service\s+change\b/i,
 ];
 
-// CTA's MajorAlert flag was previously required as a hard gate, but it's
-// absent on planned-work shuttle replacements (e.g. Yellow Line bus
-// substitution: MajorAlert=0, SeverityScore=25). Drop that gate; admit
-// whenever there's positive evidence (major keyword OR severity >= floor).
-// Minor-wins veto stays first so station-level closures with major phrasing
-// still drop ("No trains stopping at Belmont (elevator construction)").
+// Two admit paths after the minor-wins veto:
+//   1. A MAJOR_PATTERN keyword match — strong textual signal of an actual
+//      service disruption (suspended, shuttle bus, no trains, etc.). Admits
+//      independent of MajorAlert/severity. This is what catches the Yellow
+//      shuttle substitution (MajorAlert=0, sev=25) via "shuttle bus".
+//   2. CTA's MajorAlert=1 flag combined with severity >= MIN_SEVERITY. The
+//      flag alone is too noisy (single-stop closures get tagged Major); the
+//      severity floor filters those down. Severity alone is also too noisy
+//      — service-info posts ("Cubs night games extra service", "expanded
+//      lakefront service") routinely score 9-12 without being disruptions.
 function isSignificantAlert(alert) {
   if (!alert) return false;
   const text = [alert.headline, alert.shortDescription, alert.fullDescription]
@@ -208,7 +215,9 @@ function isSignificantAlert(alert) {
 
   for (const re of MINOR_PATTERNS) if (re.test(text)) return false;
   for (const re of MAJOR_PATTERNS) if (re.test(text)) return true;
-  if (alert.severityScore != null && alert.severityScore >= MIN_SEVERITY) return true;
+  if (alert.major && alert.severityScore != null && alert.severityScore >= MIN_SEVERITY) {
+    return true;
+  }
   return false;
 }
 

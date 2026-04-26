@@ -2,7 +2,7 @@ const { graphemeLength } = require('./post');
 const { LINE_NAMES } = require('../train/api');
 
 const EMOJI_BUS = '🚌';
-const EMOJI_WARN = '⚠';
+const EMOJI_WARN = '⚠️';
 const EMOJI_RESOLVED = '✅';
 
 function buildAlertPostText({ alert, kind, shorten = true }) {
