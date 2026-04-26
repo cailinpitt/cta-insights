@@ -114,17 +114,15 @@ function snapToLineWithPerp(lat, lon, linePoints, cumDist) {
 }
 
 // Round-trip polylines (Orange/Brown/Purple/Pink end at their start) are
-// truncated at the apex — both trDr directions map onto the same outbound
-// polyline. Without this, `snapToLine` splits observations between outbound
-// and inbound branches over identical track and most samples get noise-filtered.
+// pruned to apex+plateau. Returns an array of two branches (outbound +
+// inbound) so callers can bin per-direction via trDr filter; both share the
+// same physical geometry. Bidirectional lines return a single branch object.
 function processSegment(seg) {
   const first = { lat: seg[0][0], lon: seg[0][1] };
   const last = { lat: seg[seg.length - 1][0], lon: seg[seg.length - 1][1] };
   const isRoundTrip = haversineFt(first, last) < 500;
   let pruned = seg;
   if (isRoundTrip) {
-    // Keep apex + plateau (the Loop's elevated rectangle), drop the return leg
-    // retracing outbound tracks. Plateau threshold = 90% of apex distance.
     const dists = seg.map(([lat, lon]) => haversineFt(first, { lat, lon }));
     let apexIdx = 0;
     for (let i = 1; i < dists.length; i++) {
@@ -143,12 +141,48 @@ function processSegment(seg) {
 
   const points = pruned.map((p) => ({ lat: p[0], lon: p[1] }));
   const cumDist = cumulativeDistances(points);
-  return { points: pruned, cumDist, totalFt: cumDist[cumDist.length - 1] };
+  const totalFt = cumDist[cumDist.length - 1];
+  const branch = { points: pruned, cumDist, totalFt };
+  // Round-trip → caller (buildLineBranches) splits into outbound/inbound.
+  if (isRoundTrip) return [branch, { ...branch }];
+  return branch;
 }
+
+// Per-line trDr code that means "outbound" (away from the Loop / downtown).
+// Verified against 24h of observations + destination strings — see
+// research.md Bug 16. Loop lines round-trip on shared track, so we want pulse
+// to bin per-direction even though both directions share polyline geometry.
+const LOOP_LINE_TRDR_OUTBOUND = {
+  brn: '1', // 1 → Kimball (outbound), 5 → Loop (inbound)
+  org: '5', // 5 → Midway (outbound), 1 → Loop (inbound)
+  pink: '5', // 5 → 54th/Cermak (outbound), 1 → Loop (inbound)
+  p: '1', // 1 → Linden (outbound), 5 → Howard (inbound)
+  // Yellow has effectively a single GTFS direction; both legs share trDr.
+  // Splitting it gains us nothing — keep it whole.
+};
 
 function buildLineBranches(trainLines, line) {
   const segments = trainLines[line] || [];
-  return segments.map(processSegment);
+  const out = [];
+  for (const seg of segments) {
+    const processed = processSegment(seg);
+    if (Array.isArray(processed)) {
+      const outboundTrDr = LOOP_LINE_TRDR_OUTBOUND[line] || null;
+      if (outboundTrDr) {
+        const branches = processed.map((b, idx) => ({
+          ...b,
+          trDrFilter: idx === 0 ? outboundTrDr : outboundTrDr === '1' ? '5' : '1',
+          directionHint: idx === 0 ? 'outbound' : 'inbound',
+        }));
+        out.push(...branches);
+      } else {
+        out.push(processed[0]);
+      }
+    } else {
+      out.push(processed);
+    }
+  }
+  return out;
 }
 
 function buildLinePolyline(trainLines, line) {

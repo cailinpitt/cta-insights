@@ -49,15 +49,20 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
   const candidates = [];
   for (let branchIdx = 0; branchIdx < branches.length; branchIdx++) {
     const branch = branches[branchIdx];
-    const { points, cumDist, totalFt } = branch;
+    const { points, cumDist, totalFt, trDrFilter, directionHint } = branch;
     if (points.length < 2 || !totalFt) continue;
+
+    // Round-trip lines split into outbound/inbound branches sharing geometry
+    // — filter observations by Train Tracker direction code so each branch
+    // sees only its half of the traffic.
+    const branchObs = trDrFilter ? fresh.filter((p) => p.trDr === trDrFilter) : fresh;
 
     const numBins = Math.max(2, Math.ceil(totalFt / binFt));
     const lastSeenPerBin = new Array(numBins).fill(-Infinity);
     const binIdxOfPos = [];
     let onBranch = 0;
 
-    for (const p of fresh) {
+    for (const p of branchObs) {
       const { cumDist: along, perpDist } = snapToLineWithPerp(p.lat, p.lon, points, cumDist);
       if (perpDist > MAX_PERP_FT) continue;
       onBranch++;
@@ -117,7 +122,7 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
 
     candidates.push({
       line,
-      direction: branches.length > 1 ? `branch-${branchIdx}` : 'all',
+      direction: directionKeyFor(branches, branchIdx, directionHint),
       runLoFt,
       runHiFt,
       runLengthFt,
@@ -135,6 +140,16 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
 
   candidates.sort((a, b) => b.runLengthFt - a.runLengthFt);
   return candidates;
+}
+
+// Direction key used as the (line, direction) PK in pulse_state. Stable
+// across branch reorderings: derives from directionHint (outbound/inbound)
+// when the branch comes from a round-trip split, else falls back to
+// branch-N for multi-branch bidirectional lines (Blue, Green).
+function directionKeyFor(branches, branchIdx, directionHint) {
+  if (branches.length === 1) return 'all';
+  if (directionHint) return `branch-${branchIdx}-${directionHint}`;
+  return `branch-${branchIdx}`;
 }
 
 function stationsAlongBranch(stations, line, points, cumDist) {
