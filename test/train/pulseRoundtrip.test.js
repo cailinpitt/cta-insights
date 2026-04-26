@@ -69,7 +69,7 @@ test('Pulse on Brown southbound: northbound passes do not warm southbound bins',
     }
   }
 
-  const candidates = detectDeadSegments({
+  const { candidates } = detectDeadSegments({
     line: 'brn',
     trainLines,
     stations: trainStations,
@@ -79,11 +79,9 @@ test('Pulse on Brown southbound: northbound passes do not warm southbound bins',
   });
 
   // Outbound branch has zero observations → coverage gate trips → no candidate
-  // produced for it (that's the "bug 2 sparse-coverage" path, not a false fire).
-  // Inbound branch has full coverage and no cold bins → no candidate either.
+  // produced for it. Inbound branch has full coverage and no cold bins.
   // What we're verifying here: outbound branch isn't accidentally warmed by
-  // inbound trains. Equivalent: any candidate that DOES emerge must not be on
-  // the outbound branch from inbound observations.
+  // inbound trains.
   for (const c of candidates) {
     assert.notEqual(c.direction, 'branch-0-outbound');
   }

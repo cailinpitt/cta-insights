@@ -11,7 +11,12 @@
 require('../../src/shared/env');
 
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
-const { detectDeadSegments } = require('../../src/train/pulse');
+const {
+  detectDeadSegments,
+  directionKeyFor,
+  stationsAlongBranch,
+} = require('../../src/train/pulse');
+const { buildLineBranches } = require('../../src/train/speedmap');
 const { getAllTrainPositions, LINE_COLORS, ALL_LINES } = require('../../src/train/api');
 const {
   loginAlerts,
@@ -21,7 +26,7 @@ const {
 } = require('../../src/shared/bluesky');
 const { renderDisruption } = require('../../src/map');
 const { buildPostText, buildAltText, buildClearPostText } = require('../../src/shared/disruption');
-const { expectedTrainHeadwayMin } = require('../../src/shared/gtfs');
+const { expectedTrainHeadwayMin, expectedTrainActiveTrips } = require('../../src/shared/gtfs');
 const { getRecentTrainPositions } = require('../../src/shared/observations');
 const { acquireCooldown } = require('../../src/shared/state');
 const {
@@ -408,16 +413,17 @@ async function main() {
 
   for (const line of ALL_LINES) {
     const recent = allRecent.filter((r) => r.line === line);
-    // No signal → don't clear existing state based on missing data, just skip.
-    if (recent.length === 0) continue;
+    if (recent.length === 0) {
+      await maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now);
+      continue;
+    }
 
     const headwayMin = safeHeadway(line);
 
-    let candidates;
+    let detection;
     try {
-      candidates = detectDeadSegments({
+      detection = detectDeadSegments({
         line,
-        observations: [],
         recentPositions: recent.map((r) => ({
           ts: r.ts,
           lat: r.lat,
@@ -436,15 +442,21 @@ async function main() {
       continue;
     }
 
-    if (candidates.length === 0) {
+    if (detection.skipped) {
+      console.log(
+        `pulse: skipped line=${line} reason=${detection.skipped} — leaving pulse_state intact`,
+      );
+      continue;
+    }
+
+    if (detection.candidates.length === 0) {
       const rows = getDb().prepare('SELECT * FROM pulse_state WHERE line = ?').all(line);
       for (const row of rows) await handleClear(line, row.direction, agentGetter, now);
       continue;
     }
 
-    // Detector returns at most one candidate per branch — handle each.
     const seenDirs = new Set();
-    for (const c of candidates) {
+    for (const c of detection.candidates) {
       if (seenDirs.has(c.direction)) continue;
       seenDirs.add(c.direction);
       try {
@@ -454,12 +466,71 @@ async function main() {
       }
     }
 
-    // Stale pulse_state rows (no matching candidate this tick) get cleared.
     const rows = getDb().prepare('SELECT * FROM pulse_state WHERE line = ?').all(line);
     for (const row of rows) {
       if (!seenDirs.has(row.direction)) await handleClear(line, row.direction, agentGetter, now);
     }
   }
+}
+
+// Bug 2: when an entire line goes dark (rail replaced by shuttles, signal
+// failure across all interlockings) the API returns zero observations for it.
+// If other lines have data and GTFS says service should be running, treat it
+// as a full-branch candidate so pulse can flag the outage.
+async function maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now) {
+  if (allRecent.length === 0) return; // pipeline-wide problem, not line-specific
+  let expected = 0;
+  try {
+    expected = expectedTrainActiveTrips(line, null, new Date(now)) || 0;
+  } catch (_e) {
+    expected = 0;
+  }
+  if (expected <= 0) return;
+  console.log(
+    `pulse: zero observations on line=${line} but ${expected} trips expected — synthesizing full-line candidate`,
+  );
+  const branches = buildLineBranches(trainLines, line);
+  const seenDirs = new Set();
+  for (let bi = 0; bi < branches.length; bi++) {
+    const b = branches[bi];
+    if (!b.totalFt) continue;
+    const stationsOnBranch = stationsAlongBranchHelper(b, line);
+    if (stationsOnBranch.length < 2) continue;
+    const direction = directionKeyFor(branches, bi, b.directionHint);
+    if (seenDirs.has(direction)) continue;
+    seenDirs.add(direction);
+    const fromStation = stationsOnBranch[0].station;
+    const toStation = stationsOnBranch[stationsOnBranch.length - 1].station;
+    const synthetic = {
+      line,
+      direction,
+      runLoFt: 0,
+      runHiFt: b.totalFt,
+      runLengthFt: b.totalFt,
+      fromStation,
+      toStation,
+      coldBins: 0,
+      totalBins: 0,
+      observedTrainsInWindow: 0,
+      lastSeenInRunMs: null,
+      coldThresholdMs: LOOKBACK_MS,
+      lookbackMs: LOOKBACK_MS,
+      trainsOutsideRun: 0,
+      coldStations: stationsOnBranch.length,
+      coldStationNames: stationsOnBranch.map((s) => s.station.name),
+      expectedTrains: expected,
+      synthetic: true,
+    };
+    try {
+      await handleCandidate(line, direction, synthetic, agentGetter, now);
+    } catch (e) {
+      console.error(`synthetic candidate failed for ${line}/${direction}: ${e.stack || e.message}`);
+    }
+  }
+}
+
+function stationsAlongBranchHelper(branch, line) {
+  return stationsAlongBranch(trainStations, line, branch.points, branch.cumDist);
 }
 
 // Null destination → loop lines resolve line-wide; bi-directional lines return

@@ -30,16 +30,25 @@ function buildPostText(d) {
 }
 
 function evidenceLine(e) {
+  if (e.synthetic) {
+    const stations = e.coldStations >= 2 ? ` (${e.coldStations} stations affected)` : '';
+    return `📡 No trains observed on this line in the last ${e.lookbackMin || 20} min${stations} — service appears suspended line-wide.`;
+  }
   const stretch = e.runLengthMi != null ? `${e.runLengthMi}-mi stretch` : 'this stretch';
+  const stations = e.coldStations >= 2 ? ` (${e.coldStations} stations affected)` : '';
   const since =
     e.minutesSinceLastTrain != null
       ? `the last ${e.minutesSinceLastTrain} min`
       : `the last ${e.lookbackMin || 20} min`;
+  const missing =
+    e.expectedTrains != null && e.expectedTrains >= 1
+      ? ` — ~${e.expectedTrains} trains missed`
+      : '';
   const elsewhere =
     e.trainsOutsideRun != null
       ? ` (${e.trainsOutsideRun} train${e.trainsOutsideRun === 1 ? '' : 's'} active elsewhere on the line)`
       : '';
-  return `📡 No trains seen on this ${stretch} in ${since}${elsewhere}.`;
+  return `📡 No trains seen on this ${stretch}${stations} in ${since}${missing}${elsewhere}.`;
 }
 
 function buildAltText(d) {

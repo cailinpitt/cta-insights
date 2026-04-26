@@ -28,7 +28,7 @@ test('flags a long cold stretch in the middle of the line', () => {
   for (let ft = 6000; ft <= 20000; ft += 2000) recent.push(position(ft, now - 2 * 60 * 1000));
   for (let ft = 55000; ft <= 74000; ft += 2000) recent.push(position(ft, now - 3 * 60 * 1000));
 
-  const candidates = detectDeadSegments({
+  const { candidates } = detectDeadSegments({
     line: 'red',
     observations: [],
     trainLines,
@@ -54,7 +54,7 @@ test('does not flag when trains are distributed across the line', () => {
   for (let ft = 4000; ft <= TOTAL_FT - 4000; ft += 4000) {
     recent.push(position(ft, now - 1 * 60 * 1000));
   }
-  const candidates = detectDeadSegments({
+  const { candidates } = detectDeadSegments({
     line: 'red',
     observations: [],
     trainLines,
@@ -70,7 +70,7 @@ test('does not flag full-line cold-start with sparse observations', () => {
   const now = 1_700_000_000_000;
   const stations = buildStations();
   const recent = [position(2000, now - 1 * 60 * 1000), position(4000, now - 1 * 60 * 1000)];
-  const candidates = detectDeadSegments({
+  const { candidates } = detectDeadSegments({
     line: 'red',
     observations: [],
     trainLines,
@@ -89,7 +89,7 @@ test('does not flag when fresh observations span less than half lookback', () =>
   for (let ft = 4000; ft <= TOTAL_FT - 4000; ft += 4000) {
     recent.push(position(ft, now - 30 * 1000));
   }
-  const candidates = detectDeadSegments({
+  const { candidates } = detectDeadSegments({
     line: 'red',
     observations: [],
     trainLines,
@@ -113,7 +113,7 @@ test('flags a real outage when coverage and span gates are met', () => {
     recent.push(position(ft, now - 18 * 60 * 1000));
     recent.push(position(ft, now - 1 * 60 * 1000));
   }
-  const candidates = detectDeadSegments({
+  const { candidates } = detectDeadSegments({
     line: 'red',
     observations: [],
     trainLines,
@@ -134,7 +134,7 @@ test('ignores terminal zones at both ends', () => {
   // should be excluded by the terminal-zone filter.
   const recent = [];
   for (let ft = 30000; ft <= 50000; ft += 2000) recent.push(position(ft, now - 1 * 60 * 1000));
-  const candidates = detectDeadSegments({
+  const { candidates } = detectDeadSegments({
     line: 'red',
     observations: [],
     trainLines,

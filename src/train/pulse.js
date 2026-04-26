@@ -13,15 +13,18 @@ const { terminalZoneFt } = require('../shared/geo');
 const MAX_PERP_FT = 1500; // reject projections from off-branch trains
 const DEFAULT_LOOKBACK_MS = 20 * 60 * 1000;
 const DEFAULT_BIN_FT = 1320; // 0.25 mi
-const DEFAULT_MIN_RUN_FT = 10560; // 2 mi
+const DEFAULT_MIN_RUN_FT_LONG = 10560; // 2 mi — sparse outer-branch fallback
 const DEFAULT_MIN_COLD_MS = 15 * 60 * 1000;
 const DEFAULT_MIN_COVERAGE_FRAC = 0.5;
 const DEFAULT_MIN_SPAN_FRAC = 0.5;
+// Number of expected-but-missed trains required for the 1-station passSolo
+// admit path. Three trains in a row going missing isn't normal variance.
+const SOLO_EXPECTED_TRAINS = 3;
 
 function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts = {} }) {
   const lookbackMs = opts.lookbackMs || DEFAULT_LOOKBACK_MS;
   const binFt = opts.binFt || DEFAULT_BIN_FT;
-  const minRunFt = opts.minRunFt || DEFAULT_MIN_RUN_FT;
+  const minRunFtLong = opts.minRunFt || DEFAULT_MIN_RUN_FT_LONG;
   const minCoverageFrac =
     opts.minCoverageFrac != null ? opts.minCoverageFrac : DEFAULT_MIN_COVERAGE_FRAC;
   const minSpanFrac = opts.minSpanFrac != null ? opts.minSpanFrac : DEFAULT_MIN_SPAN_FRAC;
@@ -29,24 +32,31 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     DEFAULT_MIN_COLD_MS,
     headwayMin != null ? 2 * headwayMin * 60 * 1000 : DEFAULT_MIN_COLD_MS,
   );
+  const coldThresholdMsStrict = Math.max(
+    DEFAULT_MIN_COLD_MS,
+    headwayMin != null ? 3 * headwayMin * 60 * 1000 : DEFAULT_MIN_COLD_MS,
+  );
 
   const branches = buildLineBranches(trainLines, line);
-  if (branches.length === 0) return [];
+  if (branches.length === 0) return { skipped: 'no-branches', candidates: [] };
 
   const recent = opts.recentPositions || [];
   const sinceTs = now - lookbackMs;
   const fresh = recent.filter((p) => p.ts >= sinceTs);
 
-  if (fresh.length === 0) return [];
+  if (fresh.length === 0) return { skipped: 'noobs', candidates: [] };
   let minTs = Infinity;
   let maxTs = -Infinity;
   for (const p of fresh) {
     if (p.ts < minTs) minTs = p.ts;
     if (p.ts > maxTs) maxTs = p.ts;
   }
-  if (maxTs - minTs < lookbackMs * minSpanFrac) return [];
+  if (maxTs - minTs < lookbackMs * minSpanFrac) {
+    return { skipped: 'sparse-span', candidates: [] };
+  }
 
   const candidates = [];
+  let allBranchesSparse = true;
   for (let branchIdx = 0; branchIdx < branches.length; branchIdx++) {
     const branch = branches[branchIdx];
     const { points, cumDist, totalFt, trDrFilter, directionHint } = branch;
@@ -77,6 +87,7 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     let coveredBins = 0;
     for (const ts of lastSeenPerBin) if (ts > -Infinity) coveredBins++;
     if (coveredBins / numBins < minCoverageFrac) continue;
+    allBranchesSparse = false;
 
     const coldBefore = now - coldThresholdMs;
     const cold = lastSeenPerBin.map((ts) => ts < coldBefore);
@@ -102,13 +113,22 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     const runLoFt = bestStart * binLengthFt;
     const runHiFt = (bestEnd + 1) * binLengthFt;
     const runLengthFt = runHiFt - runLoFt;
-    if (runLengthFt < minRunFt) continue;
 
     const stationsOnBranch = stationsAlongBranch(stations, line, points, cumDist);
-    const fromStation = nearestStationAtOrBefore(stationsOnBranch, runLoFt);
-    const toStation = nearestStationAtOrAfter(stationsOnBranch, runHiFt);
-    if (!fromStation || !toStation) continue;
-    if (fromStation.station.name === toStation.station.name) continue;
+    // Bug 19: clip from/to to stations strictly inside the cold run rather
+    // than reaching out to the nearest station, which used to push the named
+    // endpoints past the terminal-zone clip.
+    const stationsInRun = stationsOnBranch.filter(
+      (s) => s.trackDist >= runLoFt && s.trackDist <= runHiFt,
+    );
+    if (stationsInRun.length < 1) continue;
+    const fromStation = stationsInRun[0];
+    const toStation = stationsInRun[stationsInRun.length - 1];
+    if (fromStation.station.name === toStation.station.name && stationsInRun.length === 1) {
+      // 1-station passSolo path can still anchor on a single station; mark it.
+    } else if (fromStation.station.name === toStation.station.name) {
+      continue;
+    }
 
     let lastSeenInRun = -Infinity;
     let positionsInRun = 0;
@@ -119,6 +139,23 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
       if (idx >= bestStart && idx <= bestEnd) positionsInRun++;
     }
     const trainsOutsideRun = Math.max(0, onBranch - positionsInRun);
+
+    const lastSeenInRunMs = lastSeenInRun > -Infinity ? lastSeenInRun : null;
+    const coldMs = lastSeenInRunMs ? now - lastSeenInRunMs : lookbackMs;
+    const expectedTrains = headwayMin ? Math.floor(coldMs / 60_000 / headwayMin) : null;
+    const coldStations = stationsInRun.length;
+    const coldStationNames = stationsInRun.map((s) => s.station.name);
+
+    // Composite admit gate: any one of the three paths is sufficient. Minor
+    // veto already happened upstream via cold-threshold + terminal exclusion.
+    const passLong = runLengthFt >= minRunFtLong;
+    const passMulti = coldStations >= 2;
+    const passSolo =
+      coldStations >= 1 &&
+      expectedTrains != null &&
+      expectedTrains >= SOLO_EXPECTED_TRAINS &&
+      coldMs >= coldThresholdMsStrict;
+    if (!(passLong || passMulti || passSolo)) continue;
 
     candidates.push({
       line,
@@ -131,15 +168,25 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
       coldBins: bestEnd - bestStart + 1,
       totalBins: numBins,
       observedTrainsInWindow: onBranch,
-      lastSeenInRunMs: lastSeenInRun > -Infinity ? lastSeenInRun : null,
+      lastSeenInRunMs,
       coldThresholdMs,
       lookbackMs,
       trainsOutsideRun,
+      coldStations,
+      coldStationNames,
+      expectedTrains,
     });
   }
 
-  candidates.sort((a, b) => b.runLengthFt - a.runLengthFt);
-  return candidates;
+  if (allBranchesSparse && candidates.length === 0 && branches.length > 0) {
+    return { skipped: 'sparse-coverage', candidates: [] };
+  }
+  candidates.sort((a, b) => {
+    // Prefer candidates with more cold stations, breaking ties by length.
+    if (b.coldStations !== a.coldStations) return b.coldStations - a.coldStations;
+    return b.runLengthFt - a.runLengthFt;
+  });
+  return { skipped: null, candidates };
 }
 
 // Direction key used as the (line, direction) PK in pulse_state. Stable
@@ -182,14 +229,15 @@ function nearestStationAtOrAfter(stationsOnBranch, ft) {
 
 module.exports = {
   detectDeadSegments,
-  // exported for tests
   stationsAlongBranch,
   nearestStationAtOrBefore,
   nearestStationAtOrAfter,
+  directionKeyFor,
   DEFAULT_LOOKBACK_MS,
   DEFAULT_BIN_FT,
-  DEFAULT_MIN_RUN_FT,
+  DEFAULT_MIN_RUN_FT_LONG,
   DEFAULT_MIN_COVERAGE_FRAC,
   DEFAULT_MIN_SPAN_FRAC,
+  SOLO_EXPECTED_TRAINS,
   MAX_PERP_FT,
 };
