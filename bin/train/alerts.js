@@ -29,7 +29,7 @@ const {
   resetAlertClearTicks,
   listUnresolvedAlerts,
   ALERT_CLEAR_TICKS,
-  getRecentPulsePost,
+  getRecentPulsePostsAll,
 } = require('../../src/shared/history');
 const trainLines = require('../../src/train/data/trainLines.json');
 const trainStations = require('../../src/train/data/trainStations.json');
@@ -103,17 +103,34 @@ async function postNewAlert(alert, agentGetter) {
   const agent = await agentGetter();
 
   // If a recent pulse post on the same line already flagged this disruption,
-  // thread the CTA alert under it so "what the bot saw" and "what CTA says"
-  // stay in one conversation. Skip multi-line alerts — there's no single
-  // pulse to thread under.
+  // thread the CTA alert under it. For multi-branch lines (Blue O'Hare/
+  // Forest Park, Green Ashland/Cottage Grove, etc.) score candidate pulses by
+  // station-name overlap with the alert text so we don't thread under an
+  // unrelated-branch pulse.
   let replyRef = null;
   if (alert.trainLines.length === 1) {
-    const recentPulse = getRecentPulsePost({
+    const pulses = getRecentPulsePostsAll({
       kind: KIND,
       line: alert.trainLines[0],
       withinMs: 24 * 60 * 60 * 1000,
     });
-    if (recentPulse) replyRef = await resolveReplyRef(agent, recentPulse.post_uri);
+    if (pulses.length > 0) {
+      const text = (
+        alert.fullDescription ||
+        alert.shortDescription ||
+        alert.headline ||
+        ''
+      ).toLowerCase();
+      const scored = pulses
+        .map((p) => {
+          const fromHit = p.from_station && text.includes(p.from_station.toLowerCase()) ? 1 : 0;
+          const toHit = p.to_station && text.includes(p.to_station.toLowerCase()) ? 1 : 0;
+          return { ...p, score: fromHit + toHit };
+        })
+        .sort((a, b) => b.score - a.score || b.ts - a.ts);
+      const winner = scored[0];
+      if (winner) replyRef = await resolveReplyRef(agent, winner.post_uri);
+    }
   }
 
   const result = image

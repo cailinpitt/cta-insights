@@ -12,10 +12,11 @@ const argv = require('minimist')(process.argv.slice(2), {
 });
 
 const { LINE_COLORS, getAllTrainPositions } = require('../../src/train/api');
-const { loginTrain, postWithImage } = require('../../src/train/bluesky');
+const { loginAlerts, postWithImage } = require('../../src/shared/bluesky');
 const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
 const { buildPostText, buildAltText } = require('../../src/shared/disruption');
 const { renderDisruption } = require('../../src/map');
+const { recordDisruption } = require('../../src/shared/history');
 const trainLines = require('../../src/train/data/trainLines.json');
 const trainStations = require('../../src/train/data/trainStations.json');
 
@@ -83,9 +84,21 @@ async function main() {
     return;
   }
 
-  const agent = await loginTrain();
+  const agent = await loginAlerts();
   const result = await postWithImage(agent, text, image, alt);
   console.log(`Posted: ${result.url}`);
+
+  // Record so future pulse / CTA-alert flows can thread under this manual post.
+  recordDisruption({
+    kind: 'train',
+    line: disruption.line,
+    direction: 'manual',
+    fromStation: disruption.suspendedSegment.from,
+    toStation: disruption.suspendedSegment.to,
+    source: argv.source === 'observed' ? 'observed' : 'cta-alert',
+    posted: true,
+    postUri: result.uri,
+  });
 }
 
 runBin(main);
