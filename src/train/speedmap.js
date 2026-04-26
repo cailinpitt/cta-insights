@@ -80,21 +80,29 @@ function snapToLine(lat, lon, linePoints, cumDist) {
 
 // perpDist enables off-branch rejection: a train on Green's Cottage Grove
 // branch projects onto the Ashland/63rd polyline from far away.
+// Local equirectangular projection — scale lon by cos(lat) so a degree of
+// longitude is correctly compressed against a degree of latitude. Without
+// this the projection-foot calculation is biased on east-west stretches
+// (Green west branch, Blue O'Hare/Forest Park) by ~25%.
+const COS_LAT_CHICAGO = Math.cos((41.88 * Math.PI) / 180);
+
 function snapToLineWithPerp(lat, lon, linePoints, cumDist) {
   let bestDist = Infinity;
   let bestCum = 0;
   for (let i = 0; i < linePoints.length - 1; i++) {
-    const ax = linePoints[i][1];
+    const ax = linePoints[i][1] * COS_LAT_CHICAGO;
     const ay = linePoints[i][0];
-    const bx = linePoints[i + 1][1];
+    const bx = linePoints[i + 1][1] * COS_LAT_CHICAGO;
     const by = linePoints[i + 1][0];
+    const px = lon * COS_LAT_CHICAGO;
+    const py = lat;
     const dx = bx - ax;
     const dy = by - ay;
     const lenSq = dx * dx + dy * dy;
     let t = 0;
-    if (lenSq > 0) t = Math.max(0, Math.min(1, ((lon - ax) * dx + (lat - ay) * dy) / lenSq));
+    if (lenSq > 0) t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
     const projLat = ay + t * dy;
-    const projLon = ax + t * dx;
+    const projLon = (ax + t * dx) / COS_LAT_CHICAGO;
     const d = haversineFt({ lat, lon }, { lat: projLat, lon: projLon });
     if (d < bestDist) {
       bestDist = d;

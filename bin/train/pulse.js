@@ -472,4 +472,6 @@ function safeHeadway(line) {
   }
 }
 
-runBin(main);
+module.exports = { chicagoHourNow, stableSegmentTag, overlapFraction };
+
+if (require.main === module) runBin(main);
