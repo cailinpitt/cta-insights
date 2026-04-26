@@ -3,9 +3,18 @@
 // writes; persistence/cooldown gating lives in the bin script.
 //
 // Each branch is binned by along-track distance; a bin is "cold" when no
-// train has projected into it within max(2× headway, 15 min). The longest
-// contiguous cold run becomes a candidate disruption when it spans ≥ 2 mi
-// and doesn't touch either terminal zone.
+// train has projected into it within max(2× headway, 15 min). Loop lines
+// (Brown/Orange/Pink/Purple) split into outbound/inbound branches sharing
+// geometry but filtered by Train Tracker direction code, so single-direction
+// outages don't get masked by trains running the other way.
+//
+// A candidate is admitted via any of three paths (composite gate):
+//   passLong  — run length ≥ 2 mi (sparse outer-branch fallback)
+//   passMulti — ≥ 2 stations completely inside the cold run
+//   passSolo  — ≥ 1 station + ≥3 expected-but-missed trains + ≥3× headway
+//               cold time (excludes held-train false positives)
+// Returns { skipped, candidates } so the bin can distinguish "no signal"
+// (don't touch existing pulse_state) from "all clear" (advance clear ticks).
 
 const { buildLineBranches, snapToLineWithPerp } = require('./speedmap');
 const { terminalZoneFt } = require('../shared/geo');

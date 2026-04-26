@@ -167,46 +167,6 @@ test('getRecentPulsePost respects direction filter when provided', () => {
   }
 });
 
-test('hasObservedClearSince returns true only after a clear is recorded', () => {
-  const { history, cleanup } = loadHistoryWithDb();
-  try {
-    const t0 = 1_700_000_000_000;
-    assert.equal(
-      history.hasObservedClearSince({ kind: 'train', line: 'red', direction: 'N', sinceTs: t0 }),
-      false,
-    );
-    history.recordDisruption(
-      {
-        kind: 'train',
-        line: 'red',
-        direction: 'N',
-        fromStation: 'A',
-        toStation: 'B',
-        source: 'observed-clear',
-        posted: true,
-        postUri: 'at://x/y/clear',
-      },
-      t0 + 1000,
-    );
-    assert.equal(
-      history.hasObservedClearSince({ kind: 'train', line: 'red', direction: 'N', sinceTs: t0 }),
-      true,
-    );
-    // Out of window
-    assert.equal(
-      history.hasObservedClearSince({
-        kind: 'train',
-        line: 'red',
-        direction: 'N',
-        sinceTs: t0 + 5000,
-      }),
-      false,
-    );
-  } finally {
-    cleanup();
-  }
-});
-
 test('hasUnresolvedCtaAlert matches comma-bracketed route codes without false positives', () => {
   const { history, cleanup } = loadHistoryWithDb();
   try {

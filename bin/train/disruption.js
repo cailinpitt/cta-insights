@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // Manual disruption poster. Takes CTA alert info as CLI args, constructs a
-// Disruption object, renders a map and posts from the train account. Shares
-// everything downstream of the Disruption object with (future) automated
-// pulse detection — the auto detector just builds a Disruption from live
-// data and calls the same renderer + post builder.
+// Disruption object, renders a map and posts to the alerts account. Shares
+// everything downstream of the Disruption object with the pulse detector —
+// pulse builds a Disruption from live data and calls the same renderer +
+// post builder.
+//
+// Records the resulting disruption_event so future pulse / CTA-alert flows
+// on the same line can thread under it.
 
 require('../../src/shared/env');
 

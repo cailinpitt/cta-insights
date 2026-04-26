@@ -119,8 +119,9 @@ All bin scripts accept `--dry-run` (writes image under `assets/` instead of post
 | `npm run train-ghosts` / `:dry` | Train ghost rollup (hourly) |
 | `node bin/bus/alerts.js` (`ALERTS_DRY_RUN=1` or `--dry-run` for dry) | Bus alert republishing + resolution replies |
 | `node bin/train/alerts.js` (`ALERTS_DRY_RUN=1` or `--dry-run` for dry) | Train alert republishing + resolution replies (with segment-dim map when applicable) |
-| `node bin/train/pulse.js` (`PULSE_DRY_RUN=1` or `--dry-run` for dry) | Bot-side rail disruption detector — flags ≥2 mi stretches with no trains for 15+ min |
-| `node bin/train/disruption.js …` (`--dry-run` for dry) | Manual disruption poster (operator passes CTA alert details as CLI args) |
+| `node bin/train/pulse.js` (`PULSE_DRY_RUN=1` or `--dry-run` for dry) | Bot-side rail disruption detector — station-anchored composite gate (≥2 cold stations, or 1 station + 3+ trains missed, or ≥2 mi run); synthesizes a full-branch candidate when a whole line goes dark |
+| `node bin/train/disruption.js …` (`--dry-run` for dry) | Manual disruption poster (posts to the alerts account; operator passes CTA alert details as CLI args) |
+| `node bin/audit-alerts.js` | Health audit — surfaces stuck alert posts, stuck pulse debounces, and cooldown bloat |
 
 ### Observers / maintenance
 | Command | Description |

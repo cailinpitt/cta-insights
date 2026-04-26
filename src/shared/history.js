@@ -308,23 +308,6 @@ function getRecentPulsePost(
   );
 }
 
-function hasObservedClearSince({ kind, line, direction, sinceTs }) {
-  const params = [kind, line, sinceTs];
-  let sql = `
-    SELECT id FROM disruption_events
-    WHERE kind = ? AND line = ? AND source = 'observed-clear'
-      AND posted = 1 AND ts >= ?
-  `;
-  if (direction) {
-    sql += ' AND direction = ?';
-    params.push(direction);
-  }
-  sql += ' LIMIT 1';
-  return !!db()
-    .prepare(sql)
-    .get(...params);
-}
-
 // Asks "is there an unresolved CTA alert on this route right now?". Replaces
 // the old time-windowed `ctaAlertPostedSince` which missed CTA-first-pulse-
 // second cases (alert's first_seen_ts < pulse start).
@@ -338,11 +321,6 @@ function hasUnresolvedCtaAlert({ kind, ctaRouteCode }) {
   `)
     .get(kind, `%,${ctaRouteCode},%`);
   return !!row;
-}
-
-// Deprecation shim kept for one release; remove once consumers migrate.
-function ctaAlertPostedSince({ kind, ctaRouteCode }) {
-  return hasUnresolvedCtaAlert({ kind, ctaRouteCode });
 }
 
 // Exact-pulse idempotency: did we already post an observed-clear after the
@@ -781,9 +759,7 @@ module.exports = {
   recordDisruption,
   getRecentPulsePost,
   getRecentPulsePostsAll,
-  hasObservedClearSince,
   hasObservedClearForPulse,
-  ctaAlertPostedSince,
   hasUnresolvedCtaAlert,
   getPulseState,
   upsertPulseState,

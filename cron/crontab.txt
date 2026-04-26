@@ -33,6 +33,9 @@ R=/home/cailin/Development/cta-bot/bin/cron-run.sh
 30      10 1  *  *   $R bus-recap        bin/bus/recap.js   --window=month
 35      10 1  *  *   $R train-recap      bin/train/recap.js --window=month
 
+# --- Health audits ---
+*/30    *  *  *  *   $R audit-alerts     bin/audit-alerts.js
+
 # --- Reference data refresh ---
 15      3  *  *  *   $R fetch-gtfs       scripts/fetch-gtfs.js
 0       4  1  *  *   $R fetch-signals    scripts/fetch-signals.js

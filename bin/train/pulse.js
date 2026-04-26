@@ -1,7 +1,19 @@
 #!/usr/bin/env node
 // Posts when a candidate dead segment overlaps the previous tick's run by
 // ≥50% for MIN_CONSECUTIVE_TICKS. Clears state after CLEAR_TICKS_TO_RESET
-// clean ticks. Per-(line, direction) state lives in pulse_state.
+// clean ticks. Per-(line, direction) state lives in pulse_state — including
+// `active_post_uri` which pins the canonical post for the current outage so
+// re-posts of the same incident are suppressed and the eventual ✅ clear
+// targets the right thread.
+//
+// Cooldown key derives from the bracketing stations via stableSegmentTag()
+// — single-bin drift between ticks no longer changes the key, so the
+// cooldown actually suppresses re-posts.
+//
+// When a line has zero observations but other lines do and GTFS says
+// service should be running, the bin synthesizes a full-branch candidate
+// (synthetic: true) so a whole-line blackout (e.g. shuttle replacement)
+// can still be flagged.
 //
 // Cold-start guards (`MIN_DISTINCT_TS`, the detector's coverage/span gates)
 // stop a freshly-bootstrapped observations table from looking like a
