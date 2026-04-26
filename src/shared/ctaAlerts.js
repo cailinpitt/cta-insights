@@ -206,15 +206,24 @@ const MINOR_PATTERNS = [
 //      severity floor filters those down. Severity alone is also too noisy
 //      — service-info posts ("Cubs night games extra service", "expanded
 //      lakefront service") routinely score 9-12 without being disruptions.
+//
+// MINOR_PATTERNS only check headline + shortDescription. fullDescription is
+// rich detail (shuttle pickup tables, station-entrance directions) and
+// contains incidental matches for words like "entrance" or "bus stop" even
+// on legitimate disruption alerts — checking the summary instead avoids
+// vetoing real outages because their long-form text mentions stations.
 function isSignificantAlert(alert) {
   if (!alert) return false;
-  const text = [alert.headline, alert.shortDescription, alert.fullDescription]
+  const summary = [alert.headline, alert.shortDescription].filter(Boolean).join(' \n ');
+  const fullText = [alert.headline, alert.shortDescription, alert.fullDescription]
     .filter(Boolean)
     .join(' \n ');
-  if (!text) return false;
+  if (!summary && !fullText) return false;
 
-  for (const re of MINOR_PATTERNS) if (re.test(text)) return false;
-  for (const re of MAJOR_PATTERNS) if (re.test(text)) return true;
+  if (summary) {
+    for (const re of MINOR_PATTERNS) if (re.test(summary)) return false;
+  }
+  for (const re of MAJOR_PATTERNS) if (re.test(fullText)) return true;
   if (alert.major && alert.severityScore != null && alert.severityScore >= MIN_SEVERITY) {
     return true;
   }
