@@ -186,7 +186,11 @@ async function handleCandidate(line, direction, candidate, agentGetter, now) {
     } catch (e) {
       console.warn(`renderDisruption failed: ${e.message}`);
     }
-    const text = buildPostText(disruption);
+    const ctaCode = LINE_TO_RAIL_ROUTE[line];
+    const dryCtaAlertOpen = !!(
+      ctaCode && hasUnresolvedCtaAlert({ kind: 'train', ctaRouteCode: ctaCode })
+    );
+    const text = buildPostText(disruption, { ctaAlertOpen: dryCtaAlertOpen });
     const alt = buildAltText(disruption);
     const stub = image
       ? writeDryRunAsset(image, `pulse-${line}-${direction}-${now}.jpg`)
@@ -235,11 +239,16 @@ async function handleCandidate(line, direction, candidate, agentGetter, now) {
     console.error(`renderDisruption failed for ${line}: ${e.stack || e.message}`);
     return;
   }
-  const text = buildPostText(disruption);
-  const alt = buildAltText(disruption);
 
   const agent = await agentGetter();
   const replyRef = await findOpenAlertReplyRef(agent, line, candidate);
+  // Build text AFTER we know whether a CTA alert is in the thread, so the
+  // footer reflects reality ("see CTA alert above") instead of always
+  // claiming CTA hasn't published one.
+  const ctaAlertOpen = !!replyRef;
+  const text = buildPostText(disruption, { ctaAlertOpen });
+  const alt = buildAltText(disruption);
+
   const result = await postWithImage(agent, text, image, alt, replyRef);
   console.log(`Posted pulse ${line}/${direction}: ${result.url}`);
   recordDisruption({

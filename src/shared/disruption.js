@@ -12,7 +12,7 @@ function titleFor(d) {
   return `⚠️ ${lineName} Line service suspended`;
 }
 
-function buildPostText(d) {
+function buildPostText(d, { ctaAlertOpen = false } = {}) {
   const { suspendedSegment, alternative, reason, source, evidence } = d;
   const lines = [titleFor(d)];
   const reasonPhrase = reason ? ` (${reason})` : '';
@@ -25,7 +25,7 @@ function buildPostText(d) {
   if (source === 'observed' && evidence) {
     lines.push('', evidenceLine(evidence));
   }
-  lines.push('', footerFor(source));
+  lines.push('', footerFor(source, { ctaAlertOpen }));
   return lines.join('\n');
 }
 
@@ -63,10 +63,13 @@ function buildAltText(d) {
   return base;
 }
 
-function footerFor(source) {
+function footerFor(source, { ctaAlertOpen = false } = {}) {
   if (source === 'cta-alert') return 'Per CTA. Check transitchicago.com for updates.';
-  if (source === 'observed')
-    return "Inferred from live train positions; CTA hasn't issued an alert for this yet.";
+  if (source === 'observed') {
+    return ctaAlertOpen
+      ? 'Inferred from live train positions. (See CTA alert in this thread.)'
+      : "Inferred from live train positions; CTA hasn't issued an alert for this yet.";
+  }
   return '';
 }
 
