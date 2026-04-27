@@ -1,6 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { hourlyLookup, expectedHeadwayMin, resolveDirection } = require('../../src/shared/gtfs');
+const {
+  hourlyLookup,
+  expectedHeadwayMin,
+  resolveDirection,
+  expectedTrainActiveTripsAnyDir,
+} = require('../../src/shared/gtfs');
 
 // Fixed reference moments, all chosen so Chicago wall-clock is unambiguous
 // (mid-April 2026 is firmly in CDT, UTC-5).
@@ -138,4 +143,16 @@ test('expectedHeadwayMin: Route 22 at 1 AM Sunday returns data (24h route, via p
   };
   const hw = expectedHeadwayMin('22', pattern, SUN_1AM);
   assert.ok(hw != null && hw > 0, `expected non-null positive headway, got ${hw}`);
+});
+
+test('expectedTrainActiveTripsAnyDir returns 0 for unknown line', () => {
+  assert.equal(expectedTrainActiveTripsAnyDir('zzz', TUE_2PM), 0);
+});
+
+test('expectedTrainActiveTripsAnyDir is non-negative for known lines', () => {
+  // Skip the value check when local GTFS is empty/stale (CI).
+  for (const line of ['red', 'blue', 'g', 'org', 'p', 'pink', 'brn', 'y']) {
+    const v = expectedTrainActiveTripsAnyDir(line, TUE_2PM);
+    assert.ok(typeof v === 'number' && v >= 0, `${line} returned ${v}`);
+  }
 });

@@ -38,7 +38,11 @@ const {
 } = require('../../src/shared/bluesky');
 const { renderDisruption } = require('../../src/map');
 const { buildPostText, buildAltText, buildClearPostText } = require('../../src/shared/disruption');
-const { expectedTrainHeadwayMin, expectedTrainActiveTrips } = require('../../src/shared/gtfs');
+const {
+  expectedTrainHeadwayMin,
+  expectedTrainActiveTrips,
+  expectedTrainActiveTripsAnyDir,
+} = require('../../src/shared/gtfs');
 const { getRecentTrainPositions } = require('../../src/shared/observations');
 const { acquireCooldown } = require('../../src/shared/state');
 const {
@@ -433,6 +437,24 @@ async function main() {
   };
 
   for (const line of ALL_LINES) {
+    // GTFS says no trips active this hour on any direction → line is between
+    // service hours (Brown/Pink/Yellow/Purple Express late-night). Don't
+    // false-flag the cold tail behind the last train as an outage. Still
+    // advance clears on any open pulse_state row so a pulse that posted
+    // earlier in the day naturally resolves when service ends.
+    let expectedAnyDir = 0;
+    try {
+      expectedAnyDir = expectedTrainActiveTripsAnyDir(line, new Date(now));
+    } catch (_e) {
+      expectedAnyDir = 0;
+    }
+    if (expectedAnyDir <= 0) {
+      console.log(`pulse: skipped line=${line} reason=no-scheduled-service`);
+      const rows = getDb().prepare('SELECT * FROM pulse_state WHERE line = ?').all(line);
+      for (const row of rows) await handleClear(line, row.direction, agentGetter, now);
+      continue;
+    }
+
     const recent = allRecent.filter((r) => r.line === line);
     if (recent.length === 0) {
       await maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now);

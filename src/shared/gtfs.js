@@ -210,6 +210,25 @@ function expectedTrainActiveTrips(line, destination, now = new Date()) {
   return trainLookup(line, destination, 'activeByHour', now);
 }
 
+// Sum activeByHour across every GTFS direction of a line for the current
+// hour. Returns 0 when the line is between service hours (Brown/Pink/Yellow/
+// Purple Express drop to 0 outside their schedule). Used by train pulse to
+// avoid false-flagging end-of-service cold stretches as outages.
+function expectedTrainActiveTripsAnyDir(line, now = new Date()) {
+  const index = loadIndex();
+  const gtfsId = TRAIN_LINE_TO_GTFS[line];
+  if (!gtfsId) return 0;
+  const byDir = index.lines?.[gtfsId];
+  if (!byDir) return 0;
+  let total = 0;
+  for (const info of Object.values(byDir)) {
+    if (!info?.activeByHour) continue;
+    const v = hourlyLookup(info.activeByHour, now);
+    if (Number.isFinite(v)) total += v;
+  }
+  return total;
+}
+
 // Loop lines (Brown/Orange/Pink/Purple/Yellow) ship a single GTFS direction_id
 // covering the full Midway→Loop→Midway round trip. Bi-directional lines
 // (Red/Blue/Green) have two. Ghost detection uses this to decide whether to
@@ -231,6 +250,7 @@ module.exports = {
   expectedTrainTripMinutes,
   expectedActiveTrips,
   expectedTrainActiveTrips,
+  expectedTrainActiveTripsAnyDir,
   isTrainLoopLine,
   resolveDirection,
   dayTypeFor,
