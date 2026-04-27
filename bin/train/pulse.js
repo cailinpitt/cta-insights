@@ -437,19 +437,24 @@ async function main() {
   };
 
   for (const line of ALL_LINES) {
-    // GTFS says no trips active this hour on any direction → line is between
-    // service hours (Brown/Pink/Yellow/Purple Express late-night). Don't
-    // false-flag the cold tail behind the last train as an outage. Still
-    // advance clears on any open pulse_state row so a pulse that posted
-    // earlier in the day naturally resolves when service ends.
+    // GTFS says fewer than 1 trip active this hour on any direction → line is
+    // winding down or between service hours. Don't false-flag the cold tail
+    // behind the last train as an outage. The < 1 threshold catches both
+    // "no service scheduled" (Brown/Pink/Yellow/Purple Express late-night,
+    // value = 0) and "wind-down hour" (e.g. Yellow at 0.1, Purple at 0.9 in
+    // their final hour). Still advance clears on any open pulse_state row so
+    // a pulse posted earlier in the day naturally resolves when service ends.
+    const MIN_EXPECTED_ACTIVE = 1;
     let expectedAnyDir = 0;
     try {
       expectedAnyDir = expectedTrainActiveTripsAnyDir(line, new Date(now));
     } catch (_e) {
       expectedAnyDir = 0;
     }
-    if (expectedAnyDir <= 0) {
-      console.log(`pulse: skipped line=${line} reason=no-scheduled-service`);
+    if (expectedAnyDir < MIN_EXPECTED_ACTIVE) {
+      console.log(
+        `pulse: skipped line=${line} reason=below-min-scheduled-service expected=${expectedAnyDir}`,
+      );
       const rows = getDb().prepare('SELECT * FROM pulse_state WHERE line = ?').all(line);
       for (const row of rows) await handleClear(line, row.direction, agentGetter, now);
       continue;
