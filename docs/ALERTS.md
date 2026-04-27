@@ -1,11 +1,12 @@
 # Service alerts
 
-The bot's alerts account posts about CTA service problems from two sources:
+The bot's alerts account posts about CTA service problems from three sources:
 
 1. **Republishing CTA's official alerts** — pulled from CTA's public alerts feed, filtered for significance and tracked routes, with a threaded "cleared" reply when CTA marks them resolved.
-2. **Pulse — the bot's own detection** — a pulse detector that watches live train positions and infers a service suspension when a long stretch of a line goes "cold" (no trains in 15+ min) before CTA has issued an alert about it.
+2. **Train pulse — the bot's own rail detection** — watches live train positions and infers a service suspension when a long stretch of a line goes "cold" (no trains in 15+ min) before CTA has issued an alert about it.
+3. **Bus pulse — the bot's own bus detection** — watches live bus positions and infers a route blackout when a route that should be running has zero distinct vehicles observed for several consecutive ticks while other routes report normally.
 
-Both go to the same dedicated alerts account, so followers see a single feed combining "what CTA says" and "what the bot can see for itself."
+All three go to the same dedicated alerts account, so followers see a single feed combining "what CTA says" and "what the bot can see for itself."
 
 ## The plain-English version
 
@@ -21,7 +22,7 @@ Every few minutes:
 
 For trains, when the alert text mentions "between [station A] and [station B]", we try to also draw a map dimming that segment of the line.
 
-### Pulse — bot-detected disruptions
+### Train pulse — bot-detected rail disruptions
 
 In parallel, every few minutes:
 
@@ -30,11 +31,24 @@ In parallel, every few minutes:
 3. If a contiguous cold run is long enough (≥ 2 mi as a sparse-fallback), or covers ≥ 2 stations, or covers ≥ 1 station with enough scheduled trains expected to have passed through, that's a candidate. Trains must still be active elsewhere on the line.
 4. Require the same stretch to recur on two consecutive checks before posting (filters single-tick noise).
 5. Post a map dimming the affected segment with a footer making clear this was inferred from live positions, not announced by CTA. If there's an open CTA alert for the same line, the pulse post is threaded as a reply to it.
-6. When the dead stretch warms back up for several consecutive checks, post a `✅ trains running through X ↔ Y again` reply under the original pulse — independently of whether CTA ever issued an alert.
+6. When the dead stretch warms back up for several consecutive checks, post a `🚇✅ trains running through X ↔ Y again` reply under the original pulse — independently of whether CTA ever issued an alert.
 
 A separate path catches the degenerate case: if a line has zero observations at all while other lines do, pulse synthesizes a full-line candidate and posts a line-wide blackout alert. That's how a Yellow shuttle-bus replacement (which empties the entire line) gets caught.
 
 This is how the bot can flag a Red Line outage minutes before CTA's own alert appears — the empty stretch is right there in the live feed. The same machinery now handles single-station single-tracking (e.g. Belmont) and complete line shutdowns alongside the long-stretch case.
+
+### Bus pulse — bot-detected route blackouts
+
+The bus equivalent is intentionally simpler. Buses don't have a fixed branch geometry that maps cleanly to "between X and Y" the way rail does, so bus pulse operates at the *route* level:
+
+1. Pull every bus observation recorded in the last 25–60 min (window scaled by the route's GTFS headway — 3× the longest direction, clamped) for each tracked route.
+2. For each route, count distinct vehicle IDs in the window.
+3. If the count is **zero** *and* GTFS says the route should have ≥ 2 active trips this hour *and* at least 5 other watchlist routes are reporting normally, that route is a blackout candidate.
+4. Require the same blackout to recur on two consecutive checks before posting (5–10 min of confirmed silence at the `*/5` cadence).
+5. Post text-only — `🚌⚠️ #<route> <name> service appears suspended` — with a footer that calls out the inferred-from-live-positions provenance. If a CTA bus alert on the route is already open, thread under it.
+6. When buses reappear for three consecutive clean ticks, post `🚌✅ #<route> <name> buses observed again` as a reply under the original pulse.
+
+The strict-zero gate is the key difference from train pulse. Even one bus on the air — including a stuck yard bus broadcasting position from the lot — suppresses pulse. Gaps with ≥ 2 buses still active are `bin/bus/gapPost.js`'s channel, not pulse's. False positives on bus pulse are higher-cost than false negatives, so the bar is deliberately conservative.
 
 ### Threading: keeping a single conversation per disruption
 
