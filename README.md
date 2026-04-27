@@ -99,6 +99,16 @@ Each line uses [`bin/cron-run.sh`](bin/cron-run.sh) — a small wrapper that han
 
 instead of repeating the boilerplate on every line. The snapshot timelapse runs in-process for ~15 minutes per invocation, so it's scheduled every 3 hours; everything else is fast and runs on its own cadence.
 
+### Log rotation
+
+Each cron job appends to `cron/<name>-cron.log`, so the log files grow without bound by default. [`cron/logrotate.conf`](cron/logrotate.conf) is a template policy (daily, 10MB size cap, 14 compressed rotations, `copytruncate` to preserve the inode `cron-run.sh` writes to). Install it once on the server with:
+
+```
+sudo scripts/install-logrotate.sh
+```
+
+The installer detects the owner of the local `cron/` directory and substitutes `CRON_LOG_DIR` / `SU_USER` / `SU_GROUP` placeholders before writing to `/etc/logrotate.d/cta-bot`, then validates the result with `logrotate -d`. The system's daily logrotate timer picks it up overnight; the `su` directive is required because the cron log directory isn't root-owned.
+
 ## Scripts reference
 
 All bin scripts accept `--dry-run` (writes image under `assets/` instead of posting). Recap scripts additionally accept `--window week|month` (default `month`).
