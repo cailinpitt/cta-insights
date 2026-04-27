@@ -78,7 +78,7 @@ test('buildClearPostText (no CTA alert) says CTA never issued one', () => {
     line: 'red',
     suspendedSegment: { from: 'Belmont', to: 'Howard' },
   });
-  assert.match(text, /^✅ Red Line trains running through Belmont ↔ Howard again\./);
+  assert.match(text, /^🚇✅ Red Line trains running through Belmont ↔ Howard again\./);
   assert.match(text, /CTA hasn't issued an alert for this/);
 });
 

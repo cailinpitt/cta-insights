@@ -28,7 +28,7 @@ R=/home/cailin/Development/cta-bot/bin/cron-run.sh
 5-59/10 *  *  *  *   $R bus-gaps         bin/bus/gaps.js
 0       */2 *  *  *  $R bus-speedmap     bin/bus/speedmap.js
 7       *  *  *  *   $R bus-ghosts       bin/bus/ghosts.js
-*/5     *  *  *  *   $R observe-ghosts   scripts/observeGhosts.js
+*/5     *  *  *  *   $R observe-buses    scripts/observeBuses.js
 
 # --- Recaps ---
 20      10 *  *  0   $R bus-recap        bin/bus/recap.js   --window=week

@@ -2,11 +2,12 @@ const { graphemeLength } = require('./post');
 const { LINE_NAMES } = require('../train/api');
 
 const EMOJI_BUS = '🚌';
+const EMOJI_TRAIN = '🚇';
 const EMOJI_WARN = '⚠️';
 const EMOJI_RESOLVED = '✅';
 
 function buildAlertPostText({ alert, kind, shorten = true }) {
-  const prefix = kind === 'train' ? EMOJI_WARN : `${EMOJI_BUS}${EMOJI_WARN}`;
+  const prefix = kind === 'train' ? `${EMOJI_TRAIN}${EMOJI_WARN}` : `${EMOJI_BUS}${EMOJI_WARN}`;
   const head = alert.headline || 'Service alert';
 
   const parts = [`${prefix} ${head}`];
@@ -32,7 +33,8 @@ function buildAlertAltText({ alert, disruption }) {
 }
 
 function buildResolutionReplyText({ alert, kind }) {
-  const prefix = kind === 'train' ? EMOJI_RESOLVED : `${EMOJI_BUS}${EMOJI_RESOLVED}`;
+  const prefix =
+    kind === 'train' ? `${EMOJI_TRAIN}${EMOJI_RESOLVED}` : `${EMOJI_BUS}${EMOJI_RESOLVED}`;
   const head = alert.headline || 'Service alert';
   return `${prefix} CTA has cleared: ${truncateSentence(head, 240)}`;
 }

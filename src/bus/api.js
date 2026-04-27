@@ -125,7 +125,7 @@ async function getPredictions({ stpid, vid, rt, top }) {
 }
 
 // Returns `{ vehicles, now, source }`. The default 4 min maxStaleMs sits
-// between the 5-min observeGhosts cadence and the 3-min per-vehicle staleness
+// between the 5-min observeBuses cadence and the 3-min per-vehicle staleness
 // floor — the cached snapshot is at most 5 min old.
 async function getVehiclesCachedOrFresh(routes, { maxStaleMs = 4 * 60 * 1000 } = {}) {
   const cached = getLatestBusSnapshot(routes, maxStaleMs);

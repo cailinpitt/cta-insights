@@ -126,7 +126,7 @@ All bin scripts accept `--dry-run` (writes image under `assets/` instead of post
 ### Observers / maintenance
 | Command | Description |
 |---|---|
-| `npm run observe-ghosts` | Bus observer — fetches `routes.ghosts` and records positions (no posting). Run every 5 min. |
+| `npm run observe-buses` | Bus observer — fetches every active CTA route and records positions (no posting). Run every 5 min. |
 | `npm run fetch-gtfs` | Rebuild `data/gtfs/index.json`. Run daily. |
 | `npm run fetch-signals` | Rebuild `data/signals/chicago.json` from OpenStreetMap. Run monthly. |
 
@@ -160,7 +160,7 @@ Each major feature has a deep-dive doc in [`docs/`](docs/):
 ### Observation flow
 Every call to `getVehicles` (bus) and `getAllTrainPositions` (train) writes a row to the `observations` table in `history.sqlite`. That means *every* job — bunching, gaps, speedmaps, snapshots — contributes data that ghost detection later consumes.
 
-Bus routes not touched by bunching or gaps need an explicit observer run to show up in the ghost rollups. `scripts/observeGhosts.js` handles that, fetching `routes.ghosts` on a fixed ~5-min cadence. Trains don't need a dedicated observer — one API call returns all 8 lines and other jobs hit the API often enough.
+Bus routes not touched by bunching or gaps need an explicit observer run to show up in the ghost rollups and bus pulse detection. `scripts/observeBuses.js` handles that, fetching every active CTA route on a fixed ~5-min cadence. Trains don't need a dedicated observer — one API call returns all 8 lines and other jobs hit the API often enough.
 
 ### History DB and callouts
 `state/history.sqlite` records every detection (posted or cooldown-suppressed) and every observation. Retention is 90 days. Two things feed off it:

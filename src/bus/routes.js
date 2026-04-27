@@ -228,7 +228,7 @@ const gaps = [
 ];
 
 // Routes polled for ghost-bus detection. Independent of bunching/gaps: a
-// dedicated observer cron (scripts/observeGhosts.js) fetches positions for
+// dedicated observer cron (scripts/observeBuses.js) fetches positions for
 // these routes on a fixed cadence so the hourly rollup has consistent coverage
 // regardless of what other jobs sampled.
 const ghosts = [
@@ -263,4 +263,9 @@ const ghosts = [
   '151',
 ];
 
-module.exports = { names, bunching, speedmap, gaps, ghosts };
+// Routes polled by bus pulse — every active CTA bus route. Keeps the watch
+// list symmetric with bin/bus/alerts.js so a CTA alert and a pulse signal
+// can converge on the same thread regardless of which fires first.
+const pulse = Object.keys(names);
+
+module.exports = { names, bunching, speedmap, gaps, ghosts, pulse };

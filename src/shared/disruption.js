@@ -9,7 +9,7 @@ const { LINE_NAMES } = require('../train/api');
 
 function titleFor(d) {
   const lineName = LINE_NAMES[d.line] || d.line;
-  return `⚠️ ${lineName} Line service suspended`;
+  return `🚇⚠️ ${lineName} Line service suspended`;
 }
 
 function buildPostText(d, { ctaAlertOpen = false } = {}) {
@@ -78,7 +78,7 @@ function buildClearPostText(d, { ctaAlertOpen = false } = {}) {
   const tail = ctaAlertOpen
     ? "(CTA hasn't cleared their alert yet.)"
     : "(CTA hasn't issued an alert for this.)";
-  return `✅ ${lineName} Line trains running through ${d.suspendedSegment.from} ↔ ${d.suspendedSegment.to} again. ${tail}`;
+  return `🚇✅ ${lineName} Line trains running through ${d.suspendedSegment.from} ↔ ${d.suspendedSegment.to} again. ${tail}`;
 }
 
 module.exports = {

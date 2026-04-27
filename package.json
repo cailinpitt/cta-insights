@@ -34,7 +34,7 @@
     "train-speedmap:dry": "node bin/train/speedmap.js --dry-run",
     "train-recap": "node bin/train/recap.js",
     "train-recap:dry": "node bin/train/recap.js --dry-run",
-    "observe-ghosts": "node scripts/observeGhosts.js",
+    "observe-buses": "node scripts/observeBuses.js",
     "ghosts": "node bin/bus/ghosts.js",
     "ghosts:dry": "node bin/bus/ghosts.js --dry-run",
     "train-ghosts": "node bin/train/ghosts.js",
