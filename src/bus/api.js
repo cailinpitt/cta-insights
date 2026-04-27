@@ -34,7 +34,10 @@ function parseVehicle(v) {
   return {
     vid: v.vid,
     route: v.rt,
-    pid: v.pid,
+    // Stringified to match what the snapshot cache returns from SQLite, so
+    // strict-equality filters (e.g. bunchingVideo's pid match) work whether
+    // the caller hit the cache or a fresh API call.
+    pid: v.pid != null ? String(v.pid) : null,
     lat: parseFloat(v.lat),
     lon: parseFloat(v.lon),
     heading: parseInt(v.hdg, 10),
