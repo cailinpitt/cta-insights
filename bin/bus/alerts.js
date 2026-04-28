@@ -1,6 +1,9 @@
 #!/usr/bin/env node
-// Bus alerts post text-only — bus reroutes don't map cleanly onto a polyline
-// segment, so there's no equivalent of the rail disruption map.
+// Bus alerts post a route-overview map (bus reroutes don't map onto a
+// from→to polyline segment the way rail outages do, so the image just shows
+// the affected route polylines highlighted on a Chicago basemap — a rider's
+// "is this me?" cue). Falls back to text-only when patterns can't be
+// rendered (route never observed, multi-route over the URL cap, etc.).
 //
 // When a recent bus pulse post exists for any of the alert's routes, the
 // CTA alert threads under it so all signals about one disruption converge
@@ -10,8 +13,17 @@ require('../../src/shared/env');
 
 const { setup, runBin } = require('../../src/shared/runBin');
 const { fetchAlerts, isSignificantAlert } = require('../../src/shared/ctaAlerts');
-const { loginAlerts, postText, resolveReplyRef } = require('../../src/shared/bluesky');
-const { buildAlertPostText, buildResolutionReplyText } = require('../../src/shared/alertPost');
+const {
+  loginAlerts,
+  postText,
+  postWithImage,
+  resolveReplyRef,
+} = require('../../src/shared/bluesky');
+const {
+  buildAlertPostText,
+  buildBusAlertAltText,
+  buildResolutionReplyText,
+} = require('../../src/shared/alertPost');
 const {
   getAlertPost,
   recordAlertSeen,
@@ -22,7 +34,12 @@ const {
   getRecentPulsePostsAll,
   ALERT_CLEAR_TICKS,
 } = require('../../src/shared/history');
+const { getKnownBusPidsForRoute } = require('../../src/shared/observations');
+const { renderBusDisruption, MAX_ROUTES } = require('../../src/map');
+const { loadPattern } = require('../../src/bus/patterns');
 const busRoutes = require('../../src/bus/routes');
+
+const KNOWN_PIDS_LOOKBACK_MS = 48 * 60 * 60 * 1000;
 
 const PULSE_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
@@ -58,11 +75,44 @@ function findRecentBusPulse(alert, now = Date.now()) {
   return best;
 }
 
+async function buildAlertImage(alert) {
+  const trackedRoutes = alert.busRoutes.filter((r) => TRACKED.has(r));
+  if (trackedRoutes.length === 0 || trackedRoutes.length > MAX_ROUTES) return null;
+  const sinceTs = Date.now() - KNOWN_PIDS_LOOKBACK_MS;
+  const title = buildBusMapTitle(trackedRoutes);
+  try {
+    return await renderBusDisruption({
+      routes: trackedRoutes,
+      getKnownPidsForRoute: (route) => getKnownBusPidsForRoute(route, sinceTs),
+      loadPattern,
+      title,
+    });
+  } catch (e) {
+    console.warn(`renderBusDisruption failed for alert ${alert.id}: ${e.message}`);
+    return null;
+  }
+}
+
+function buildBusMapTitle(routes) {
+  if (routes.length === 1) return `⚠ Route ${routes[0]} · service alert`;
+  return `⚠ Routes ${routes.join(', ')} · service alert`;
+}
+
 async function postNewAlert(alert, agentGetter) {
   const text = buildAlertPostText({ alert, kind: KIND });
   const routes = alert.busRoutes.join(',');
+  const image = await buildAlertImage(alert);
+  const alt = image
+    ? buildBusAlertAltText({
+        alert,
+        routes: alert.busRoutes.filter((r) => TRACKED.has(r)),
+      })
+    : null;
+
   if (DRY_RUN) {
-    console.log(`--- DRY RUN alert ${alert.id} (DB write skipped) ---\n${text}`);
+    console.log(
+      `--- DRY RUN alert ${alert.id} (DB write skipped) ---\n${text}\n\nAlt: ${alt || '(no image)'}\nImage: ${image ? `${image.length} bytes` : '(text-only fallback)'}`,
+    );
     return;
   }
   recordAlertSeen({
@@ -78,9 +128,11 @@ async function postNewAlert(alert, agentGetter) {
   const pulse = findRecentBusPulse(alert);
   if (pulse) replyRef = await resolveReplyRef(agent, pulse.post_uri);
 
-  const result = await postText(agent, text, replyRef);
+  const result = image
+    ? await postWithImage(agent, text, image, alt, replyRef)
+    : await postText(agent, text, replyRef);
   console.log(
-    `Posted alert ${alert.id}${replyRef ? ' (threaded under bus pulse)' : ''}: ${result.url}`,
+    `Posted alert ${alert.id}${replyRef ? ' (threaded under bus pulse)' : ''}${image ? ' [with map]' : ''}: ${result.url}`,
   );
   recordAlertSeen({
     alertId: alert.id,

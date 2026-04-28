@@ -244,4 +244,51 @@ module.exports = {
   sliceIntoSegments,
   separateMarkers,
   perpendicularFromBearing,
+  estimateTextWidth,
+  paddedBbox,
+  bboxOf,
 };
+
+function estimateTextWidth(text, fontSize) {
+  let w = 0;
+  for (const ch of text) {
+    if (ch === ' ' || ch === '·' || /[.,:;'`]/.test(ch)) w += fontSize * 0.32;
+    else if (ch.codePointAt(0) > 0x2000) w += fontSize * 1.05;
+    else if (/[A-Z]/.test(ch)) w += fontSize * 0.62;
+    else if (/[mw]/.test(ch)) w += fontSize * 0.62;
+    else if (/[ijl]/.test(ch)) w += fontSize * 0.32;
+    else w += fontSize * 0.52;
+  }
+  return Math.round(w);
+}
+
+function bboxOf(points) {
+  let minLat = Infinity,
+    maxLat = -Infinity,
+    minLon = Infinity,
+    maxLon = -Infinity;
+  for (const p of points) {
+    const lat = Array.isArray(p) ? p[0] : p.lat;
+    const lon = Array.isArray(p) ? p[1] : p.lon;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lon < minLon) minLon = lon;
+    if (lon > maxLon) maxLon = lon;
+  }
+  return { minLat, maxLat, minLon, maxLon };
+}
+
+function paddedBbox(bbox, fracMargin, minSpanDeg) {
+  const latSpan = Math.max(bbox.maxLat - bbox.minLat, minSpanDeg);
+  const lonSpan = Math.max(bbox.maxLon - bbox.minLon, minSpanDeg);
+  const centerLat = (bbox.minLat + bbox.maxLat) / 2;
+  const centerLon = (bbox.minLon + bbox.maxLon) / 2;
+  const padLat = (latSpan * (1 + fracMargin)) / 2;
+  const padLon = (lonSpan * (1 + fracMargin)) / 2;
+  return {
+    minLat: centerLat - padLat,
+    maxLat: centerLat + padLat,
+    minLon: centerLon - padLon,
+    maxLon: centerLon + padLon,
+  };
+}

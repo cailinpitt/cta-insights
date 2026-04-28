@@ -81,6 +81,20 @@ function getBusObservations(route, sinceTs) {
     .all(String(route), sinceTs);
 }
 
+// Distinct pids (CTA `direction` field) seen for a route in the lookback.
+// Used by callers that need to resolve patterns for a route without
+// re-fetching the live API (alerts, pulse).
+function getKnownBusPidsForRoute(route, sinceTs) {
+  const rows = getDb()
+    .prepare(`
+    SELECT DISTINCT direction AS pid
+    FROM observations
+    WHERE kind = 'bus' AND route = ? AND ts >= ? AND direction IS NOT NULL
+  `)
+    .all(String(route), sinceTs);
+  return rows.map((r) => r.pid);
+}
+
 function getTrainObservations(line, sinceTs) {
   return getDb()
     .prepare(`
@@ -178,6 +192,7 @@ module.exports = {
   recordBusObservations,
   recordTrainObservations,
   getBusObservations,
+  getKnownBusPidsForRoute,
   getTrainObservations,
   getLatestBusSnapshot,
   getRecentBusObservationsByRoute,

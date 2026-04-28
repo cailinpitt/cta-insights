@@ -32,6 +32,14 @@ function buildAlertAltText({ alert, disruption }) {
   return alert.headline || 'CTA service alert';
 }
 
+function buildBusAlertAltText({ alert, routes }) {
+  const list = routes && routes.length > 0 ? routes.join(', ') : null;
+  const head = alert.headline || 'CTA bus service alert';
+  if (!list) return head;
+  const noun = routes.length === 1 ? 'Route' : 'Routes';
+  return `Map highlighting CTA bus ${noun} ${list}; ${head}`;
+}
+
 function buildResolutionReplyText({ alert, kind }) {
   const prefix =
     kind === 'train' ? `${EMOJI_TRAIN}${EMOJI_RESOLVED}` : `${EMOJI_BUS}${EMOJI_RESOLVED}`;
@@ -51,5 +59,6 @@ function truncateSentence(s, maxChars) {
 module.exports = {
   buildAlertPostText,
   buildAlertAltText,
+  buildBusAlertAltText,
   buildResolutionReplyText,
 };

@@ -8,4 +8,5 @@ module.exports = {
   ...require('./heatmap'),
   ...require('./gapChart'),
   ...require('./disruption'),
+  ...require('./bus/disruption'),
 };

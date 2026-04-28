@@ -8,6 +8,9 @@ const {
   requireMapboxToken,
   fetchMapboxStatic,
   xmlEscape,
+  estimateTextWidth,
+  paddedBbox,
+  bboxOf,
 } = require('./common');
 const { LINE_NAMES } = require('../train/api');
 
@@ -65,20 +68,6 @@ function splitSegments(segments, fromLoc, toLoc) {
     if (hi < snapped.length - 1) active.push(snapped.slice(hi));
   }
   return { active, suspended };
-}
-
-function estimateTextWidth(text, fontSize) {
-  let w = 0;
-  for (const ch of text) {
-    if (ch === ' ' || ch === '·' || /[.,:;'`]/.test(ch)) w += fontSize * 0.32;
-    else if (ch.codePointAt(0) > 0x2000)
-      w += fontSize * 1.05; // emoji / wide symbols
-    else if (/[A-Z]/.test(ch)) w += fontSize * 0.62;
-    else if (/[mw]/.test(ch)) w += fontSize * 0.62;
-    else if (/[ijl]/.test(ch)) w += fontSize * 0.32;
-    else w += fontSize * 0.52;
-  }
-  return Math.round(w);
 }
 
 function nearestVertexIdx(seg, loc) {
@@ -185,36 +174,6 @@ async function renderDisruption({
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
     .jpeg({ quality: 88 })
     .toBuffer();
-}
-
-function bboxOf(points) {
-  let minLat = Infinity,
-    maxLat = -Infinity,
-    minLon = Infinity,
-    maxLon = -Infinity;
-  for (const [lat, lon] of points) {
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lon < minLon) minLon = lon;
-    if (lon > maxLon) maxLon = lon;
-  }
-  return { minLat, maxLat, minLon, maxLon };
-}
-
-// Floor prevents single-stop suspensions from rendering at street-level zoom.
-function paddedBbox(bbox, fracMargin, minSpanDeg) {
-  const latSpan = Math.max(bbox.maxLat - bbox.minLat, minSpanDeg);
-  const lonSpan = Math.max(bbox.maxLon - bbox.minLon, minSpanDeg);
-  const centerLat = (bbox.minLat + bbox.maxLat) / 2;
-  const centerLon = (bbox.minLon + bbox.maxLon) / 2;
-  const padLat = (latSpan * (1 + fracMargin)) / 2;
-  const padLon = (lonSpan * (1 + fracMargin)) / 2;
-  return {
-    minLat: centerLat - padLat,
-    maxLat: centerLat + padLat,
-    minLon: centerLon - padLon,
-    maxLon: centerLon + padLon,
-  };
 }
 
 // Title-pill keepout — labels that would intersect get flipped below the dot.
