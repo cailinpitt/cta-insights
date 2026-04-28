@@ -31,76 +31,50 @@ function _findNearestIndex(poly, loc) {
   return { index: best, distMeters: bestD };
 }
 
-// Project each vertex onto the from→to axis and split runs by whether the
-// parameter t is in [0,1]. Bbox-based splitting overshoots stations and
-// can't handle round-trip polylines (Purple's Linden→Howard→Loop→Howard→Linden).
+// Walk the polyline by arc-length and dim the contiguous run between the
+// vertices closest to fromLoc and toLoc. Earlier we projected vertices onto
+// the Euclidean from→to axis, but on lines that double back near the
+// affected stretch (Blue Line continues west out the Eisenhower past
+// LaSalle, Purple round-trips through the Loop) lateral vertices project
+// back into [0,1] and get dimmed even though they're topologically past the
+// affected segment. Per-segment arc-length splitting handles both cases.
 function splitSegments(segments, fromLoc, toLoc) {
-  // Equirectangular pixel space at Chicago's latitude (lon ≈ 0.74×lat).
-  const cosLat = Math.cos((fromLoc.lat * Math.PI) / 180);
-  const toXY = ([lat, lon]) => ({ x: lon * cosLat, y: lat });
-  const A = toXY([fromLoc.lat, fromLoc.lon]);
-  const B = toXY([toLoc.lat, toLoc.lon]);
-  const abx = B.x - A.x;
-  const aby = B.y - A.y;
-  const abLen2 = abx * abx + aby * aby;
-  const T_MIN = 0;
-  const T_MAX = 1;
-  const tOf = (pt) => {
-    const p = toXY(pt);
-    return ((p.x - A.x) * abx + (p.y - A.y) * aby) / abLen2;
-  };
-  const inAffected = (t) => t >= T_MIN && t <= T_MAX;
-
-  // Inserted at t=0 / t=1 boundaries so the dim/bright transition lands at
-  // the station, not on whatever sparse vertex is nearby.
-  const interpolateAt = (P, Q, tP, tQ, tTarget) => {
-    const s = (tTarget - tP) / (tQ - tP);
-    return [P[0] + s * (Q[0] - P[0]), P[1] + s * (Q[1] - P[1])];
-  };
-
   const active = [];
   const suspended = [];
   for (const seg of segments) {
-    let current = [];
-    let currentIsSuspended = null;
-    const flush = () => {
-      if (current.length >= 2) {
-        (currentIsSuspended ? suspended : active).push(current);
-      }
-      current = [];
-    };
-    let prevT = null;
-    let prevPt = null;
-    for (const pt of seg) {
-      const t = tOf(pt);
-      const isIn = inAffected(t);
-      if (currentIsSuspended === null) {
-        currentIsSuspended = isIn;
-        current.push(pt);
-      } else if (isIn === currentIsSuspended) {
-        current.push(pt);
-      } else {
-        // Boundary crossing (t=0 or t=1) — emit an interpolated vertex on both sides.
-        const tTarget = currentIsSuspended
-          ? prevT < t
-            ? T_MAX
-            : T_MIN
-          : prevT < t
-            ? T_MIN
-            : T_MAX;
-        const boundary = interpolateAt(prevPt, pt, prevT, t, tTarget);
-        current.push(boundary);
-        flush();
-        currentIsSuspended = isIn;
-        current.push(boundary);
-        current.push(pt);
-      }
-      prevT = t;
-      prevPt = pt;
+    if (seg.length < 2) continue;
+    const fromIdx = nearestVertexIdx(seg, fromLoc);
+    const toIdx = nearestVertexIdx(seg, toLoc);
+    // If from/to don't both land on this segment with a meaningful split,
+    // leave the whole thing bright. Picking an arbitrary slice would dim
+    // the wrong branch on multi-segment lines.
+    if (fromIdx == null || toIdx == null || fromIdx === toIdx) {
+      active.push(seg);
+      continue;
     }
-    flush();
+    const lo = Math.min(fromIdx, toIdx);
+    const hi = Math.max(fromIdx, toIdx);
+    if (lo > 0) active.push(seg.slice(0, lo + 1));
+    suspended.push(seg.slice(lo, hi + 1));
+    if (hi < seg.length - 1) active.push(seg.slice(hi));
   }
   return { active, suspended };
+}
+
+function nearestVertexIdx(seg, loc) {
+  let bestIdx = -1;
+  let bestD = Infinity;
+  for (let i = 0; i < seg.length; i++) {
+    const d = latLonDistMeters(seg[i], loc);
+    if (d < bestD) {
+      bestD = d;
+      bestIdx = i;
+    }
+  }
+  // Reject snaps that are absurdly far — those mean the station isn't on
+  // this segment (e.g. trying to dim a Forest Park station on the O'Hare-only
+  // segment if the polyline ever gets split into branches).
+  return bestD < 4000 ? bestIdx : null;
 }
 
 function resolveStation(stations, line, name) {
@@ -120,7 +94,14 @@ function resolveStation(stations, line, name) {
   return null;
 }
 
-async function renderDisruption({ disruption, trainLines, lineColors, trains = [], stations }) {
+async function renderDisruption({
+  disruption,
+  trainLines,
+  lineColors,
+  trains = [],
+  stations,
+  title,
+}) {
   const { line, suspendedSegment } = disruption;
   const color = lineColors[line] || 'ffffff';
   const segments = trainLines[line] || [];
@@ -160,7 +141,7 @@ async function renderDisruption({ disruption, trainLines, lineColors, trains = [
   const baseMap = await fetchMapboxStatic(url);
 
   const lineName = LINE_NAMES[line] || line;
-  const titleText = `⚠ ${lineName} Line suspended`;
+  const titleText = title || `⚠ ${lineName} Line suspended`;
   const titleWidth = 90 + titleText.length * 24;
 
   const fromPx = project(fromLoc.lat, fromLoc.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);

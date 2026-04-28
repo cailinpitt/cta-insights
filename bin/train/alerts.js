@@ -9,7 +9,7 @@ const {
 } = require('../../src/shared/ctaAlerts');
 const { findStationByDestination } = require('../../src/train/findStation');
 const { renderDisruption } = require('../../src/map');
-const { LINE_COLORS } = require('../../src/train/api');
+const { LINE_COLORS, LINE_NAMES } = require('../../src/train/api');
 const {
   loginAlerts,
   postWithImage,
@@ -65,12 +65,17 @@ async function postNewAlert(alert, agentGetter) {
   let alt = null;
   if (disruption) {
     try {
+      // CTA alerts cover everything from "single-tracking, minor delays" to
+      // full suspensions. We don't classify severity here, so use a neutral
+      // map title — the post text carries the actual headline.
+      const lineName = LINE_NAMES[disruption.line] || disruption.line;
       image = await renderDisruption({
         disruption,
         trainLines,
         lineColors: LINE_COLORS,
         trains: [],
         stations: trainStations,
+        title: `⚠ ${lineName} Line · service impact`,
       });
       alt = buildAlertAltText({ alert, kind: KIND, disruption });
     } catch (e) {
