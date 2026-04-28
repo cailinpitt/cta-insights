@@ -472,17 +472,17 @@ function computeTrainBunchingView(
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
   // Integer zoom. Mapbox may round fractional zooms, decoupling our projection
-  // math from the actual image. For a tight still-image bunch we ceil so the
-  // frame sits tighter; for a video capture (extraTrains non-empty) or a gap
-  // (opts.fitBbox) we floor — the bbox already spans what must stay on-screen,
-  // so ceiling would clip trains sitting at the edges.
+  // math from the actual image. Always floor so the bbox is guaranteed to fit
+  // — ceiling pushes one zoom level tighter than fitZoom, which clips
+  // bbox-edge trains. Hit on Purple express bunches around the Howard↔Wilson
+  // dead zone: ahead[0] jumps to the next Purple-only stop ~20kft away, the
+  // bbox spans ~3.5 mi, and ceiling renders the trains off-frame.
   const rawZoom = fitZoom(bbox, WIDTH, HEIGHT, 60);
-  const round = extraTrains.length > 0 || opts.fitBbox ? Math.floor : Math.ceil;
   // Wide gaps (e.g. a Blue Line gap spanning Rosemont → past Harlem) need a
   // lower floor than a typical bunch — clamping to 10 re-clipped the trains
   // we were trying to keep on-screen.
   const minZoom = opts.fitBbox ? 8 : 10;
-  const zoom = Math.max(minZoom, Math.min(17, round(rawZoom)));
+  const zoom = Math.max(minZoom, Math.min(17, Math.floor(rawZoom)));
 
   // Full line segments so the route runs off the edges of the frame.
   const overlays = [];
