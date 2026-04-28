@@ -23,6 +23,13 @@ const LOOKBACK_CEIL_MS = 60 * 60 * 1000;
 // schedule-side guard since there are no observations to compare against.
 const RAMP_PRIOR_ACTIVE_THRESHOLD = 1;
 const RAMP_MINUTE_THRESHOLD = 30;
+// Mirror image: in the last 30 min of the final hour of service, the hourly
+// average overstates how many trips are still on the road, and the last
+// scheduled departure may already be done. If the next hour has no
+// scheduled service, suppress — the cold tail behind the last bus reads as
+// a blackout but is just end-of-day shutdown.
+const WIND_DOWN_NEXT_ACTIVE_THRESHOLD = 1;
+const WIND_DOWN_MINUTE_THRESHOLD = 30;
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -48,6 +55,9 @@ async function detectBusBlackouts({
   const lookbackCeilMs = opts.lookbackCeilMs ?? LOOKBACK_CEIL_MS;
   const rampPriorActiveThreshold = opts.rampPriorActiveThreshold ?? RAMP_PRIOR_ACTIVE_THRESHOLD;
   const rampMinuteThreshold = opts.rampMinuteThreshold ?? RAMP_MINUTE_THRESHOLD;
+  const windDownNextActiveThreshold =
+    opts.windDownNextActiveThreshold ?? WIND_DOWN_NEXT_ACTIVE_THRESHOLD;
+  const windDownMinuteThreshold = opts.windDownMinuteThreshold ?? WIND_DOWN_MINUTE_THRESHOLD;
   const minuteOfHour = opts.minuteOfHour;
 
   if (!routes || routes.length === 0) {
@@ -129,6 +139,25 @@ async function detectBusBlackouts({
       }
     }
 
+    // Wind-down guard: in the last half of the final hour of service, the
+    // hourly average overstates remaining service. If the next hour has no
+    // scheduled trips, the cold tail reads as a blackout but is just the
+    // route shutting down for the night.
+    if (minuteOfHour != null && minuteOfHour >= 60 - windDownMinuteThreshold) {
+      const nextWhen = new Date(now.getTime() + 60 * 60 * 1000);
+      let nextActiveSum = 0;
+      for (const pattern of patterns) {
+        const ea = expectedActive(routeStr, pattern, nextWhen);
+        if (Number.isFinite(ea)) nextActiveSum += ea;
+      }
+      if (nextActiveSum < windDownNextActiveThreshold) {
+        console.log(
+          `bus-pulse: skipping ${routeStr} — wind-down (next-hour active=${nextActiveSum.toFixed(1)}, minute=${minuteOfHour})`,
+        );
+        continue;
+      }
+    }
+
     // Headway-scaled lookback: 3× longest direction's headway, clamped.
     const lookbackMs =
       maxHeadwayMin != null
@@ -162,4 +191,6 @@ module.exports = {
   LOOKBACK_CEIL_MS,
   RAMP_PRIOR_ACTIVE_THRESHOLD,
   RAMP_MINUTE_THRESHOLD,
+  WIND_DOWN_NEXT_ACTIVE_THRESHOLD,
+  WIND_DOWN_MINUTE_THRESHOLD,
 };
