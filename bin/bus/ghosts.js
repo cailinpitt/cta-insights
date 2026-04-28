@@ -61,15 +61,21 @@ async function main() {
   // curated `ghostRoutes` list. Lets us compare what a wider rollout would
   // surface without flipping false positives live. Drop after a clean week.
   const ghostRouteSet = new Set(ghostRoutes);
-  const unindexed = allRoutes.filter((r) => !index.routes[r]);
-  if (unindexed.length) {
-    console.warn(
-      `Routes missing from GTFS index (will be skipped): ${unindexed.join(', ')} — re-run scripts/fetch-gtfs.js`,
-    );
-  }
 
   const now = Date.now();
   const sinceTs = now - WINDOW_MS;
+  // Only warn about missing index entries for routes we actually saw run in
+  // the window. CTA's GTFS feed omits Night Owl (N*) and seasonal/special
+  // routes entirely (10, 19, 128, 130, …) — those are expected absences,
+  // re-running fetch-gtfs won't help, and the noise drowns out real misses.
+  const unindexed = allRoutes.filter(
+    (r) => !index.routes[r] && getBusObservations(r, sinceTs).length > 0,
+  );
+  if (unindexed.length) {
+    console.warn(
+      `Routes missing from GTFS index but actively observed (will be skipped): ${unindexed.join(', ')} — re-run scripts/fetch-gtfs.js`,
+    );
+  }
   // Schedule lookup at the window midpoint — the 60-min window mostly covers
   // the prior wall-clock hour, so `now` would mis-bucket at rush-hour transitions.
   const lookupAt = new Date(now - WINDOW_MS / 2);
