@@ -121,10 +121,25 @@ async function detectBusBlackouts({
 
     if (expectedActiveSum < minExpectedActive) continue;
 
-    // Post-gap ramp guard: if we're in the first half of an hour whose prior
-    // hour had no scheduled service, suppress — the hourly average overstates
-    // how many trips are actually running this early in the ramp-up hour.
-    if (minuteOfHour != null && minuteOfHour < rampMinuteThreshold) {
+    // Headway-scaled lookback computed below — but we need it here for the
+    // ramp guard, so derive it ahead of the observation slice.
+    const guardLookbackMs =
+      maxHeadwayMin != null
+        ? clamp(3 * maxHeadwayMin * 60_000, lookbackFloorMs, lookbackCeilMs)
+        : lookbackFloorMs;
+
+    // Post-gap ramp guard: if we're early enough in an hour that the lookback
+    // window still straddles the prior hour, AND that prior hour had no
+    // scheduled service, suppress — the route is just starting up and the
+    // hourly average overstates how many trips have actually departed yet.
+    // Scaling the threshold to the lookback (rather than a flat 30 min) lets
+    // peak-only routes with longer headways stay protected longer (e.g. #2
+    // Hyde Park Express resuming at 3 PM with 44 min lookback).
+    const dynamicRampThreshold = Math.max(
+      rampMinuteThreshold,
+      Math.ceil(guardLookbackMs / 60_000) + 5,
+    );
+    if (minuteOfHour != null && minuteOfHour < dynamicRampThreshold) {
       const priorWhen = new Date(now.getTime() - 60 * 60 * 1000);
       let priorActiveSum = 0;
       for (const pattern of patterns) {
@@ -133,7 +148,7 @@ async function detectBusBlackouts({
       }
       if (priorActiveSum < rampPriorActiveThreshold) {
         console.log(
-          `bus-pulse: skipping ${routeStr} — post-gap ramp-up (prior-hour active=${priorActiveSum.toFixed(1)}, minute=${minuteOfHour})`,
+          `bus-pulse: skipping ${routeStr} — post-gap ramp-up (prior-hour active=${priorActiveSum.toFixed(1)}, minute=${minuteOfHour}, threshold=${dynamicRampThreshold})`,
         );
         continue;
       }
@@ -159,10 +174,8 @@ async function detectBusBlackouts({
     }
 
     // Headway-scaled lookback: 3× longest direction's headway, clamped.
-    const lookbackMs =
-      maxHeadwayMin != null
-        ? clamp(3 * maxHeadwayMin * 60_000, lookbackFloorMs, lookbackCeilMs)
-        : lookbackFloorMs;
+    // Identical to the guard-side lookback above.
+    const lookbackMs = guardLookbackMs;
     const sinceTs = now - lookbackMs;
     const inWindow = obs.filter((o) => o.ts >= sinceTs);
     const distinctVids = new Set(inWindow.map((o) => o.vid).filter(Boolean));
