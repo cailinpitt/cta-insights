@@ -30,20 +30,25 @@ async function renderBusDisruption({ routes, getKnownPidsForRoute, loadPattern, 
   for (const route of routes) {
     const pids = (await getKnownPidsForRoute(route)) || [];
     if (pids.length === 0) continue;
-    const polys = [];
+    const patterns = [];
     for (const pid of pids) {
-      let p;
       try {
-        p = await loadPattern(pid);
+        const p = await loadPattern(pid);
+        if (p?.points?.length >= 2) patterns.push(p);
       } catch (_e) {
-        continue;
+        /* skip */
       }
-      if (!p?.points || p.points.length < 2) continue;
-      const coords = p.points.map((pt) => [pt.lat, pt.lon]);
-      polys.push(coords);
-      for (const [lat, lon] of coords) allPoints.push([lat, lon]);
     }
-    if (polys.length > 0) polylinesByRoute.set(String(route), polys);
+    if (patterns.length === 0) continue;
+    // Pick the single longest pattern. CTA bus pids come in pairs
+    // (NB/SB) that often run on a one-way street pair through downtown —
+    // drawing both produces a parallel doubled line that reads as visual
+    // noise. One pattern is enough to convey "is this my route?", the
+    // sole question this map answers.
+    const canonical = patterns.reduce((a, b) => (a.points.length >= b.points.length ? a : b));
+    const coords = canonical.points.map((pt) => [pt.lat, pt.lon]);
+    polylinesByRoute.set(String(route), [coords]);
+    for (const [lat, lon] of coords) allPoints.push([lat, lon]);
   }
   if (polylinesByRoute.size === 0 || allPoints.length === 0) return null;
 
