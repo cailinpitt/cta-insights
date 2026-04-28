@@ -5,7 +5,8 @@ const argv = require('minimist')(process.argv.slice(2));
 
 const { LINE_NAMES, LINE_EMOJI, ALL_LINES } = require('../../src/train/api');
 const { detectTrainGhosts } = require('../../src/train/ghosts');
-const { buildRollupPost, POST_MAX_CHARS } = require('../../src/shared/post');
+const { buildRollupThread } = require('../../src/shared/post');
+const { resolveReplyRef } = require('../../src/shared/bluesky');
 
 const DISCLAIMER = '"Missing" = fewer trains than the full terminal-to-terminal schedule predicts.';
 const {
@@ -41,16 +42,10 @@ function formatLine(event) {
   return `${emoji} ${lineName} Line${dest} · ${missing} of ${expected} missing (${pct}%) · every ~${effectiveHeadway} min instead of ~${scheduledHeadway}`;
 }
 
-function buildPostText(events) {
-  // Reserve disclaimer budget so buildRollupPost truncates around the footer.
-  const reserved = DISCLAIMER.length + 2;
-  const body = buildRollupPost(
-    '👻 Ghost trains, past hour',
-    events.map(formatLine),
-    POST_MAX_CHARS - reserved,
-  );
-  if (!body) return null;
-  return `${body}\n\n${DISCLAIMER}`;
+function buildPostThread(events) {
+  return buildRollupThread('👻 Ghost trains, past hour', events.map(formatLine), {
+    footer: DISCLAIMER,
+  });
 }
 
 async function main() {
@@ -86,20 +81,26 @@ async function main() {
     );
   }
 
-  const text = buildPostText(events);
-  if (!text) {
+  const posts = buildPostThread(events);
+  if (!posts || posts.length === 0) {
     console.log('No lines fit under the post limit, skipping');
     return;
   }
 
   if (argv['dry-run'] || process.env.GHOSTS_DRY_RUN) {
-    console.log(`\n--- DRY RUN ---\n${text}`);
+    for (let i = 0; i < posts.length; i++) {
+      console.log(`\n--- DRY RUN post ${i + 1}/${posts.length} ---\n${posts[i]}`);
+    }
     return;
   }
 
   const agent = await loginTrain();
-  const result = await postText(agent, text);
-  console.log(`Posted: ${result.url}`);
+  let replyRef = null;
+  for (let i = 0; i < posts.length; i++) {
+    const result = await postText(agent, posts[i], replyRef);
+    console.log(`Posted ${i + 1}/${posts.length}: ${result.url}`);
+    if (i < posts.length - 1) replyRef = await resolveReplyRef(agent, result.uri);
+  }
 }
 
 module.exports = { formatLine };

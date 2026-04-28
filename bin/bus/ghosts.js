@@ -5,7 +5,8 @@ const argv = require('minimist')(process.argv.slice(2));
 
 const { names: routeNames, ghosts: ghostRoutes, allRoutes } = require('../../src/bus/routes');
 const { detectBusGhosts } = require('../../src/bus/ghosts');
-const { buildRollupPost } = require('../../src/shared/post');
+const { buildRollupThread } = require('../../src/shared/post');
+const { resolveReplyRef } = require('../../src/shared/bluesky');
 const { loadPattern } = require('../../src/bus/patterns');
 const {
   expectedHeadwayMin,
@@ -49,8 +50,8 @@ function formatLine(event) {
   return `🚌 ${title} ${dir} · ${missing} of ${expected} missing (${pct}%) · every ~${effectiveHeadway} min instead of ~${scheduledHeadway}`;
 }
 
-function buildPostText(events) {
-  return buildRollupPost('👻 Ghost buses, past hour', events.map(formatLine));
+function buildPostThread(events) {
+  return buildRollupThread('👻 Ghost buses, past hour', events.map(formatLine));
 }
 
 async function main() {
@@ -115,20 +116,26 @@ async function main() {
     );
   }
 
-  const text = buildPostText(events);
-  if (!text) {
+  const posts = buildPostThread(events);
+  if (!posts || posts.length === 0) {
     console.log('No lines fit under the post limit, skipping');
     return;
   }
 
   if (argv['dry-run'] || process.env.GHOSTS_DRY_RUN) {
-    console.log(`\n--- DRY RUN ---\n${text}`);
+    for (let i = 0; i < posts.length; i++) {
+      console.log(`\n--- DRY RUN post ${i + 1}/${posts.length} ---\n${posts[i]}`);
+    }
     return;
   }
 
   const agent = await loginBus();
-  const result = await postText(agent, text);
-  console.log(`Posted: ${result.url}`);
+  let replyRef = null;
+  for (let i = 0; i < posts.length; i++) {
+    const result = await postText(agent, posts[i], replyRef);
+    console.log(`Posted ${i + 1}/${posts.length}: ${result.url}`);
+    if (i < posts.length - 1) replyRef = await resolveReplyRef(agent, result.uri);
+  }
 }
 
 module.exports = { formatLine };
