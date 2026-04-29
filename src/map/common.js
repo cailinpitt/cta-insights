@@ -1,4 +1,5 @@
 const axios = require('axios');
+const sharp = require('sharp');
 
 const STYLE = 'mapbox/dark-v11';
 const WIDTH = 1200;
@@ -244,22 +245,32 @@ module.exports = {
   sliceIntoSegments,
   separateMarkers,
   perpendicularFromBearing,
-  estimateTextWidth,
+  measureTextWidth,
   paddedBbox,
   bboxOf,
 };
 
-function estimateTextWidth(text, fontSize) {
-  let w = 0;
-  for (const ch of text) {
-    if (ch === ' ' || ch === '·' || /[.,:;'`]/.test(ch)) w += fontSize * 0.32;
-    else if (ch.codePointAt(0) > 0x2000) w += fontSize * 1.05;
-    else if (/[A-Z]/.test(ch)) w += fontSize * 0.62;
-    else if (/[mw]/.test(ch)) w += fontSize * 0.62;
-    else if (/[ijl]/.test(ch)) w += fontSize * 0.32;
-    else w += fontSize * 0.52;
+// Real glyph measurement via librsvg — the same renderer that draws the SVG
+// composite. The earlier per-character estimator was a guess that drifted
+// every time a new title format was introduced (bold weight, em dashes,
+// route lists, "service impact" vs "service alert") and the pill kept
+// either clipping or trailing dead space. Always use this for pill sizing.
+async function measureTextWidth(text, fontSize, { bold = false } = {}) {
+  const weight = bold ? 'bold' : 'normal';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="${Math.ceil(fontSize * 2)}"><text x="0" y="${fontSize}" font-family="Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="${weight}">${xmlEscape(text)}</text></svg>`;
+  const { data, info } = await sharp(Buffer.from(svg)).raw().toBuffer({ resolveWithObject: true });
+  let maxX = 0;
+  const stride = info.channels;
+  for (let y = 0; y < info.height; y++) {
+    for (let x = info.width - 1; x > maxX; x--) {
+      const alpha = data[(y * info.width + x) * stride + (stride - 1)];
+      if (alpha > 8) {
+        if (x > maxX) maxX = x;
+        break;
+      }
+    }
   }
-  return Math.round(w);
+  return maxX + 1;
 }
 
 function bboxOf(points) {

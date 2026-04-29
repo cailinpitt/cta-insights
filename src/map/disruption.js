@@ -8,7 +8,7 @@ const {
   requireMapboxToken,
   fetchMapboxStatic,
   xmlEscape,
-  estimateTextWidth,
+  measureTextWidth,
   paddedBbox,
   bboxOf,
 } = require('./common');
@@ -152,14 +152,16 @@ async function renderDisruption({
   const lineName = LINE_NAMES[line] || line;
   const titleText = title || `⚠ ${lineName} Line suspended`;
   const titleFontSize = 42;
-  // Per-glyph width estimate. The earlier flat 24px/char overshot heavily on
-  // titles containing " · " or many lowercase letters, leaving a long dead
-  // pill stretching past the text.
-  const titleWidth = 60 + estimateTextWidth(titleText, titleFontSize);
+  // Real glyph measurement via the same renderer that draws the SVG. Earlier
+  // estimators (flat 24px/char, then per-glyph ratios) drifted on each new
+  // title format and either clipped the text or trailed dead space.
+  const titleWidth = 48 + (await measureTextWidth(titleText, titleFontSize, { bold: true }));
 
   const fromPx = project(fromLoc.lat, fromLoc.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
   const toPx = project(toLoc.lat, toLoc.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
-  const labels = [stationLabel(fromLoc.name, fromPx), stationLabel(toLoc.name, toPx)]
+  const labels = (
+    await Promise.all([stationLabel(fromLoc.name, fromPx), stationLabel(toLoc.name, toPx)])
+  )
     .filter(Boolean)
     .join('\n');
 
@@ -179,14 +181,17 @@ async function renderDisruption({
 // Title-pill keepout — labels that would intersect get flipped below the dot.
 const TITLE_KEEPOUT = { x: 0, y: 0, w: 800, h: 130 };
 
-function stationLabel(name, px) {
+async function stationLabel(name, px) {
   if (!name || !Number.isFinite(px.x) || !Number.isFinite(px.y)) return '';
   const text = name.split(' (')[0]; // drop "(Red)" style line disambiguation
   const fontSize = 28;
   const pad = 12;
-  const approxW = text.length * (fontSize * 0.58) + pad * 2;
+  // Real measurement so long names ("Cumberland", "Garfield (Green)" etc.)
+  // never overrun the pill regardless of glyph mix.
+  const textW = await measureTextWidth(text, fontSize);
+  const pillW = textW + pad * 2;
   const h = fontSize + pad * 1.4;
-  const xPill = Math.round(px.x - approxW / 2);
+  const xPill = Math.round(px.x - pillW / 2);
 
   // Default: pill above the dot. Flip below if it would cross the title
   // keepout or go off the top edge.
@@ -195,11 +200,11 @@ function stationLabel(name, px) {
   const wouldHitTitle =
     above < TITLE_KEEPOUT.y + TITLE_KEEPOUT.h &&
     xPill < TITLE_KEEPOUT.x + TITLE_KEEPOUT.w &&
-    xPill + approxW > TITLE_KEEPOUT.x;
+    xPill + pillW > TITLE_KEEPOUT.x;
   const y = above < 8 || wouldHitTitle ? below : above;
 
   return [
-    `<rect x="${xPill}" y="${y}" width="${Math.round(approxW)}" height="${Math.round(h)}" fill="#000" fill-opacity="0.82" rx="8"/>`,
+    `<rect x="${xPill}" y="${y}" width="${Math.round(pillW)}" height="${Math.round(h)}" fill="#000" fill-opacity="0.82" rx="8"/>`,
     `<text x="${Math.round(px.x)}" y="${Math.round(y + h - pad)}" fill="#fff" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="${fontSize}" font-weight="600">${xmlEscape(text)}</text>`,
     `<circle cx="${Math.round(px.x)}" cy="${Math.round(px.y)}" r="7" fill="#fff" stroke="#000" stroke-width="3"/>`,
   ].join('');

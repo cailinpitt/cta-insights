@@ -12,7 +12,7 @@ const {
   requireMapboxToken,
   fetchMapboxStatic,
   xmlEscape,
-  estimateTextWidth,
+  measureTextWidth,
   paddedBbox,
   bboxOf,
 } = require('../common');
@@ -78,7 +78,10 @@ async function renderBusDisruption({ routes, getKnownPidsForRoute, loadPattern, 
 
   const titleText = title;
   const titleFontSize = 42;
-  const titleWidth = 60 + estimateTextWidth(titleText, titleFontSize);
+  // Measure with the same renderer that draws the SVG so the pill always
+  // hugs the text — earlier we used a per-glyph estimator that drifted with
+  // every new title format and kept clipping (e.g. "service impact" titles).
+  const titleWidth = 48 + (await measureTextWidth(titleText, titleFontSize, { bold: true }));
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">
     <rect x="24" y="24" width="${titleWidth}" height="88" fill="#000" fill-opacity="0.78" rx="10"/>
     <text x="48" y="84" fill="#fff" font-family="Helvetica, Arial, sans-serif" font-size="${titleFontSize}" font-weight="700">${xmlEscape(titleText)}</text>
