@@ -1,0 +1,11 @@
+{
+  "_comment": "CTA articulated (60-foot) bus vid ranges. Standard fleet (40-foot) is everything else. Sources: chicagobus.org/buses, chicagorailfan.com/rosctab.html (cross-checked 2026-04-29). The 4208-4299 gap is intentional — currently empty per both rosters. CTA has approved a 100-bus articulated order; when those arrive, add the new range here.",
+  "generatedAt": "2026-04-29",
+  "sources": ["https://www.chicagobus.org/buses", "https://www.chicagorailfan.com/rosctab.html"],
+  "articRanges": [
+    { "lo": 4000, "hi": 4149, "model": "New Flyer DE60LF", "year": 2008 },
+    { "lo": 4150, "hi": 4207, "model": "New Flyer DE60LF", "year": 2009 },
+    { "lo": 4300, "hi": 4332, "model": "New Flyer DE60LFR (hybrid)", "year": 2012 },
+    { "lo": 4333, "hi": 4399, "model": "New Flyer D60LFR (diesel)", "year": 2013 }
+  ]
+}

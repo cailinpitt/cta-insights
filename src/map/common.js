@@ -27,6 +27,43 @@ function buildDirectionArrow(cx, cy, bearingDeg) {
   ].join('');
 }
 
+// Custom 36-viewBox glyph styled to match the Twemoji bus: two coach
+// segments + accordion bellows + 3-axle profile, so articulated buses are
+// visually distinct without leaving the standard marker circle.
+const ARTIC_BUS_INNER = [
+  // road/shadow
+  '<path fill="#808285" d="M0 22v6c0 1.6 1.3 3 3 3h30c1.6 0 3-1.4 3-3v-6H0z"/>',
+  // rear segment (right, square back)
+  '<path fill="#CCD6DD" d="M21 10h12c1.6 0 3 1.3 3 3v9H21z"/>',
+  // front segment (left, rounded nose)
+  '<path fill="#CCD6DD" d="M16 10H7c-5 0-7 1.5-7 3v9h16z"/>',
+  // accordion bellows — full-height stripe through the body, ribs run top to bottom
+  '<path fill="#6D7378" d="M16 10h5v21h-5z"/>',
+  '<path fill="#3F4548" d="M17.2 10v21h-.4v-21zm1.4 0v21h-.4v-21zm1.4 0v21h-.4v-21z"/>',
+  // body stripe
+  '<path fill="#939598" d="M0 21h36v2H0z"/>',
+  // wheel housings — flat fenders sized to match the standard bus's profile
+  '<path fill="#BCBEC0" d="M0 31c0-1.8 2.2-3.5 5-3.5s5 1.6 5 3.5H0zm13 0c0-1.8 2.2-3.5 5-3.5s5 1.6 5 3.5H13zm13 0c0-1.8 2.2-3.5 5-3.5s5 1.6 5 3.5H26z"/>',
+  // wheels — 3 axles
+  '<circle cx="5" cy="32" r="3"/>',
+  '<circle fill="#99AAB5" cx="5" cy="32" r="1.5"/>',
+  '<circle cx="18" cy="32" r="3"/>',
+  '<circle fill="#99AAB5" cx="18" cy="32" r="1.5"/>',
+  '<circle cx="31" cy="32" r="3"/>',
+  '<circle fill="#99AAB5" cx="31" cy="32" r="1.5"/>',
+  // rear-segment windows
+  '<path fill="#55ACEE" stroke="#3F4548" stroke-width="1" stroke-linejoin="round" d="M22 13h12c.6 0 1 .4 1 1v5c0 .6-.4 1-1 1H22z"/>',
+  // front-segment passenger windows
+  '<path fill="#55ACEE" stroke="#3F4548" stroke-width="1" stroke-linejoin="round" d="M5 13h10v7H5z"/>',
+  // windshield — raked front pane in a lighter shade
+  '<path fill="#9CCEF0" stroke="#3F4548" stroke-width="1" stroke-linejoin="round" d="M3 13h2v7H1v-3.5z"/>',
+  // headlight — yellow lamp on the front fascia
+  '<circle fill="#FFEB3B" cx="0.9" cy="21.3" r="0.9"/>',
+  // taillights — red lamps on the rear fascia
+  '<rect fill="#E53935" x="34.5" y="14" width="1.5" height="2" rx="0.3"/>',
+  '<rect fill="#E53935" x="34.5" y="18" width="1.5" height="2" rx="0.3"/>',
+].join('');
+
 // Inlined Twemoji paths so rendering doesn't need a color emoji font.
 const TWEMOJI_BUS_INNER =
   '<path fill="#808285" d="M0 21v7c0 1.657 1.343 3 3 3h30c1.657 0 3-1.343 3-3v-7H0z"/><path fill="#CCD6DD" d="M36 22v-9c0-1.657-3.343-3-5-3H11c-8 0-11 2.343-11 4v8h36z"/><path fill="#939598" d="M0 22h36v3H0z"/><path fill="#BCBEC0" d="M7 25c-3.063 0-5.586 2.298-5.95 5.263.526.453 1.202.737 1.95.737h10c0-3.313-2.686-6-6-6zm27.95 5.263C34.586 27.298 32.063 25 29 25c-3.313 0-6 2.687-6 6h10c.749 0 1.425-.284 1.95-.737z"/><circle cx="7" cy="31" r="4"/><circle fill="#99AAB5" cx="7" cy="31" r="2"/><circle cx="29" cy="31" r="4"/><circle fill="#99AAB5" cx="29" cy="31" r="2"/><path fill="#F4900C" d="M0 25h1v2H0zm35-2h1v2h-1z"/><path fill="#58595B" d="M1 13h35v10H1z"/><path fill="#292F33" d="M2 13H.342C.11 13.344 0 13.685 0 14v11h2c1.104 0 2-.896 2-2v-8c0-1.104-.896-2-2-2z"/><path fill="#55ACEE" d="M31 20c0 .553-.447 1-1 1H7c-.552 0-1-.447-1-1v-4c0-.552.448-1 1-1h23c.553 0 1 .448 1 1v4z"/><path fill="#FFAC33" d="M35 19h1v2h-1z"/><path fill="#55ACEE" d="M1 15H0v8h1c.552 0 1-.447 1-1v-6c0-.552-.448-1-1-1z"/>';
@@ -76,6 +113,26 @@ const TWEMOJI_FLAG_INNER = [
   // outline
   '<rect fill="none" stroke="#000" stroke-width="0.6" x="9.5" y="6" width="22" height="12"/>',
 ].join('');
+
+// Articulated marker uses a deeper magenta — same family as the standard
+// hot-pink, but visibly distinct so the easter egg reads at a glance.
+const ARTIC_MARKER_COLOR = 'a8175a';
+
+// Bus marker. Articulated buses get both a distinct glyph (two coach
+// segments + bellows + 3 axles) and a deeper background color. `articulated`
+// is optional; omitting it yields the standard fleet marker.
+function buildBusMarker({ x, y, radius, color, articulated = false }) {
+  const size = radius * 1.6;
+  const inner = articulated ? ARTIC_BUS_INNER : TWEMOJI_BUS_INNER;
+  const fill = articulated ? ARTIC_MARKER_COLOR : color;
+  // Layer order: fill circle → bus glyph → white stroke ring on top, so the
+  // ring crisply frames the bus instead of being clipped beneath it.
+  return [
+    `<circle cx="${x}" cy="${y}" r="${radius}" fill="#${fill}"/>`,
+    `<svg x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}" viewBox="0 0 36 36">${inner}</svg>`,
+    `<circle cx="${x}" cy="${y}" r="${radius}" fill="none" stroke="#fff" stroke-width="4"/>`,
+  ].join('');
+}
 
 function buildTerminalMarker(x, y, radius, glyph) {
   const iconSize = radius * 1.6;
@@ -238,6 +295,7 @@ module.exports = {
   TWEMOJI_TRAIN_INNER,
   TWEMOJI_HOUSE_INNER,
   TWEMOJI_FLAG_INNER,
+  buildBusMarker,
   buildTerminalMarker,
   xmlEscape,
   requireMapboxToken,

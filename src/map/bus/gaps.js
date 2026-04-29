@@ -10,14 +10,15 @@ const {
   ROUTE_HALO_STROKE,
   ROUTE_CORE_COLOR,
   ROUTE_CORE_STROKE,
-  TWEMOJI_BUS_INNER,
   TWEMOJI_HOUSE_INNER,
   TWEMOJI_FLAG_INNER,
+  buildBusMarker,
   buildTerminalMarker,
   buildDirectionArrow,
   requireMapboxToken,
   fetchMapboxStatic,
 } = require('../common');
+const { isArticulated } = require('../../bus/fleet');
 
 // Magenta highlight for the segment *between* the two bounding buses — that's
 // the stretch of route where a rider would be waiting. Shared with train gaps.
@@ -125,13 +126,13 @@ async function renderGapMap(gap, pattern) {
       WIDTH,
       HEIGHT,
     );
-    const iconSize = BUS_MARKER_RADIUS * 1.6;
-    const iconX = x - iconSize / 2;
-    const iconY = y - iconSize / 2;
-    return [
-      `<circle cx="${x}" cy="${y}" r="${BUS_MARKER_RADIUS}" fill="#${BUS_COLOR}" stroke="#fff" stroke-width="4"/>`,
-      `<svg x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" viewBox="0 0 36 36">${TWEMOJI_BUS_INNER}</svg>`,
-    ].join('');
+    return buildBusMarker({
+      x,
+      y,
+      radius: BUS_MARKER_RADIUS,
+      color: BUS_COLOR,
+      articulated: isArticulated(v.vid),
+    });
   });
   const arrowElements = [buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)];
 

@@ -10,9 +10,9 @@ const {
   ROUTE_HALO_STROKE,
   ROUTE_CORE_COLOR,
   ROUTE_CORE_STROKE,
-  TWEMOJI_BUS_INNER,
   TWEMOJI_HOUSE_INNER,
   TWEMOJI_FLAG_INNER,
+  buildBusMarker,
   buildTerminalMarker,
   buildDirectionArrow,
   requireMapboxToken,
@@ -20,6 +20,7 @@ const {
   separateMarkers,
   perpendicularFromBearing,
 } = require('../common');
+const { isArticulated } = require('../../bus/fleet');
 
 const BUS_COLOR = 'ff2a6d'; // hot pink/red reads well on dark
 const CONTEXT_PAD_FT = 1500; // feet of route context on each side of the bunch
@@ -173,15 +174,15 @@ async function renderBunchingFrame(view, baseMap, vehicles, signals = []) {
   const markerPixels = separateMarkers(rawMarkerPixels, BUS_MARKER_RADIUS * 2 + 4, {
     axis: perpendicularFromBearing(view.bearingDeg),
   });
-  const markerElements = markerPixels.map(({ x, y }) => {
-    const iconSize = BUS_MARKER_RADIUS * 1.6;
-    const iconX = x - iconSize / 2;
-    const iconY = y - iconSize / 2;
-    return [
-      `<circle cx="${x}" cy="${y}" r="${BUS_MARKER_RADIUS}" fill="#${BUS_COLOR}" stroke="#fff" stroke-width="4"/>`,
-      `<svg x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" viewBox="0 0 36 36">${TWEMOJI_BUS_INNER}</svg>`,
-    ].join('');
-  });
+  const markerElements = markerPixels.map(({ x, y }, i) =>
+    buildBusMarker({
+      x,
+      y,
+      radius: BUS_MARKER_RADIUS,
+      color: BUS_COLOR,
+      articulated: isArticulated(vehicles[i]?.vid),
+    }),
+  );
   const arrowElements = [buildDirectionArrow(WIDTH - 220, 180, view.bearingDeg)];
 
   // Origin (house) and destination (flag) markers — render below buses (so a
