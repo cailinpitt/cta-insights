@@ -94,7 +94,7 @@ Everything is designed to be driven by cron. There's no long-running process —
 Each line uses [`bin/cron-run.sh`](bin/cron-run.sh) — a small wrapper that handles `cd` to the repo root, timestamps each invocation, and redirects stdout/stderr to `cron/<log-name>-cron.log`. So a job entry is just:
 
 ```cron
-*/10 * * * * /home/you/cta-insights/bin/cron-run.sh train-bunching bin/train/bunching.js
+4-59/15 * * * * /home/you/cta-insights/bin/cron-run.sh train-bunching bin/train/bunching.js
 ```
 
 instead of repeating the boilerplate on every line. The snapshot timelapse runs in-process for ~15 minutes per invocation, so it's scheduled every 3 hours; everything else is fast and runs on its own cadence.

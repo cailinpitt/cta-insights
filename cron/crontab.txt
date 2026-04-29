@@ -15,21 +15,21 @@ R=/home/cailin/Development/cta-bot/bin/cron-run.sh
 # */5 schedule — otherwise both see "no thread parent yet" at the same wall
 # minute and post separate top-level posts instead of threading.
 */5     *  *  *  *   $R train-pulse      bin/train/pulse.js
-*/10    *  *  *  *   $R train-bunching   bin/train/bunching.js
+4-59/15 *  *  *  *   $R train-bunching   bin/train/bunching.js
 2-59/10 *  *  *  *   $R train-alerts     bin/train/alerts.js
-5-59/10 *  *  *  *   $R train-gaps       bin/train/gaps.js
+7-59/15 *  *  *  *   $R train-gaps       bin/train/gaps.js
 0       */2 *  *  *  $R train-speedmap   bin/train/speedmap.js
 0       */3 *  *  *  $R train-snapshot   bin/train/snapshot.js
 8       *  *  *  *   $R train-ghosts     bin/train/ghosts.js
 
 # --- Buses ---
-*/10    *  *  *  *   $R bus-bunching     bin/bus/bunching.js
+1-59/15 *  *  *  *   $R bus-bunching     bin/bus/bunching.js
 */10    *  *  *  *   $R bus-alerts       bin/bus/alerts.js
 # bus-pulse staggered :03 offset so it never collides with bus-alerts'
 # */10 schedule — same threading-safety reasoning as train-alerts vs
 # train-pulse.
 3-58/5  *  *  *  *   $R bus-pulse        bin/bus/pulse.js
-5-59/10 *  *  *  *   $R bus-gaps         bin/bus/gaps.js
+6-59/15 *  *  *  *   $R bus-gaps         bin/bus/gaps.js
 0       */2 *  *  *  $R bus-speedmap     bin/bus/speedmap.js
 7       *  *  *  *   $R bus-ghosts       bin/bus/ghosts.js
 # observe-buses runs */10 (not */5) to keep monthly bus-tracker calls
