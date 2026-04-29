@@ -134,9 +134,10 @@ function buildStopMarker(x, y, size) {
   return `<svg x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}" viewBox="0 0 36 36">${TWEMOJI_BUS_STOP_INNER}</svg>`;
 }
 
-// Articulated marker uses a deeper magenta — same family as the standard
-// hot-pink, but visibly distinct so the easter egg reads at a glance.
-const ARTIC_MARKER_COLOR = 'a8175a';
+// Articulated marker uses electric violet — a vivid hue clearly distinct
+// from the standard hot-pink, so the easter egg reads at a glance against
+// the dark basemap.
+const ARTIC_MARKER_COLOR = 'c026ff';
 
 // Bus marker. Articulated buses get both a distinct glyph (two coach
 // segments + bellows + 3 axles) and a deeper background color. `articulated`
