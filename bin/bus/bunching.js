@@ -14,7 +14,7 @@ const {
   dedupeNearbySignals,
   annotateSignalOrientations,
 } = require('../../src/bus/trafficSignals');
-const { getPatternStops, dedupeStopsNearSignals } = require('../../src/bus/stops');
+const { getPatternStops } = require('../../src/bus/stops');
 const { captureBunchingVideo } = require('../../src/bus/bunchingVideo');
 const { loginBus, postWithImage, postWithVideo, postText } = require('../../src/bus/bluesky');
 const { isOnCooldown } = require('../../src/shared/state');
@@ -163,9 +163,8 @@ async function main() {
   console.log(
     `Signals: ${bboxSignals.length} in pattern bbox → ${onRoute.length} on route → ${signals.length} after dedupe`,
   );
-  const allStops = getPatternStops(pattern);
-  const stops = dedupeStopsNearSignals(allStops, signals);
-  console.log(`Stops: ${allStops.length} in pattern → ${stops.length} after signal dedupe`);
+  const stops = getPatternStops(pattern);
+  console.log(`Stops: ${stops.length} in pattern`);
   let image;
   try {
     image = await renderBunchingMap(bunch, pattern, signals, stops);
