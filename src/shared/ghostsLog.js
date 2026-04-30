@@ -74,7 +74,12 @@ function logDropSummary(drops, kind, log = console.log) {
     const label = DROP_REASONS[reason] || reason;
     log(`  · [${list.length}] ${label}`);
     if (VERBOSE_REASONS.has(reason)) {
-      for (const d of list) log(`      - ${describeDrop(d, kind)}`);
+      // Sort closest-to-ghost first: highest `missing` (= biggest deficit) at
+      // the top, over-served routes at the bottom. Rows without `missing`
+      // sink to the end.
+      const score = (d) => (typeof d.missing === 'number' ? d.missing : -Infinity);
+      const sorted = [...list].sort((a, b) => score(b) - score(a));
+      for (const d of sorted) log(`      - ${describeDrop(d, kind)}`);
     } else {
       const ids = list.map((d) => shortId(d, kind));
       const head = ids.slice(0, 6).join(', ');
