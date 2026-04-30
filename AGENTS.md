@@ -195,8 +195,8 @@ alert with all its routes intact.
 
 | Lever | File | Constant |
 |---|---|---|
-| Bus bunching threshold | `src/bus/bunching.js` | `BUNCHING_THRESHOLD_FT = 1000` |
-| Bus daily bunching cap | `bin/bus/bunching.js` | `BUS_BUNCHING_DAILY_CAP = 12` |
+| Bus bunching threshold | `src/bus/bunching.js` | `BUNCHING_THRESHOLD_FT = 800` |
+| Bus daily bunching cap | `bin/bus/bunching.js` | `BUS_BUNCHING_DAILY_CAP = 3` |
 | Train bunching threshold | `src/train/bunching.js` | `TRAIN_BUNCHING_FT = 2000` |
 | Gap ratio / floor | `src/{bus,train}/gaps.js` | `RATIO_THRESHOLD = 2.5`, `ABSOLUTE_MIN_MIN` |
 | Ghost gates | `src/bus/ghosts.js` | `MISSING_PCT_THRESHOLD = 0.25`, `MISSING_ABS_THRESHOLD = 3`, `MIN_SNAPSHOTS = 4`, `RAMP_FILL_RATIO = 0.8` |

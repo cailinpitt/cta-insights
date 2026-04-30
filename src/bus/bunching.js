@@ -1,4 +1,4 @@
-const BUNCHING_THRESHOLD_FT = 1000; // ~3 Chicago city blocks
+const BUNCHING_THRESHOLD_FT = 800; // ~2.5 Chicago city blocks
 const STALE_MS = 3 * 60 * 1000;
 const TERMINAL_PDIST_FT = 500; // start-terminal layovers, not real bunching
 

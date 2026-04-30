@@ -33,7 +33,7 @@ For each pattern (`pid`):
 
 1. Filter to fresh observations (less than 3 minutes old).
 2. Sort by `pdist`.
-3. Sweep adjacent pairs. A consecutive gap of ≤ **1,000 ft** (~3 Chicago blocks) extends the current cluster.
+3. Sweep adjacent pairs. A consecutive gap of ≤ **800 ft** (~2.5 Chicago blocks) extends the current cluster.
 4. Skip clusters that start within **500 ft** of the pattern start — those are layovers at the origin terminal, not bunching.
 5. Rank clusters by size (more vehicles = more severe), tie-break on tighter max-gap.
 
