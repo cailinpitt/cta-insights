@@ -135,13 +135,19 @@ async function fetchBunchingBaseMap(view) {
 // are static across a video; only marker positions vary.
 async function renderBunchingFrame(view, baseMap, vehicles, signals = [], stops = [], opts = {}) {
   const compactStops = opts.compactStops === true;
+  const compactSignals = opts.compactSignals === true;
   // Signals render below buses — small traffic-light glyphs that read clearly
   // without competing with the primary markers. Drawn inline (not via Unicode)
   // so librsvg renders the same shape on every host. Housings rotate to sit
   // perpendicular to the route: horizontal (E-W) streets get vertical signals,
   // N-S streets get horizontal ones — matching how real lights face drivers.
+  // Full mode: dark housing rectangle with 3 lamp circles. Compact mode
+  // (used by video frames) drops the housing and renders just three small
+  // red/yellow/green dots in a line — same orientation logic so a row of
+  // dots still reads as "traffic light" without dominating the frame.
   const SIGNAL_LONG = 36;
   const SIGNAL_SHORT = 16;
+  const SIGNAL_DOT_R = compactSignals ? 5 : 4;
   const signalElements = signals.map((s) => {
     const { x, y } = project(
       s.lat,
@@ -161,17 +167,20 @@ async function renderBunchingFrame(view, baseMap, vehicles, signals = [], stops 
     const redOff = 7;
     const yellowOff = 18;
     const greenOff = 29;
+    const housing = compactSignals
+      ? ''
+      : `<rect x="${left}" y="${top}" width="${w}" height="${h}" rx="4" ry="4" fill="#1c1c1c" stroke="#fff" stroke-width="1.5"/>`;
     return [
-      `<rect x="${left}" y="${top}" width="${w}" height="${h}" rx="4" ry="4" fill="#1c1c1c" stroke="#fff" stroke-width="1.5"/>`,
+      housing,
       vertical
-        ? `<circle cx="${x}" cy="${top + redOff}" r="4" fill="#e53935"/>`
-        : `<circle cx="${left + redOff}" cy="${y}" r="4" fill="#e53935"/>`,
+        ? `<circle cx="${x}" cy="${top + redOff}" r="${SIGNAL_DOT_R}" fill="#e53935"/>`
+        : `<circle cx="${left + redOff}" cy="${y}" r="${SIGNAL_DOT_R}" fill="#e53935"/>`,
       vertical
-        ? `<circle cx="${x}" cy="${top + yellowOff}" r="4" fill="#fdd835"/>`
-        : `<circle cx="${left + yellowOff}" cy="${y}" r="4" fill="#fdd835"/>`,
+        ? `<circle cx="${x}" cy="${top + yellowOff}" r="${SIGNAL_DOT_R}" fill="#fdd835"/>`
+        : `<circle cx="${left + yellowOff}" cy="${y}" r="${SIGNAL_DOT_R}" fill="#fdd835"/>`,
       vertical
-        ? `<circle cx="${x}" cy="${top + greenOff}" r="4" fill="#43a047"/>`
-        : `<circle cx="${left + greenOff}" cy="${y}" r="4" fill="#43a047"/>`,
+        ? `<circle cx="${x}" cy="${top + greenOff}" r="${SIGNAL_DOT_R}" fill="#43a047"/>`
+        : `<circle cx="${left + greenOff}" cy="${y}" r="${SIGNAL_DOT_R}" fill="#43a047"/>`,
     ].join('');
   });
   // Stop glyphs render below buses (and below terminals/arrow) so a bus

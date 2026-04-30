@@ -140,6 +140,7 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
     for (let i = 0; i < vehicleFrames.length; i++) {
       const buf = await renderBunchingFrame(view, baseMap, vehicleFrames[i], signals, stops, {
         compactStops: true,
+        compactSignals: true,
       });
       const framePath = Path.join(tmpDir, `frame_${String(i).padStart(3, '0')}.jpg`);
       await Fs.writeFile(framePath, buf);
