@@ -76,6 +76,28 @@ test('detectBunching returns the single top-ranked bunch', () => {
   assert.equal(bunch.vehicles.length, 2);
 });
 
+test('rejects cluster when one bus is geographically far despite matching pdist', () => {
+  // Real-world J14 incident: CTA reported stale pdist for a bus that had
+  // already laid over and started a new run, putting it miles from the
+  // others while pdist still matched.
+  const vs = [
+    bus({ vid: 'a', pdist: 34619, lat: 41.7758, lon: -87.575 }),
+    bus({ vid: 'b', pdist: 34866, lat: 41.7764, lon: -87.5752 }),
+    bus({ vid: 'c', pdist: 34415, lat: 41.8819, lon: -87.6305 }), // ~7 mi away
+  ];
+  assert.equal(detectAllBunching(vs, FRESH).length, 0);
+});
+
+test('still detects a real bunch with normal GPS jitter', () => {
+  // ~500 ft apart geographically, pdist 400 ft apart — slack covers it.
+  const vs = [
+    bus({ vid: 'a', pdist: 5000, lat: 41.9, lon: -87.65 }),
+    bus({ vid: 'b', pdist: 5400, lat: 41.9013, lon: -87.65 }),
+  ];
+  const [bunch] = detectAllBunching(vs, FRESH);
+  assert.equal(bunch.vehicles.length, 2);
+});
+
 test('returns null/empty when nothing qualifies', () => {
   assert.equal(detectBunching([bus({ vid: 'a', pdist: 5000 })], FRESH), null);
   assert.deepEqual(detectAllBunching([], FRESH), []);

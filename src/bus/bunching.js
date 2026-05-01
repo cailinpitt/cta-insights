@@ -1,6 +1,13 @@
+const { haversineFt } = require('../shared/geo');
+
 const BUNCHING_THRESHOLD_FT = 800; // ~2.5 Chicago city blocks
 const STALE_MS = 3 * 60 * 1000;
 const TERMINAL_PDIST_FT = 500; // start-terminal layovers, not real bunching
+// Geographic straight-line distance is bounded by along-route distance, so any
+// excess over pdist span means CTA's pdist is stale/wrong (e.g. a bus that just
+// laid over and is starting a new run before pdist refreshes). Slack covers GPS
+// jitter and minor route curvature against the chord.
+const GEO_SLACK_FT = 500;
 
 // Returns clusters ranked best-first by size desc, then max-gap asc — the
 // caller picks the first whose pid isn't on cooldown.
@@ -35,6 +42,18 @@ function detectAllBunching(vehicles, now = new Date()) {
       }
       const cluster = sorted.slice(i, j + 1);
       if (cluster[0].pdist < TERMINAL_PDIST_FT) {
+        i = j + 1;
+        continue;
+      }
+      const pdistSpan = cluster[cluster.length - 1].pdist - cluster[0].pdist;
+      let geoSpan = 0;
+      for (let a = 0; a < cluster.length; a++) {
+        for (let b = a + 1; b < cluster.length; b++) {
+          const d = haversineFt(cluster[a], cluster[b]);
+          if (d > geoSpan) geoSpan = d;
+        }
+      }
+      if (geoSpan > pdistSpan + GEO_SLACK_FT) {
         i = j + 1;
         continue;
       }
