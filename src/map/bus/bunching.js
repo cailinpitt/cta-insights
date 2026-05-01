@@ -21,6 +21,8 @@ const {
   fetchMapboxStatic,
   separateMarkers,
   perpendicularFromBearing,
+  measureTextWidth,
+  xmlEscape,
 } = require('../common');
 const { isArticulated } = require('../../bus/fleet');
 
@@ -30,6 +32,9 @@ const BUS_MARKER_RADIUS = 34;
 const TERMINAL_MARKER_RADIUS = BUS_MARKER_RADIUS;
 const STOP_MARKER_SIZE = 32;
 const STOP_DOT_RADIUS = 6;
+const RECORD_BADGE_TITLE = 'CTA BUS BUNCHING RECORD';
+const RECORD_BADGE_SUBTITLE = 'Network-highest in last 30 days';
+let recordBadgeSvgPromise = null;
 // Push stops sideways off the route so the route line stays unbroken and
 // the glyph isn't competing with the polyline for the same pixels. Offset
 // is in the right-of-travel direction (perpendicular to view bearing).
@@ -130,12 +135,67 @@ async function fetchBunchingBaseMap(view) {
   return fetchMapboxStatic(url, 20000);
 }
 
+async function buildRecordBadgeSvg() {
+  if (!recordBadgeSvgPromise) {
+    recordBadgeSvgPromise = (async () => {
+      const titleSize = 28;
+      const subtitleSize = 18;
+      const titleWidth = await measureTextWidth(RECORD_BADGE_TITLE, titleSize, { bold: true });
+      const subtitleWidth = await measureTextWidth(RECORD_BADGE_SUBTITLE, subtitleSize, {
+        bold: false,
+      });
+      const accentW = 72;
+      const gap = 20;
+      const padX = 22;
+      const x = 44;
+      const y = 46;
+      const textX = accentW + gap + padX;
+      const contentW = Math.max(titleWidth, subtitleWidth);
+      const width = textX + contentW + padX;
+      const height = 104;
+      const titleY = 40;
+      const subtitleY = 72;
+      const accentX = 18;
+      const accentY = 16;
+      const accentH = height - accentY * 2;
+      const accentCx = accentX + accentW / 2;
+
+      return `
+    <defs>
+      <linearGradient id="recordBadgeShell" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#0d1720" stop-opacity="0.96"/>
+        <stop offset="100%" stop-color="#071018" stop-opacity="0.86"/>
+      </linearGradient>
+      <linearGradient id="recordBadgeAccent" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#ffd970"/>
+        <stop offset="100%" stop-color="#ff9d2e"/>
+      </linearGradient>
+      <filter id="recordBadgeShadow" x="-20%" y="-20%" width="160%" height="180%">
+        <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity="0.42"/>
+      </filter>
+    </defs>
+    <g transform="translate(${x} ${y})" filter="url(#recordBadgeShadow)">
+      <rect x="0" y="0" width="${width}" height="${height}" rx="28" fill="url(#recordBadgeShell)" stroke="#f7cc67" stroke-opacity="0.55" stroke-width="2"/>
+      <rect x="${accentX}" y="${accentY}" width="${accentW}" height="${accentH}" rx="22" fill="url(#recordBadgeAccent)"/>
+      <text x="${accentCx}" y="46" fill="#1b1407" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="800">30D</text>
+      <text x="${accentCx}" y="67" fill="#1b1407" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="1">HIGH</text>
+      <text x="${textX}" y="${titleY}" fill="#fff5d8" font-family="Helvetica, Arial, sans-serif" font-size="${titleSize}" font-weight="800">${xmlEscape(RECORD_BADGE_TITLE)}</text>
+      <rect x="${textX}" y="50" width="${Math.max(150, Math.round(subtitleWidth + 12))}" height="2.5" rx="1.25" fill="#f7cc67" fill-opacity="0.75"/>
+      <text x="${textX}" y="${subtitleY}" fill="#d6e5ef" font-family="Helvetica, Arial, sans-serif" font-size="${subtitleSize}" font-weight="600">${xmlEscape(RECORD_BADGE_SUBTITLE)}</text>
+    </g>
+  `;
+    })();
+  }
+  return recordBadgeSvgPromise;
+}
+
 // Composite bus markers, traffic-signal dots, stop glyphs, and the direction
 // arrow onto a pre-fetched base map. The base map, signals, stops, and arrow
 // are static across a video; only marker positions vary.
 async function renderBunchingFrame(view, baseMap, vehicles, signals = [], stops = [], opts = {}) {
   const compactStops = opts.compactStops === true;
   const compactSignals = opts.compactSignals === true;
+  const recordBadge = opts.recordBadge === true ? await buildRecordBadgeSvg() : '';
   // Signals render below buses — small traffic-light glyphs that read clearly
   // without competing with the primary markers. Drawn inline (not via Unicode)
   // so librsvg renders the same shape on every host. Housings rotate to sit
@@ -256,7 +316,7 @@ async function renderBunchingFrame(view, baseMap, vehicles, signals = [], stops 
     terminalElements.push(...buildTerminalMarker(x, y, TERMINAL_MARKER_RADIUS, glyph));
   }
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${signalElements.join('\n')}${stopElements.join('\n')}${terminalElements.join('\n')}${markerElements.join('\n')}${arrowElements.join('\n')}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">${signalElements.join('\n')}${stopElements.join('\n')}${terminalElements.join('\n')}${markerElements.join('\n')}${arrowElements.join('\n')}${recordBadge}</svg>`;
   return sharp(baseMap)
     .resize(WIDTH, HEIGHT)
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])

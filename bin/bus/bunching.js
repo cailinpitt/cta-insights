@@ -154,14 +154,25 @@ async function main() {
   const stop = chosenStop;
 
   // Callouts must be computed before recordBunching writes this event.
+  const recordContext = history.getBusBunchingRecordContext({
+    route: bunch.route,
+    vehicleCount: bunch.vehicles.length,
+    severityFt: bunch.spanFt,
+  });
   const callouts = history.bunchingCallouts({
     kind: 'bus',
     route: bunch.route,
     routeLabel: `Route ${bunch.route}`,
     vehicleCount: bunch.vehicles.length,
     severityFt: bunch.spanFt,
+    recordContext,
   });
   if (callouts.length > 0) console.log(`Callouts: ${callouts.join(' · ')}`);
+  if (recordContext.networkRecord) {
+    console.log(
+      `Network-wide 30-day bus bunching record: ${bunch.vehicles.length} buses / ${bunch.spanFt} ft`,
+    );
+  }
 
   console.log('Rendering map...');
   // Full-pattern bbox (vs the still-image bbox) — the video reframes as buses
@@ -188,8 +199,12 @@ async function main() {
     image = null;
   }
 
-  const text = buildPostText(bunch, pattern, stop, callouts);
-  const alt = buildAltText(bunch, pattern, stop);
+  const text = buildPostText(bunch, pattern, stop, callouts, {
+    networkRecord: recordContext.networkRecord,
+  });
+  const alt = buildAltText(bunch, pattern, stop, {
+    networkRecord: recordContext.networkRecord,
+  });
 
   if (argv['dry-run']) {
     const outPath = writeDryRunAsset(
@@ -210,6 +225,7 @@ async function main() {
         interpolate,
         signals,
         stops,
+        recordBadge: recordContext.networkRecord,
       });
       if (!result) {
         console.log('Video capture produced <2 frames, skipped');
@@ -253,13 +269,19 @@ async function main() {
   // Timelapse reply is non-fatal — the primary alert already went out.
   try {
     console.log('Capturing bunching timelapse...');
-    const video = await captureBunchingVideo(bunch, pattern, { signals, stops });
+    const video = await captureBunchingVideo(bunch, pattern, {
+      signals,
+      stops,
+      recordBadge: recordContext.networkRecord,
+    });
     if (!video) {
       console.log('Timelapse capture produced <2 frames, skipping reply');
       return;
     }
     const videoText = buildVideoPostText(video, bunch, pattern);
-    const videoAlt = buildVideoAltText(bunch, pattern, stop, video);
+    const videoAlt = buildVideoAltText(bunch, pattern, stop, video, {
+      networkRecord: recordContext.networkRecord,
+    });
     const replyRef = {
       root: { uri: primary.uri, cid: primary.cid },
       parent: { uri: primary.uri, cid: primary.cid },

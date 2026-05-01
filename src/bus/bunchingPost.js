@@ -7,20 +7,24 @@ function routeTitle(route) {
   return name ? `Route ${route} (${name})` : `Route ${route}`;
 }
 
-function buildPostText(bunch, pattern, stop, callouts = []) {
+function buildPostText(bunch, pattern, stop, callouts = [], opts = {}) {
   const title = routeTitle(bunch.route);
   const vids = bunch.vehicles
     .map((v) => `#${v.vid}`)
     .filter((s) => s !== '#undefined')
     .join(', ');
   const busesLine = vids ? `\nBuses: ${vids}` : '';
-  const base = `🚌 ${title} — ${pattern.direction}\n${bunch.vehicles.length} buses within ${formatDistance(bunch.spanFt)} near ${stop.stopName}${busesLine}`;
+  const lead = opts.networkRecord ? '🏆 CTA BUS BUNCHING RECORD 🏆\n' : '';
+  const base = `${lead}🚌 ${title} — ${pattern.direction}\n${bunch.vehicles.length} buses within ${formatDistance(bunch.spanFt)} near ${stop.stopName}${busesLine}`;
   const tail = formatCallouts(callouts);
   return tail ? `${base}\n${tail}` : base;
 }
 
-function buildAltText(bunch, pattern, stop) {
-  return `Map of ${routeTitle(bunch.route)} near ${stop.stopName} showing ${bunch.vehicles.length} ${pattern.direction.toLowerCase()} buses within ${formatDistance(bunch.spanFt)} of each other.`;
+function buildAltText(bunch, pattern, stop, opts = {}) {
+  const intro = opts.networkRecord
+    ? 'Map of the current CTA-wide 30-day bus bunching record: '
+    : 'Map of ';
+  return `${intro}${routeTitle(bunch.route)} near ${stop.stopName} showing ${bunch.vehicles.length} ${pattern.direction.toLowerCase()} buses within ${formatDistance(bunch.spanFt)} of each other.`;
 }
 
 function buildVideoPostText(result, bunch, pattern) {
@@ -38,8 +42,9 @@ function buildVideoPostText(result, bunch, pattern) {
   return `${context}${headline}\n🎬 ${formatDistance(result.initialSpanFt)} → ${formatDistance(result.finalSpanFt)}`;
 }
 
-function buildVideoAltText(bunch, pattern, stop, result) {
-  return `Timelapse map of ${routeTitle(bunch.route)} near ${stop.stopName} showing ${bunch.vehicles.length} ${pattern.direction.toLowerCase()} buses moving over ${formatMinSec(result.elapsedSec)}.`;
+function buildVideoAltText(bunch, pattern, stop, result, opts = {}) {
+  const badge = opts.networkRecord ? ' with a CTA Bus Bunching Record overlay' : '';
+  return `Timelapse map of ${routeTitle(bunch.route)} near ${stop.stopName}${badge} showing ${bunch.vehicles.length} ${pattern.direction.toLowerCase()} buses moving over ${formatMinSec(result.elapsedSec)}.`;
 }
 
 module.exports = { buildPostText, buildAltText, buildVideoPostText, buildVideoAltText };

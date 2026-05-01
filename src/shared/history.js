@@ -233,6 +233,8 @@ function getAlertPost(alertId) {
 }
 
 const ALERT_CLEAR_TICKS = 2;
+const BUNCHING_RECORD_WINDOW_DAYS = 30;
+const MIN_RECORD_PRIOR_EVENTS = 3;
 // If an alert was previously resolved and we see it active again after this
 // gap, treat the new sighting as a re-published incident and reset tracking.
 const ALERT_FLICKER_RESET_MS = 30 * 60 * 1000;
@@ -596,12 +598,81 @@ function recordSpeedmap(
     );
 }
 
+function compareBusBunchingSeverity(a, b) {
+  if (a.vehicleCount !== b.vehicleCount) return a.vehicleCount - b.vehicleCount;
+  return a.severityFt - b.severityFt;
+}
+
+function strongestPriorBusBunching(whereClause, params) {
+  return (
+    db()
+      .prepare(`
+      SELECT route,
+             direction,
+             vehicle_count AS vehicleCount,
+             severity_ft AS severityFt,
+             ts
+      FROM bunching_events
+      WHERE kind = 'bus' AND posted = 1 ${whereClause}
+      ORDER BY vehicle_count DESC, severity_ft DESC, ts DESC
+      LIMIT 1
+    `)
+      .get(...params) || null
+  );
+}
+
+function countPriorBusBunching(whereClause, params) {
+  return db()
+    .prepare(`
+      SELECT COUNT(*) AS c
+      FROM bunching_events
+      WHERE kind = 'bus' AND posted = 1 ${whereClause}
+    `)
+    .get(...params).c;
+}
+
+function getBusBunchingRecordContext({ route, vehicleCount, severityFt }, now = Date.now()) {
+  const windowDays = BUNCHING_RECORD_WINDOW_DAYS;
+  const windowStart = now - windowDays * DAY_MS;
+  const candidate = { vehicleCount, severityFt: Math.round(severityFt) };
+
+  const routeWhere = 'AND route = ? AND ts >= ? AND ts < ?';
+  const networkWhere = 'AND ts >= ? AND ts < ?';
+  const routeParams = [route, windowStart, now];
+  const networkParams = [windowStart, now];
+
+  const routePriorCount = countPriorBusBunching(routeWhere, routeParams);
+  const networkPriorCount = countPriorBusBunching(networkWhere, networkParams);
+  const strongestRoutePrior = strongestPriorBusBunching(routeWhere, routeParams);
+  const strongestNetworkPrior = strongestPriorBusBunching(networkWhere, networkParams);
+
+  const routeRecord =
+    routePriorCount >= MIN_RECORD_PRIOR_EVENTS &&
+    (!strongestRoutePrior || compareBusBunchingSeverity(candidate, strongestRoutePrior) > 0);
+  const networkRecord =
+    networkPriorCount >= MIN_RECORD_PRIOR_EVENTS &&
+    (!strongestNetworkPrior || compareBusBunchingSeverity(candidate, strongestNetworkPrior) > 0);
+
+  return {
+    windowDays,
+    routeRecord,
+    networkRecord,
+    routePriorCount,
+    networkPriorCount,
+    strongestRoutePrior,
+    strongestNetworkPrior,
+  };
+}
+
 // Must be called BEFORE recordBunching writes the current event, otherwise
 // the callouts compare against the event itself.
 //
 // Severity semantics: for buses larger vehicle_count wins (tiebreak on span),
 // for trains smaller severity_ft (the inter-train distance) wins.
-function bunchingCallouts({ kind, route, routeLabel, vehicleCount, severityFt }, now = Date.now()) {
+function bunchingCallouts(
+  { kind, route, routeLabel, vehicleCount, severityFt, recordContext = null },
+  now = Date.now(),
+) {
   const out = [];
   const startOfDay = chicagoStartOfDay(now);
   const todayCount = db()
@@ -617,22 +688,13 @@ function bunchingCallouts({ kind, route, routeLabel, vehicleCount, severityFt },
   }
 
   // 3-prior-event minimum keeps cold-start runs from emitting "worst in 0 days."
-  const windowDays = 30;
+  const windowDays = BUNCHING_RECORD_WINDOW_DAYS;
   const windowStart = now - windowDays * DAY_MS;
   if (kind === 'bus') {
-    const row = db()
-      .prepare(`
-      SELECT MAX(vehicle_count) AS maxVc, MAX(severity_ft) AS maxSpan, COUNT(*) AS c
-      FROM bunching_events
-      WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ? AND ts < ?
-    `)
-      .get(kind, route, windowStart, startOfDay);
-    if (row.c >= 3) {
-      const beatsCount = vehicleCount > row.maxVc;
-      const tiesCountBeatsSpan = vehicleCount === row.maxVc && severityFt > row.maxSpan;
-      if (beatsCount || tiesCountBeatsSpan) {
-        out.push(`worst reported on this route in ${windowDays} days`);
-      }
+    const ctx =
+      recordContext || getBusBunchingRecordContext({ route, vehicleCount, severityFt }, now);
+    if (ctx.routeRecord && !ctx.networkRecord) {
+      out.push(`worst reported on this route in ${windowDays} days`);
     }
   } else if (kind === 'train') {
     const row = db()
@@ -829,6 +891,7 @@ module.exports = {
   recordSpeedmap,
   recordGap,
   bunchingCallouts,
+  getBusBunchingRecordContext,
   speedmapCallouts,
   gapCallouts,
   formatCallouts,
