@@ -147,12 +147,40 @@ function busLookup(route, pattern, field, now) {
   return hourlyLookup(dirInfo[field], now);
 }
 
+// Treat each hour's value as anchored at the hour's midpoint and linearly
+// blend toward the neighboring hour based on minute-of-hour. Smooths the
+// ramp-down/ramp-up around hour boundaries (e.g. 72 eastbound averages 4.8 min
+// in hour 21 but 9.5 min in hour 22 — at 9:50 the indexed value is wildly
+// optimistic). Only meaningful for rate-like fields (headways, durations); not
+// applied to count-like fields like activeByHour.
+function interpolatedHourlyLookup(byDayType, now) {
+  const cur = hourlyLookup(byDayType, now);
+  if (cur == null) return null;
+  const m = chicagoMinuteOfHour(now);
+  const offsetMs = (m < 30 ? -1 : 1) * 60 * 60 * 1000;
+  const neighbor = hourlyLookup(byDayType, new Date(now.getTime() + offsetMs));
+  if (neighbor == null) return cur;
+  const alpha = m < 30 ? (30 - m) / 60 : (m - 30) / 60;
+  return cur * (1 - alpha) + neighbor * alpha;
+}
+
+function busLookupInterpolated(route, pattern, field, now) {
+  const index = loadIndex();
+  const byDir = index.routes[route];
+  if (!byDir) return null;
+  const dir = resolveDirection({ ...pattern, route });
+  if (!dir) return null;
+  const dirInfo = byDir[dir];
+  if (!dirInfo?.[field]) return null;
+  return interpolatedHourlyLookup(dirInfo[field], now);
+}
+
 function expectedHeadwayMin(route, pattern, now = new Date()) {
-  return busLookup(route, pattern, 'headways', now);
+  return busLookupInterpolated(route, pattern, 'headways', now);
 }
 
 function expectedTripMinutes(route, pattern, now = new Date()) {
-  return busLookup(route, pattern, 'durations', now);
+  return busLookupInterpolated(route, pattern, 'durations', now);
 }
 
 // Ground-truth count of trips scheduled to be in-progress at some point during
@@ -227,12 +255,18 @@ function trainLookup(line, destination, field, now) {
   return hourlyLookup(dirInfo[field], now);
 }
 
+function trainLookupInterpolated(line, destination, field, now) {
+  const dirInfo = pickTrainDirInfo(line, destination);
+  if (!dirInfo?.[field]) return null;
+  return interpolatedHourlyLookup(dirInfo[field], now);
+}
+
 function expectedTrainHeadwayMin(line, destination, now = new Date()) {
-  return trainLookup(line, destination, 'headways', now);
+  return trainLookupInterpolated(line, destination, 'headways', now);
 }
 
 function expectedTrainTripMinutes(line, destination, now = new Date()) {
-  return trainLookup(line, destination, 'durations', now);
+  return trainLookupInterpolated(line, destination, 'durations', now);
 }
 
 function expectedTrainActiveTrips(line, destination, now = new Date()) {

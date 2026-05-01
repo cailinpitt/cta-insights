@@ -16,7 +16,7 @@ function buildPostText(gap, pattern, stop, callouts = []) {
     last || next
       ? `\nBuses: ${[last && `${last} (last)`, next && `${next} (next)`].filter(Boolean).join(', ')}`
       : '';
-  const base = `🕳️ ${routeTitle(gap.route)} — ${pattern.direction}\n${formatMinutes(gap.gapMin)} gap near ${stop.stopName} — currently scheduled every ${formatMinutes(gap.expectedMin)}${busesLine}`;
+  const base = `🕳️ ${routeTitle(gap.route)} — ${pattern.direction}\n${formatMinutes(gap.gapMin)} gap near ${stop.stopName} — scheduled around every ${formatMinutes(gap.expectedMin)} this hour${busesLine}`;
   const tail = formatCallouts(callouts);
   return tail ? `${base}\n${tail}` : base;
 }
