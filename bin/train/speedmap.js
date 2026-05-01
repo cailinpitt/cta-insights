@@ -28,6 +28,10 @@ const FT_PER_BIN = 2640;
 const MIN_BINS = 8;
 const POLL_INTERVAL_MS = 30 * 1000;
 const DEFAULT_DURATION_MIN = 60;
+// Mostly-grey maps aren't informative — skip if too few bins have data.
+// Owl/early-morning windows on infrequent lines (Pink at 2am) tend to
+// produce 1–2 bins of coverage and should not post.
+const MIN_COVERAGE = 0.3;
 
 function formatAvg(summary) {
   return summary.avg == null ? 'n/a' : `${summary.avg.toFixed(1)} mph`;
@@ -189,7 +193,7 @@ async function main() {
       console.log(
         `Branch ${i} / ${label} (dir ${trDr}): ${samples.length} samples · avg ${s.avg?.toFixed(1)} mph · red=${s.red} orange=${s.orange} yellow=${s.yellow} purple=${s.purple} green=${s.green}`,
       );
-      dirSummaries.push({ dest, summary: s });
+      dirSummaries.push({ dest, summary: s, numBins });
     }
     branchData.push({ points, cumDist, binSpeedsByDir });
   }
@@ -210,6 +214,34 @@ async function main() {
   // No averages → line wasn't running this window (Yellow/Purple express/owl gaps).
   if (finalDirs.every((d) => d.summary.avg == null)) {
     console.log(`No train samples for ${LINE_NAMES[line]} Line during the window — not posting`);
+    if (!argv['dry-run']) {
+      history.recordSpeedmap({
+        kind: 'train',
+        route: line,
+        direction: null,
+        avgMph: null,
+        pctRed: 0,
+        pctOrange: 0,
+        pctYellow: 0,
+        pctGreen: 0,
+        binSpeeds: [],
+        posted: false,
+      });
+    }
+    return;
+  }
+
+  // Sparse coverage → mostly-grey map isn't informative.
+  const totalBins = finalDirs.reduce((acc, d) => acc + d.numBins, 0);
+  const validBins = finalDirs.reduce((acc, d) => {
+    const s = d.summary;
+    return acc + s.red + s.orange + s.yellow + (s.purple || 0) + s.green;
+  }, 0);
+  const coverage = totalBins > 0 ? validBins / totalBins : 0;
+  if (coverage < MIN_COVERAGE) {
+    console.log(
+      `Sparse coverage for ${LINE_NAMES[line]} Line: ${validBins}/${totalBins} bins (${(coverage * 100).toFixed(0)}%) — not posting`,
+    );
     if (!argv['dry-run']) {
       history.recordSpeedmap({
         kind: 'train',
