@@ -34,7 +34,7 @@ const STOP_MARKER_SIZE = 32;
 const STOP_DOT_RADIUS = 6;
 const RECORD_BADGE_TITLE = 'CTA BUS BUNCHING RECORD';
 const RECORD_BADGE_SUBTITLE = 'Network-highest in last 30 days';
-let recordBadgeSvgPromise = null;
+let recordBadgeLayoutPromise = null;
 // Push stops sideways off the route so the route line stays unbroken and
 // the glyph isn't competing with the polyline for the same pixels. Offset
 // is in the right-of-travel direction (perpendicular to view bearing).
@@ -135,58 +135,91 @@ async function fetchBunchingBaseMap(view) {
   return fetchMapboxStatic(url, 20000);
 }
 
-async function buildRecordBadgeSvg() {
-  if (!recordBadgeSvgPromise) {
-    recordBadgeSvgPromise = (async () => {
-      const titleSize = 28;
-      const subtitleSize = 18;
+async function getRecordBadgeLayout() {
+  if (!recordBadgeLayoutPromise) {
+    recordBadgeLayoutPromise = (async () => {
+      const titleSize = 24;
+      const subtitleSize = 15;
       const titleWidth = await measureTextWidth(RECORD_BADGE_TITLE, titleSize, { bold: true });
-      const subtitleWidth = await measureTextWidth(RECORD_BADGE_SUBTITLE, subtitleSize, {
-        bold: false,
-      });
-      const accentW = 72;
-      const gap = 20;
-      const padX = 22;
+      const subtitleWidth = await measureTextWidth(RECORD_BADGE_SUBTITLE, subtitleSize);
+      const sparkleGap = 22;
+      const sparkleSize = 16;
+      const padX = 20;
       const x = 44;
-      const y = 46;
-      const textX = accentW + gap + padX;
-      const contentW = Math.max(titleWidth, subtitleWidth);
-      const width = textX + contentW + padX;
-      const height = 104;
-      const titleY = 40;
-      const subtitleY = 72;
-      const accentX = 18;
-      const accentY = 16;
-      const accentH = height - accentY * 2;
-      const accentCx = accentX + accentW / 2;
-
-      return `
-    <defs>
-      <linearGradient id="recordBadgeShell" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#0d1720" stop-opacity="0.96"/>
-        <stop offset="100%" stop-color="#071018" stop-opacity="0.86"/>
-      </linearGradient>
-      <linearGradient id="recordBadgeAccent" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="#ffd970"/>
-        <stop offset="100%" stop-color="#ff9d2e"/>
-      </linearGradient>
-      <filter id="recordBadgeShadow" x="-20%" y="-20%" width="160%" height="180%">
-        <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity="0.42"/>
-      </filter>
-    </defs>
-    <g transform="translate(${x} ${y})" filter="url(#recordBadgeShadow)">
-      <rect x="0" y="0" width="${width}" height="${height}" rx="28" fill="url(#recordBadgeShell)" stroke="#f7cc67" stroke-opacity="0.55" stroke-width="2"/>
-      <rect x="${accentX}" y="${accentY}" width="${accentW}" height="${accentH}" rx="22" fill="url(#recordBadgeAccent)"/>
-      <text x="${accentCx}" y="46" fill="#1b1407" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="800">30D</text>
-      <text x="${accentCx}" y="67" fill="#1b1407" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="1">HIGH</text>
-      <text x="${textX}" y="${titleY}" fill="#fff5d8" font-family="Helvetica, Arial, sans-serif" font-size="${titleSize}" font-weight="800">${xmlEscape(RECORD_BADGE_TITLE)}</text>
-      <rect x="${textX}" y="50" width="${Math.max(150, Math.round(subtitleWidth + 12))}" height="2.5" rx="1.25" fill="#f7cc67" fill-opacity="0.75"/>
-      <text x="${textX}" y="${subtitleY}" fill="#d6e5ef" font-family="Helvetica, Arial, sans-serif" font-size="${subtitleSize}" font-weight="600">${xmlEscape(RECORD_BADGE_SUBTITLE)}</text>
-    </g>
-  `;
+      const y = 48;
+      const titleX = padX + sparkleSize + sparkleGap;
+      const rightSparkleX = titleX + titleWidth + sparkleGap;
+      const width = rightSparkleX + sparkleSize + padX;
+      const height = 82;
+      return {
+        x,
+        y,
+        width,
+        height,
+        titleSize,
+        subtitleSize,
+        titleWidth,
+        subtitleWidth,
+        titleX,
+        titleY: 31,
+        subtitleY: 56,
+        leftSparkleCx: padX + sparkleSize / 2,
+        rightSparkleCx: rightSparkleX + sparkleSize / 2,
+        sparkleCy: 24,
+      };
     })();
   }
-  return recordBadgeSvgPromise;
+  return recordBadgeLayoutPromise;
+}
+
+function buildSparkle(cx, cy, { scale, opacity, rotationDeg }) {
+  const long = 12 * scale;
+  const short = 6 * scale;
+  const stroke = 2.4 * scale;
+  return `
+    <g transform="translate(${cx} ${cy}) rotate(${rotationDeg})" opacity="${opacity}">
+      <path d="M 0 -${long} L 0 ${long} M -${long} 0 L ${long} 0 M -${short} -${short} L ${short} ${short} M -${short} ${short} L ${short} -${short}" stroke="#ffd86c" stroke-width="${stroke}" stroke-linecap="round"/>
+      <circle cx="0" cy="0" r="${1.8 * scale}" fill="#fff7d1"/>
+    </g>
+  `;
+}
+
+async function buildRecordBadgeSvg(phase = 0) {
+  const layout = await getRecordBadgeLayout();
+  const pulseA = phase * Math.PI * 2;
+  const pulseB = pulseA + Math.PI;
+  const sparkleA = {
+    scale: 0.78 + 0.42 * ((Math.sin(pulseA) + 1) / 2),
+    opacity: 0.25 + 0.75 * ((Math.sin(pulseA) + 1) / 2),
+    rotationDeg: -12 + 10 * Math.sin(pulseA),
+  };
+  const sparkleB = {
+    scale: 0.78 + 0.42 * ((Math.sin(pulseB) + 1) / 2),
+    opacity: 0.25 + 0.75 * ((Math.sin(pulseB) + 1) / 2),
+    rotationDeg: 12 + 10 * Math.sin(pulseB),
+  };
+  const subtitleW = Math.max(130, Math.round(layout.subtitleWidth + 8));
+
+  return `
+    <defs>
+      <filter id="recordBadgeShadow" x="-20%" y="-20%" width="160%" height="180%">
+        <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.35"/>
+      </filter>
+      <filter id="recordSparkleGlow" x="-80%" y="-80%" width="260%" height="260%">
+        <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#ffd86c" flood-opacity="0.55"/>
+      </filter>
+    </defs>
+    <g transform="translate(${layout.x} ${layout.y})" filter="url(#recordBadgeShadow)">
+      <rect x="0" y="0" width="${layout.width}" height="${layout.height}" rx="20" fill="#08141d" fill-opacity="0.9" stroke="#d2bf84" stroke-opacity="0.7" stroke-width="1.5"/>
+      <g filter="url(#recordSparkleGlow)">
+        ${buildSparkle(layout.leftSparkleCx, layout.sparkleCy, sparkleA)}
+        ${buildSparkle(layout.rightSparkleCx, layout.sparkleCy, sparkleB)}
+      </g>
+      <text x="${layout.titleX}" y="${layout.titleY}" fill="#fff8e0" font-family="Arial, sans-serif" font-size="${layout.titleSize}" font-weight="700" letter-spacing="0.5">${xmlEscape(RECORD_BADGE_TITLE)}</text>
+      <rect x="${layout.titleX}" y="39" width="${subtitleW}" height="2" rx="1" fill="#d2bf84" fill-opacity="0.75"/>
+      <text x="${layout.titleX}" y="${layout.subtitleY}" fill="#d7e2ea" font-family="Arial, sans-serif" font-size="${layout.subtitleSize}" font-weight="600">${xmlEscape(RECORD_BADGE_SUBTITLE)}</text>
+    </g>
+  `;
 }
 
 // Composite bus markers, traffic-signal dots, stop glyphs, and the direction
@@ -195,7 +228,8 @@ async function buildRecordBadgeSvg() {
 async function renderBunchingFrame(view, baseMap, vehicles, signals = [], stops = [], opts = {}) {
   const compactStops = opts.compactStops === true;
   const compactSignals = opts.compactSignals === true;
-  const recordBadge = opts.recordBadge === true ? await buildRecordBadgeSvg() : '';
+  const recordBadgePhase = typeof opts.recordBadgePhase === 'number' ? opts.recordBadgePhase : 0;
+  const recordBadge = opts.recordBadge === true ? await buildRecordBadgeSvg(recordBadgePhase) : '';
   // Signals render below buses — small traffic-light glyphs that read clearly
   // without competing with the primary markers. Drawn inline (not via Unicode)
   // so librsvg renders the same shape on every host. Housings rotate to sit
