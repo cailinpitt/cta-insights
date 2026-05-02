@@ -120,14 +120,25 @@ async function handleCandidate(line, direction, candidate, agentGetter, now) {
   const cooldownKey = `train_pulse_${line}_${direction}_${segmentTag}`;
   const activePostUri = prior?.active_post_uri || null;
   const activePostTs = prior?.active_post_ts || null;
+  // Pin from/to once the alert has been posted — otherwise the cold-run
+  // boundaries can drift tick-to-tick (e.g. the run extends one station
+  // further west) and the clear reply ends up naming different stations
+  // than the original post said. Today's Pink alert posted "Kostner ↔
+  // Kedzie" but cleared as "Cicero ↔ Kedzie" because run_lo_ft drifted.
+  const fromStationToWrite = activePostUri
+    ? prior.from_station || candidate.fromStation.name
+    : candidate.fromStation.name;
+  const toStationToWrite = activePostUri
+    ? prior.to_station || candidate.toStation.name
+    : candidate.toStation.name;
 
   upsertPulseState({
     line,
     direction,
     runLoFt: candidate.runLoFt,
     runHiFt: candidate.runHiFt,
-    fromStation: candidate.fromStation.name,
-    toStation: candidate.toStation.name,
+    fromStation: fromStationToWrite,
+    toStation: toStationToWrite,
     startedTs,
     lastSeenTs: now,
     consecutiveTicks: consecutive,
