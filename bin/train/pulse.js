@@ -185,6 +185,7 @@ async function handleCandidate(line, direction, candidate, agentGetter, now) {
       coldStations: candidate.coldStations,
       coldStationNames: candidate.coldStationNames,
       expectedTrains: candidate.expectedTrains,
+      headwayMin: candidate.headwayMin != null ? candidate.headwayMin : null,
       synthetic: candidate.synthetic === true,
     },
   };
@@ -676,6 +677,7 @@ async function maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now
       coldStations: stationsOnBranch.length,
       coldStationNames: stationsOnBranch.map((s) => s.station.name),
       expectedTrains: expected,
+      headwayMin: safeHeadway(line),
       synthetic: true,
     };
     try {

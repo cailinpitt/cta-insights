@@ -270,6 +270,7 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
       coldStations,
       coldStationNames,
       expectedTrains,
+      headwayMin: headwayMin != null ? headwayMin : null,
     });
   }
 

@@ -92,9 +92,15 @@ function buildPostText(d, { ctaAlertOpen = false } = {}) {
 }
 
 function evidenceLine(e, { compact = false } = {}) {
+  // Scheduled-headway clause is what tells readers "18 min cold is unusual" —
+  // include in both full and compact tiers so the schedule context survives
+  // the post-length shedder. Dropped only as part of the third (no-evidence)
+  // fallback in buildPostText.
+  const headwayClause =
+    e.headwayMin != null ? ` — scheduled every ${Math.round(e.headwayMin)} min` : '';
   if (e.synthetic) {
     const stations = e.coldStations >= 2 ? ` (${e.coldStations} stations affected)` : '';
-    return `📡 No trains observed anywhere on the line in the last ${e.lookbackMin || 20} min${stations}.`;
+    return `📡 No trains observed anywhere on the line in the last ${e.lookbackMin || 20} min${stations}${headwayClause}.`;
   }
   const stretch = e.runLengthMi != null ? `${e.runLengthMi}-mi stretch` : 'this stretch';
   const stations = e.coldStations >= 2 ? ` (${e.coldStations} stations affected)` : '';
@@ -106,17 +112,17 @@ function evidenceLine(e, { compact = false } = {}) {
   // not load-bearing for the alert. Saves ~50–60 chars to keep the post
   // under Bluesky's 300-grapheme cap when station + terminus names are long.
   if (compact) {
-    return `📡 No trains seen on this ${stretch}${stations} in ${since}.`;
+    return `📡 No trains seen on this ${stretch}${stations} in ${since}${headwayClause}.`;
   }
   const missing =
     e.expectedTrains != null && e.expectedTrains >= 1
-      ? ` — ~${e.expectedTrains} train${e.expectedTrains === 1 ? '' : 's'} missed`
+      ? `, ~${e.expectedTrains} train${e.expectedTrains === 1 ? '' : 's'} missed`
       : '';
   const elsewhere =
     e.trainsOutsideRun != null
       ? ` (${e.trainsOutsideRun} train${e.trainsOutsideRun === 1 ? '' : 's'} active elsewhere on the line)`
       : '';
-  return `📡 No trains seen on this ${stretch}${stations} in ${since}${missing}${elsewhere}.`;
+  return `📡 No trains seen on this ${stretch}${stations} in ${since}${headwayClause}${missing}${elsewhere}.`;
 }
 
 function buildAltText(d) {
