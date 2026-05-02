@@ -121,9 +121,44 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
       );
     }
 
+    // Service-corridor clip: when caller passes a corridorBbox derived from
+    // the last several hours of train observations, project its corners onto
+    // the branch and treat any bin outside that trackDist range as "outside
+    // active service" rather than cold. Catches Purple weekend (Linden ↔
+    // Howard only) and any other line where the polyline includes track that
+    // isn't actually being used right now.
+    let corridorLo = 0;
+    let corridorHi = numBins;
+    if (opts.corridorBbox) {
+      const c = opts.corridorBbox;
+      const corners = [
+        { lat: c.minLat, lon: c.minLon },
+        { lat: c.minLat, lon: c.maxLon },
+        { lat: c.maxLat, lon: c.minLon },
+        { lat: c.maxLat, lon: c.maxLon },
+      ];
+      let minAlong = Infinity;
+      let maxAlong = -Infinity;
+      for (const corner of corners) {
+        const { cumDist: along } = snapToLineWithPerp(corner.lat, corner.lon, points, cumDist);
+        if (along < minAlong) minAlong = along;
+        if (along > maxAlong) maxAlong = along;
+      }
+      if (Number.isFinite(minAlong) && Number.isFinite(maxAlong) && maxAlong > minAlong) {
+        const binLengthFt = totalFt / numBins;
+        corridorLo = Math.max(0, Math.floor(minAlong / binLengthFt));
+        corridorHi = Math.min(numBins, Math.ceil(maxAlong / binLengthFt));
+      }
+    }
+
     let coveredBins = 0;
-    for (const ts of lastSeenPerBin) if (ts > -Infinity) coveredBins++;
-    if (coveredBins / numBins < minCoverageFrac) continue;
+    let corridorBinCount = 0;
+    for (let i = 0; i < numBins; i++) {
+      if (i < corridorLo || i >= corridorHi) continue;
+      corridorBinCount++;
+      if (lastSeenPerBin[i] > -Infinity) coveredBins++;
+    }
+    if (corridorBinCount > 0 && coveredBins / corridorBinCount < minCoverageFrac) continue;
     allBranchesSparse = false;
 
     const coldBefore = now - coldThresholdMs;
@@ -132,7 +167,9 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     let bestStart = -1;
     let bestEnd = -1;
     let curStart = -1;
-    for (let i = zoneBins; i < numBins - zoneBins; i++) {
+    const scanStart = Math.max(zoneBins, corridorLo);
+    const scanEnd = Math.min(numBins - zoneBins, corridorHi);
+    for (let i = scanStart; i < scanEnd; i++) {
       if (cold[i]) {
         if (curStart < 0) curStart = i;
         const curEnd = i;

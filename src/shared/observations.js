@@ -188,6 +188,25 @@ function getRecentTrainPositions(sinceTs) {
     .all(sinceTs);
 }
 
+// Bounding box of train observations for a given line in the past `sinceTs`
+// window — used to constrain pulse detection to the actual revenue corridor
+// (e.g. weekend Purple runs Linden ↔ Howard, not the full Express to Loop).
+// Returns null when the line has had zero observations in the window.
+function getLineCorridorBbox(line, sinceTs) {
+  const row = getDb()
+    .prepare(`
+      SELECT MIN(lat) AS minLat, MAX(lat) AS maxLat,
+             MIN(lon) AS minLon, MAX(lon) AS maxLon,
+             COUNT(*) AS n
+      FROM observations
+      WHERE kind = 'train' AND route = ? AND ts >= ?
+        AND lat IS NOT NULL AND lon IS NOT NULL
+    `)
+    .get(line, sinceTs);
+  if (!row || !row.n) return null;
+  return { minLat: row.minLat, maxLat: row.maxLat, minLon: row.minLon, maxLon: row.maxLon };
+}
+
 module.exports = {
   recordBusObservations,
   recordTrainObservations,
@@ -198,5 +217,6 @@ module.exports = {
   getRecentBusObservationsByRoute,
   countDistinctTsInBusObservations,
   getRecentTrainPositions,
+  getLineCorridorBbox,
   rolloffOldObservations,
 };

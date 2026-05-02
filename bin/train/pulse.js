@@ -43,7 +43,7 @@ const {
   expectedTrainActiveTrips,
   expectedTrainActiveTripsAnyDir,
 } = require('../../src/shared/gtfs');
-const { getRecentTrainPositions } = require('../../src/shared/observations');
+const { getRecentTrainPositions, getLineCorridorBbox } = require('../../src/shared/observations');
 const { acquireCooldown } = require('../../src/shared/state');
 const {
   getPulseState,
@@ -485,10 +485,15 @@ async function main() {
     }
 
     const recent = allRecent.filter((r) => r.line === line);
+    // Corridor bbox over the last 6 hours — restricts detection to the actual
+    // revenue track so the Purple Express portion (not running on weekends)
+    // doesn't read as "cold" against the full Linden→Loop polyline.
+    const CORRIDOR_LOOKBACK_MS = 6 * 60 * 60 * 1000;
+    const corridorBbox = getLineCorridorBbox(line, now - CORRIDOR_LOOKBACK_MS);
     if (recent.length === 0) {
       tally.noObs++;
       tally.syntheticChecked++;
-      await maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now);
+      await maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now, corridorBbox);
       continue;
     }
 
@@ -504,6 +509,7 @@ async function main() {
         now,
         opts: {
           lookbackMs: LOOKBACK_MS,
+          corridorBbox,
           recentPositions: recent.map((r) => ({
             ts: r.ts,
             lat: r.lat,
@@ -520,6 +526,25 @@ async function main() {
 
     if (detection.skipped) {
       tally.skippedDetector++;
+      // Sparse-coverage doesn't mean the prior outage is still active — it
+      // just means we can't evaluate cold bins this tick. If we have an open
+      // pulse on this line and observations did arrive (just not enough to
+      // hit the coverage threshold), advance clear-ticks anyway so a stale
+      // FP doesn't stay pinned forever.
+      if (detection.skipped === 'sparse-coverage' && recent.length > 0) {
+        const rows = getDb()
+          .prepare('SELECT * FROM pulse_state WHERE line = ? AND active_post_uri IS NOT NULL')
+          .all(line);
+        for (const row of rows) {
+          await handleClear(line, row.direction, agentGetter, now);
+        }
+        if (rows.length > 0) {
+          console.log(
+            `train-pulse: ${line} — detector skipped (sparse-coverage) but advancing clear-ticks for ${rows.length} open pulse(s)`,
+          );
+          continue;
+        }
+      }
       console.log(
         `train-pulse: ${line} — detector skipped (${detection.skipped}); leaving pulse_state intact`,
       );
@@ -562,7 +587,7 @@ async function main() {
 // failure across all interlockings) the API returns zero observations for it.
 // If other lines have data and GTFS says service should be running, treat it
 // as a full-branch candidate so pulse can flag the outage.
-async function maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now) {
+async function maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now, corridorBbox) {
   if (allRecent.length === 0) return; // pipeline-wide problem, not line-specific
   let expected = 0;
   try {
@@ -571,6 +596,19 @@ async function maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now
     expected = 0;
   }
   if (expected <= 0) return;
+  // Cold-start grace: if the line has had ZERO observations in the past 6
+  // hours, this is service-not-yet-started (early morning, between owl and
+  // commute) — not an outage. The first train of the day pulls out of its
+  // terminal a few minutes after scheduled service start, and synthesizing
+  // an alert in that gap produces an FP that resolves on its own ~5 min
+  // later. The corridorBbox is a cheap proxy for "anything on this line
+  // recently"; null means nothing in the last 6h.
+  if (!corridorBbox) {
+    console.log(
+      `pulse: zero observations on line=${line} but ${expected} trips expected — within cold-start grace window (no obs in past 6h), skipping synthetic candidate`,
+    );
+    return;
+  }
   console.log(
     `pulse: zero observations on line=${line} but ${expected} trips expected — synthesizing full-line candidate`,
   );
@@ -583,8 +621,21 @@ async function maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now
   for (let bi = 0; bi < branches.length; bi++) {
     const b = branches[bi];
     if (!b.totalFt) continue;
-    const stationsOnBranch = stationsAlongBranchHelper(b, line);
+    let stationsOnBranch = stationsAlongBranchHelper(b, line);
     if (stationsOnBranch.length < 2) continue;
+    // Restrict synthesized stations to the active corridor — for Purple on
+    // weekends, GTFS may say 1+ trip/hr (the Linden-Howard shuttle), but the
+    // polyline still spans Linden→Loop. Without this clip, the synthetic
+    // candidate would name "Linden → Merchandise Mart" instead of "Linden →
+    // Howard," and the rendered map would dim track that isn't running today.
+    const inCorridor = stationsOnBranch.filter(
+      (s) =>
+        s.station.lat >= corridorBbox.minLat - 0.005 &&
+        s.station.lat <= corridorBbox.maxLat + 0.005 &&
+        s.station.lon >= corridorBbox.minLon - 0.005 &&
+        s.station.lon <= corridorBbox.maxLon + 0.005,
+    );
+    if (inCorridor.length >= 2) stationsOnBranch = inCorridor;
     const direction = directionKeyFor(branches, bi, b.directionHint);
     const fromStation = stationsOnBranch[0].station;
     const toStation = stationsOnBranch[stationsOnBranch.length - 1].station;
