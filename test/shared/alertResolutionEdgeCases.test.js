@@ -204,3 +204,65 @@ test('hasObservedClearForPulse: targets exact pulse uri', () => {
     cleanup();
   }
 });
+
+test('hasObservedClearForPulse: clears on other lines/directions do not shadow this pulse', () => {
+  // Real-world false skip on 2026-05-02: an Orange inbound clear posted at
+  // 15:40 made the Brown inbound clear at 15:13 appear "already posted" and
+  // got skipped, leaving the Brown pulse without a ✅ reply.
+  const { history, cleanup } = loadHistoryWithDb();
+  try {
+    const t0 = Date.now() - 60_000;
+    history.recordDisruption(
+      {
+        kind: 'train',
+        line: 'brn',
+        direction: 'branch-1-inbound',
+        fromStation: 'Washington/Wells',
+        toStation: 'Harold Washington Library-State/Van Buren',
+        source: 'observed',
+        posted: true,
+        postUri: 'at://brn-pulse',
+      },
+      t0,
+    );
+    // Unrelated Orange clear posted AFTER the Brown pulse — must not be
+    // treated as a clear for the Brown pulse.
+    history.recordDisruption(
+      {
+        kind: 'train',
+        line: 'org',
+        direction: 'branch-1-inbound',
+        fromStation: 'Roosevelt',
+        toStation: 'Washington/Wabash',
+        source: 'observed-clear',
+        posted: true,
+        postUri: 'at://org-clear',
+      },
+      t0 + 30_000,
+    );
+    assert.equal(
+      history.hasObservedClearForPulse({ kind: 'train', pulseUri: 'at://brn-pulse' }),
+      false,
+    );
+    // Now record the matching Brown clear — should flip to true.
+    history.recordDisruption(
+      {
+        kind: 'train',
+        line: 'brn',
+        direction: 'branch-1-inbound',
+        fromStation: 'Washington/Wells',
+        toStation: 'Harold Washington Library-State/Van Buren',
+        source: 'observed-clear',
+        posted: true,
+        postUri: 'at://brn-clear',
+      },
+      t0 + 60_000,
+    );
+    assert.equal(
+      history.hasObservedClearForPulse({ kind: 'train', pulseUri: 'at://brn-pulse' }),
+      true,
+    );
+  } finally {
+    cleanup();
+  }
+});

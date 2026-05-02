@@ -340,11 +340,14 @@ function hasUnresolvedCtaAlert({ kind, ctaRouteCode }) {
 
 // Exact-pulse idempotency: did we already post an observed-clear after the
 // posted observed event with this URI? Replaces `hasObservedClearSince`'s
-// time-windowed approximation.
+// time-windowed approximation. Match on line/direction/from/to in addition
+// to ts so a clear posted on an unrelated line+direction can't shadow this
+// pulse (real-world false skip on 2026-05-02: an Orange inbound clear at
+// 15:40 made the Brown inbound clear at 15:13 appear "already posted").
 function hasObservedClearForPulse({ kind, pulseUri }) {
   const pulseEvt = db()
     .prepare(`
-    SELECT ts FROM disruption_events
+    SELECT ts, line, direction, from_station, to_station FROM disruption_events
     WHERE kind = ? AND source = 'observed' AND post_uri = ?
     ORDER BY ts DESC LIMIT 1
   `)
@@ -353,10 +356,22 @@ function hasObservedClearForPulse({ kind, pulseUri }) {
   const row = db()
     .prepare(`
     SELECT id FROM disruption_events
-    WHERE kind = ? AND source = 'observed-clear' AND posted = 1 AND ts >= ?
+    WHERE kind = ? AND source = 'observed-clear' AND posted = 1
+      AND ts >= ?
+      AND line = ?
+      AND IFNULL(direction, '') = IFNULL(?, '')
+      AND IFNULL(from_station, '') = IFNULL(?, '')
+      AND IFNULL(to_station, '') = IFNULL(?, '')
     LIMIT 1
   `)
-    .get(kind, pulseEvt.ts);
+    .get(
+      kind,
+      pulseEvt.ts,
+      pulseEvt.line,
+      pulseEvt.direction,
+      pulseEvt.from_station,
+      pulseEvt.to_station,
+    );
   return !!row;
 }
 
