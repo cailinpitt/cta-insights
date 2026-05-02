@@ -125,7 +125,13 @@ load-bearing — see invariants below.
   bogus "running again" reply at end of service every night.
 - **Loop lines (Brown/Orange/Pink/Purple/Yellow)** ship a single GTFS
   direction_id covering the round trip. Train ghosts aggregate line-wide
-  for these; pulse splits via `LOOP_LINE_TRDR_OUTBOUND`.
+  for these; pulse splits via `LOOP_LINE_TRDR_OUTBOUND`. The **disruption
+  map renderer** also has to handle round-trip polylines specially: the
+  raw `trainLines.json` shape goes terminus→Loop→terminus as one
+  polyline, so naively splitting at from/to leaves the return-leg half
+  redrawing bright over the dim segment on short stretches. `splitSegments`
+  calls `truncateRoundTrip` first to prune at the apex, mirroring
+  `processSegment` in `speedmap.js`.
 
 ## Threading rules (alerts account)
 

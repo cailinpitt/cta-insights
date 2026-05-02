@@ -164,11 +164,12 @@ Other gates still apply:
 | `MIN_COVERAGE_FRAC` | ≥ 50% of bins seen ≥ once | If half the line never had a single observation, our data is too sparse — silence rather than guess. |
 | `MIN_SPAN_FRAC` | observations span ≥ 50% of lookback | Prevents firing on a 30-second blip of data. |
 | Terminal zone exclusion | dead run can't touch first/last `terminalZoneFt` of the branch | Loop tail-tracks and short-turn pockets at terminals legitimately go quiet. |
-| Distinct stations | `fromStation ≠ toStation` | A run that resolves to a single named station is a render artifact. |
+| Distinct stations | `fromStation ≠ toStation` | A run that resolves to a single named station can't be described as "X to Y" in a post and produces a degenerate polyline slice that breaks `splitSegments` downstream (NaN bbox → Mapbox 422). Always skip. |
+| Straddle veto | reject if any train's consecutive observations bracket the cold run | At ~3–5 min observer cadence, trains traversing a 1 mi+ run between snapshots leave no in-run observation and look identical to a true outage. Per-train trajectories are tracked on the branch; if any pair of consecutive observations has `along[i-1] < runLoFt && along[i] > runHiFt` (or vice versa), the train physically crossed the run between snapshots and the candidate is dropped. Without this, short station gaps on dense lines (Pink California↔Western, Brown IPark↔Addison) generated FPs because the bin was "never observed" at our sampling rate. |
 
 `fromStation`/`toStation` are taken from `stationsInRun.filter(s => trackDist >= runLoFt && trackDist <= runHiFt)` — strictly inside the cold run. The previous `nearestStationAtOrBefore`/`After` reach-out could pick named endpoints that lay past the terminal-zone clip, mislabeling the dim segment.
 
-A separate full-line zero-obs branch handles complete blackouts: when a line has zero observations in the lookback while other lines have data and `expectedTrainActiveTrips > 0`, bin synthesizes a full-branch candidate marked `synthetic: true`. The renderer uses synthetic-specific evidence text: *"📡 No trains observed on this line in the last 20 min — service appears suspended line-wide."*
+A separate full-line zero-obs branch handles complete blackouts: when a line has zero observations in the lookback while other lines have data and `expectedTrainActiveTrips > 0`, bin synthesizes a full-branch candidate marked `synthetic: true`. The renderer uses synthetic-specific evidence text: *"📡 No trains observed anywhere on the line in the last 20 min."*
 
 The bin-level gates (`bin/train/pulse.js`):
 
@@ -190,7 +191,7 @@ The bin-level gates (`bin/train/pulse.js`):
 The detector emits a `Disruption` object: `{ line, suspendedSegment: { from, to }, alternative, source: 'observed', evidence: { runLengthMi, minutesSinceLastTrain, trainsOutsideRun, … } }`. `src/shared/disruption.js#buildPostText` formats it as:
 
 ```
-⚠ <Line> Line service suspended
+🚇⚠️ <Line> Line: trains not seen
 
 Between <from> and <to>.
 
@@ -198,6 +199,8 @@ Between <from> and <to>.
 
 Inferred from live train positions; CTA hasn't issued an alert for this yet.
 ```
+
+The observed-pulse title hedges intentionally (*"trains not seen"*, not *"service suspended"*) — the bot can only see an absence of observations and can't distinguish a true suspension from held trains, a snapshot aliasing miss, or a genuinely paused branch. CTA-sourced alerts (`source: 'cta-alert'`) keep the strong *"service suspended"* framing because CTA is authoritative.
 
 If there's an open CTA alert post for the same line in our DB, the pulse post is threaded as a reply to it (`findOpenAlertReplyRef`, which scores open-alert candidates by station-name overlap with the pulse's bracketing stations). The reverse case — pulse first, CTA alert later — is handled symmetrically in `bin/train/alerts.js#postNewAlert` via `getRecentPulsePostsAll` (24h window, broadened from 3h) ranked by station-name overlap with the alert text. Either ordering converges to a single thread. `bin/bus/alerts.js` uses the shared `resolveReplyRef` helper rather than its previous hand-rolled `parseAtUri`.
 
@@ -229,7 +232,8 @@ The bot-side clear (step 6 above) is the one place we deliberately accept a smal
 
 - `src/shared/ctaAlerts.js` — fetching, normalization, significance gates. `cleanText` decodes both named and numeric HTML entities; `parseCtaDate` accepts ISO 8601 (the actual feed format, not just the legacy wall-clock form).
 - `src/shared/alertPost.js` — alert and resolution post text.
-- `src/shared/disruption.js` — segment-dim disruption post text, alt text, and `buildClearPostText` (shared by republished alerts and pulse).
+- `src/shared/disruption.js` — segment-dim disruption post text, alt text, and `buildClearPostText` (shared by republished alerts and pulse). `titleFor` branches on `source`: `'cta-alert'` keeps the strong *"service suspended"* framing; `'observed'` hedges with *"trains not seen"* since the bot only sees an absence and can't certify a true suspension.
+- `src/map/disruption.js` — Mapbox static map renderer that produces the dim/bright overlay on the route line, station-name pills, and title pill. `splitSegments` cuts the polyline at the from/to stations into `active` and `suspended` slices; `truncateRoundTrip` first prunes round-trip lines (Pink/Brown/Orange/Purple, which ship as one terminus→Loop→terminus polyline) at the apex, otherwise the return-leg "active" half visually redraws bright over the dim on short stretches like Pink California↔Western. Active overlays are `path-10+color-0.95`, drawn first (bottom). Suspended is `path-10+color-0.4`, drawn **last** (top) so it covers the bright round-cap overlap that would otherwise bridge the gap on short suspensions. Station labels are placed via `pairedStationLabels` which flips the second pill below the dot if the two would horizontally collide above.
 - `src/shared/bluesky.js` — `resolveReplyRef` for root-aware threading (used by both pulse and alerts; bus alerts now go through it too).
 - `src/shared/history.js` — `recordAlertSeen` (with flicker reversal), `listUnresolvedAlerts`, `incrementAlertClearTicks`, `pulse_state` rows (now with `active_post_uri` / `active_post_ts`), `recordDisruption`, `getRecentPulsePostsAll` (24h), `hasObservedClearForPulse`, `hasUnresolvedCtaAlert`, `rolloffOld` (now also cleans up the cooldowns table). `ctaAlertPostedSince`, `hasObservedClearSince`, and `parseAtUri` were removed in favor of the new helpers.
 - `src/shared/observations.js` — train position storage + `getRecentTrainPositions` for pulse.
