@@ -79,6 +79,13 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     const numBins = Math.max(2, Math.ceil(totalFt / binFt));
     const lastSeenPerBin = new Array(numBins).fill(-Infinity);
     const binIdxOfPos = [];
+    // Per-train trajectories, used downstream to detect trains that crossed
+    // the cold run between snapshots — at ~3-5 min observer cadence, trains
+    // moving at typical speeds traverse a 0.25mi bin in <60s and frequently
+    // skip over a 1mi run between adjacent obs without ever being recorded
+    // inside it. Without this check, fast traversals look identical to true
+    // outages.
+    const trajByRun = new Map();
     let onBranch = 0;
 
     for (const p of branchObs) {
@@ -88,6 +95,14 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
       const idx = Math.min(numBins - 1, Math.max(0, Math.floor(along / (totalFt / numBins))));
       if (p.ts > lastSeenPerBin[idx]) lastSeenPerBin[idx] = p.ts;
       binIdxOfPos.push(idx);
+      if (p.rn) {
+        let traj = trajByRun.get(p.rn);
+        if (!traj) {
+          traj = [];
+          trajByRun.set(p.rn, traj);
+        }
+        traj.push({ ts: p.ts, along });
+      }
     }
 
     const zoneFt = terminalZoneFt(totalFt);
@@ -138,11 +153,30 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     if (stationsInRun.length < 1) continue;
     const fromStation = stationsInRun[0];
     const toStation = stationsInRun[stationsInRun.length - 1];
-    if (fromStation.station.name === toStation.station.name && stationsInRun.length === 1) {
-      // 1-station passSolo path can still anchor on a single station; mark it.
-    } else if (fromStation.station.name === toStation.station.name) {
-      continue;
+    // A run that only resolves to one station (or two with the same name)
+    // doesn't yield a renderable suspended-segment polyline downstream and
+    // can't be described as "X to Y" in a post. Skip rather than emit a
+    // degenerate "Halsted → Halsted" candidate.
+    if (fromStation.station.name === toStation.station.name) continue;
+
+    // Aliasing veto: did any train's consecutive observations bracket the
+    // cold run? If so, the train physically crossed it between snapshots —
+    // not a true outage, just a fast traversal.
+    let crossed = false;
+    for (const traj of trajByRun.values()) {
+      if (traj.length < 2) continue;
+      traj.sort((a, b) => a.ts - b.ts);
+      for (let i = 1; i < traj.length; i++) {
+        const a = traj[i - 1].along;
+        const b = traj[i].along;
+        if ((a < runLoFt && b > runHiFt) || (a > runHiFt && b < runLoFt)) {
+          crossed = true;
+          break;
+        }
+      }
+      if (crossed) break;
     }
+    if (crossed) continue;
 
     let lastSeenInRun = -Infinity;
     let positionsInRun = 0;

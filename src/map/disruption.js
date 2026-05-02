@@ -140,7 +140,13 @@ async function renderDisruption({
   }
 
   // Frame on the suspended stretch + buffer; citywide zoom would lose short suspensions.
-  const bbox = paddedBbox(bboxOf(suspended.flat()), 0.5, 0.02);
+  const flatSuspended = suspended.flat();
+  if (flatSuspended.length === 0) {
+    throw new Error(
+      `splitSegments produced empty suspended polyline for ${line} ${suspendedSegment.from}→${suspendedSegment.to} — refusing to render with NaN bbox`,
+    );
+  }
+  const bbox = paddedBbox(bboxOf(flatSuspended), 0.5, 0.02);
   const centerLat = (bbox.minLat + bbox.maxLat) / 2;
   const centerLon = (bbox.minLon + bbox.maxLon) / 2;
   const zoom = Math.min(13, fitZoom(bbox, WIDTH, HEIGHT, 120));
