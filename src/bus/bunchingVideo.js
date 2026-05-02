@@ -134,11 +134,16 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
     });
   }
 
+  // Stretch each ghost's fade across the rest of the clip so it visibly fades
+  // for the remainder of the video rather than disappearing in a fixed window
+  // (which is too quick on short clips). Capped at MAX_DEAD_RECKON_MS.
+  const videoEndTs = snapshots[lastSnapIdx].ts;
   function ghostsAt(frameTs) {
     const out = [];
     for (const [vid, drop] of tailDrops) {
       const ageMs = frameTs - drop.lastSeenTs;
       if (ageMs <= 0 || ageMs > MAX_DEAD_RECKON_MS) continue;
+      const fadeMs = Math.min(MAX_DEAD_RECKON_MS, Math.max(1, videoEndTs - drop.lastSeenTs));
       let lat = drop.lastV.lat;
       let lon = drop.lastV.lon;
       if (hasPolyline && drop.lastV.track != null) {
@@ -149,7 +154,7 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
           lon = p.lon;
         }
       }
-      const opacity = Math.max(0.15, 1 - ageMs / MAX_DEAD_RECKON_MS);
+      const opacity = Math.max(0.15, 1 - ageMs / fadeMs);
       out.push({
         vid,
         lat,
