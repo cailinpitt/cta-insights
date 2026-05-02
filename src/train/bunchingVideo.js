@@ -178,20 +178,22 @@ async function captureTrainBunchingVideo(bunch, lineColors, trainLines, stations
     });
   }
 
-  // Stretch each ghost's fade across the rest of the clip so it visibly fades
-  // for the remainder of the video rather than disappearing in a fixed window
-  // (which is too quick on short clips). Capped at MAX_DEAD_RECKON_MS.
+  // Keep ghosts visible until the end of the clip, fading slowly across the
+  // whole remainder. Position is dead-reckoned only up to MAX_DEAD_RECKON_MS
+  // (don't extrapolate stale speed indefinitely) — past that the ghost freezes
+  // at that projected spot and continues to fade in place.
   const videoEndTs = snapshots[lastSnapIdx].ts;
   function ghostsAt(frameTs) {
     const out = [];
     for (const [rn, drop] of tailDrops) {
       const ageMs = frameTs - drop.lastSeenTs;
-      if (ageMs <= 0 || ageMs > MAX_DEAD_RECKON_MS) continue;
-      const fadeMs = Math.min(MAX_DEAD_RECKON_MS, Math.max(1, videoEndTs - drop.lastSeenTs));
+      if (ageMs <= 0) continue;
+      const fadeMs = Math.max(1, videoEndTs - drop.lastSeenTs);
+      const positionAgeMs = Math.min(ageMs, MAX_DEAD_RECKON_MS);
       let lat = drop.lastT.lat;
       let lon = drop.lastT.lon;
       if (hasPolyline && drop.lastT.track != null) {
-        const newTrack = drop.lastT.track + drop.speedFtPerSec * (ageMs / 1000);
+        const newTrack = drop.lastT.track + drop.speedFtPerSec * (positionAgeMs / 1000);
         const p = pointAlongLine(linePts, lineCum, newTrack);
         if (p) {
           lat = p.lat;
