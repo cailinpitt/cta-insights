@@ -130,8 +130,39 @@ load-bearing — see invariants below.
   raw `trainLines.json` shape goes terminus→Loop→terminus as one
   polyline, so naively splitting at from/to leaves the return-leg half
   redrawing bright over the dim segment on short stretches. `splitSegments`
-  calls `truncateRoundTrip` first to prune at the apex, mirroring
-  `processSegment` in `speedmap.js`.
+  calls `truncateRoundTrip(seg, fromLoc, toLoc)` first to prune at the
+  apex, mirroring `processSegment` in `speedmap.js` — but the truncation
+  is disruption-aware: if either endpoint is closer to the dropped
+  (return-leg) half than the kept half, the disruption sits on the apex
+  itself (Loop-section pulses) and the full polyline is returned to
+  avoid chopping the very geometry the suspended segment lives on.
+- **`hourlyLookup` after 4 AM uses today's bucket only**, no fallback
+  to prior-day weekday. The previous fallback caused M-F-only bus
+  routes (31, 143, …) to look "scheduled" on Saturday morning because
+  the lookup leaked Friday's counts; same root cause produced false
+  Yellow/Purple synthetic train pulses at 5 AM Saturday. Before 4 AM,
+  prior-day is still preferred because CTA encodes 1:15 AM Sunday as
+  "25:15:00" under Saturday's service_id (the late-night extended-day
+  case is real).
+- **Pulse `from_station` / `to_station` are pinned once posted** —
+  `bin/train/pulse.js#handleCandidate` only writes from/to to
+  `pulse_state` while `active_post_uri` is null. After posting, the
+  row keeps the original station names so the eventual `✅` clear
+  reply matches the original suspended-post text. Without this the
+  cold run could drift one station per tick during a long outage and
+  the clear would name different endpoints.
+- **Cold-start grace** for both pulses: a line/route with zero
+  observations in the past 6 hours is treated as service-not-yet-
+  started rather than blackout. Train side: `getLineCorridorBbox`
+  returning null suppresses the synthetic full-line candidate. Bus
+  side: `getActiveBusRoutesSince(now-6h)` is passed to
+  `detectBusBlackouts`; routes not in the set are skipped.
+- **Service-corridor clip** — `detectDeadSegments` accepts an
+  `opts.corridorBbox` (past-6h obs bbox for the line) and excludes
+  bins outside it from the cold-run scan and coverage denominator.
+  This is what stops weekend Purple Express track (Howard → Loop) from
+  reading as cold every weekend morning. Synthesized full-line
+  candidates also clip from/to to in-corridor stations.
 
 ## Threading rules (alerts account)
 
@@ -213,7 +244,7 @@ alert with all its routes intact.
 | Ghost gates | `src/bus/ghosts.js` | `MISSING_PCT_THRESHOLD = 0.25`, `MISSING_ABS_THRESHOLD = 3`, `MIN_SNAPSHOTS = 4`, `RAMP_FILL_RATIO = 0.8` |
 | Train pulse detector | `src/train/pulse.js` | `DEFAULT_BIN_FT = 1320`, `DEFAULT_MIN_RUN_FT_LONG = 10560`, `SOLO_EXPECTED_TRAINS = 3` |
 | Train pulse bin | `bin/train/pulse.js` | `MIN_CONSECUTIVE_TICKS = 2`, `CLEAR_TICKS_TO_RESET = 3`, `POST_COOLDOWN_MS = 90 min`, `MIN_HOUR = 5` |
-| Bus pulse detector | `src/bus/pulse.js` | `MIN_EXPECTED_ACTIVE = 2`, `MIN_OTHER_ROUTES_ACTIVE = 5`, `LOOKBACK_FLOOR_MS = 25 min`, `LOOKBACK_CEIL_MS = 60 min` |
+| Bus pulse detector | `src/bus/pulse.js` | `MIN_EXPECTED_ACTIVE = 2`, `MIN_OTHER_ROUTES_ACTIVE = 5`, `LOOKBACK_FLOOR_MS = 25 min`, `LOOKBACK_CEIL_MS = 60 min`, `COLD_START_GRACE_MS = 6h` |
 | Significance gate | `src/shared/ctaAlerts.js` | `MIN_SEVERITY = 3`, `MAJOR_PATTERNS`, `MINOR_PATTERNS` |
 | Alert resolution debounce | `src/shared/history.js` | `ALERT_CLEAR_TICKS = 2`, `ALERT_FLICKER_RESET_MS = 30 min` |
 | Bus cache window | `src/bus/api.js` | `getVehiclesCachedOrFresh` `maxStaleMs = 11 min` |

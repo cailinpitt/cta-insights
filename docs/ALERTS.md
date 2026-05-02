@@ -44,7 +44,7 @@ The bus equivalent is intentionally simpler. Buses don't have a fixed branch geo
 1. Pull every bus observation recorded in the last 25–60 min (window scaled by the route's GTFS headway — 3× the longest direction, clamped) for each tracked route.
 2. For each route, count distinct vehicle IDs in the window.
 3. If the count is **zero** *and* GTFS says the route should have ≥ 2 active trips this hour *and* at least 5 other watchlist routes are reporting normally, that route is a blackout candidate.
-4. Suppress candidates during the first 30 minutes of an hour whose prior hour had no scheduled service. `activeByHour` averages over the hour, so a peak-only route resuming after a midday gap (e.g. X49 at 14:08) shows expectedActive ≥ 2 even though the first scheduled trip hasn't departed yet — without this guard, every post-gap restart would fire a false-positive blackout. The ghost detector handles the analogous problem with an observation-side tail-median check; pulse needs a schedule-side guard because strict-zero leaves no observations to compare against.
+4. Suppress candidates during the first 30 minutes of an hour whose prior hour had no scheduled service. `activeByHour` averages over the hour, so a peak-only route resuming after a midday gap (e.g. X49 at 14:08) shows expectedActive ≥ 2 even though the first scheduled trip hasn't departed yet — without this guard, every post-gap restart would fire a false-positive blackout. The ghost detector handles the analogous problem with an observation-side tail-median check; pulse needs a schedule-side guard because strict-zero leaves no observations to compare against. Belt-and-suspenders: also suppress when the route has had **zero observations in the past 6 hours** (`getActiveBusRoutesSince`). A route with no obs all morning is service-not-yet-started, not a blackout — catches the FP class where the first bus pulls out 5–10 min after scheduled service start.
 5. Require the same blackout to recur on two consecutive checks before posting (5–10 min of confirmed silence at the `*/5` cadence).
 6. Post text-only — `🚌⚠️ #<route> <name> service appears suspended` — with a footer that calls out the inferred-from-live-positions provenance. If a CTA bus alert on the route is already open, thread under it.
 7. When buses reappear for three consecutive clean ticks, post `🚌✅ #<route> <name> buses observed again` as a reply under the original pulse.
@@ -135,6 +135,8 @@ The multi-tick threshold protects against feed flicker — the CTA endpoint occa
 
 Every train-related cron job (`bunching`, `gaps`, `snapshot`, `pulse` itself) writes every observed `(ts, line, rn, trDr, lat, lon)` to the SQLite observations table. The pulse detector reads back the last 20 minutes of those rows for each line — `getRecentTrainPositions(sinceTs)`.
 
+The bin also queries `getLineCorridorBbox(line, now - 6h)` — the bounding box of all observations for the line in the past 6 hours. This becomes the *active service corridor* fed into the detector and into the synthetic full-line path. It catches lines whose published polyline includes track that isn't actually being used right now (e.g. weekend Purple Express runs Linden ↔ Howard only, but `trainLines.json` has a single Linden → Loop polyline). Without the corridor clip, every bin south of Howard reads as cold and the synthesized candidate names "Linden → Merchandise Mart" instead of "Linden → Howard."
+
 ### Step 2 — bin per branch (`src/train/pulse.js#detectDeadSegments`)
 
 Each line has one or more *branches* (Green's Ashland and Cottage Grove, Blue's O'Hare and Forest Park, etc.) — sourced from `trainLines.json` shapes. For each branch:
@@ -161,15 +163,18 @@ Other gates still apply:
 
 | Gate | Threshold | Rationale |
 |---|---|---|
-| `MIN_COVERAGE_FRAC` | ≥ 50% of bins seen ≥ once | If half the line never had a single observation, our data is too sparse — silence rather than guess. |
+| `MIN_COVERAGE_FRAC` | ≥ 50% of *in-corridor* bins seen ≥ once | If half the active corridor never had a single observation, our data is too sparse — silence rather than guess. The corridor clip (step 1) limits the denominator so weekend Purple's unused Express track doesn't drag coverage below threshold. |
 | `MIN_SPAN_FRAC` | observations span ≥ 50% of lookback | Prevents firing on a 30-second blip of data. |
 | Terminal zone exclusion | dead run can't touch first/last `terminalZoneFt` of the branch | Loop tail-tracks and short-turn pockets at terminals legitimately go quiet. |
+| Service-corridor clip | bins outside the past-6h observation bbox are excluded from the cold-run scan | The published polyline can include track not in active service today (Purple weekend Express, etc.). Bins outside the corridor are treated as "outside service," not cold. |
 | Distinct stations | `fromStation ≠ toStation` | A run that resolves to a single named station can't be described as "X to Y" in a post and produces a degenerate polyline slice that breaks `splitSegments` downstream (NaN bbox → Mapbox 422). Always skip. |
 | Straddle veto | reject if any train's consecutive observations bracket the cold run | At ~3–5 min observer cadence, trains traversing a 1 mi+ run between snapshots leave no in-run observation and look identical to a true outage. Per-train trajectories are tracked on the branch; if any pair of consecutive observations has `along[i-1] < runLoFt && along[i] > runHiFt` (or vice versa), the train physically crossed the run between snapshots and the candidate is dropped. Without this, short station gaps on dense lines (Pink California↔Western, Brown IPark↔Addison) generated FPs because the bin was "never observed" at our sampling rate. |
 
 `fromStation`/`toStation` are taken from `stationsInRun.filter(s => trackDist >= runLoFt && trackDist <= runHiFt)` — strictly inside the cold run. The previous `nearestStationAtOrBefore`/`After` reach-out could pick named endpoints that lay past the terminal-zone clip, mislabeling the dim segment.
 
 A separate full-line zero-obs branch handles complete blackouts: when a line has zero observations in the lookback while other lines have data and `expectedTrainActiveTrips > 0`, bin synthesizes a full-branch candidate marked `synthetic: true`. The renderer uses synthetic-specific evidence text: *"📡 No trains observed anywhere on the line in the last 20 min."*
+
+The synthetic path applies a **cold-start grace**: if `getLineCorridorBbox(line, now - 6h)` returns null — i.e. the line has zero observations in the past 6 hours — the bin treats this as service-not-yet-started rather than blackout and skips. Otherwise it would fire FPs every morning in the gap between scheduled service start and the first train actually pulling out of its terminal. When the corridor *is* known, the synthesized candidate's `from`/`to` stations are clipped to the in-corridor station list, so weekend Purple synthesizes "Linden → Howard" rather than "Linden → Merchandise Mart."
 
 The bin-level gates (`bin/train/pulse.js`):
 
@@ -183,24 +188,28 @@ The bin-level gates (`bin/train/pulse.js`):
 - If the new candidate's `[runLoFt, runHiFt]` overlaps the prior candidate's range by ≥ 50%, increment `consecutive_ticks`. Otherwise reset to 1.
 - Post only when `consecutive_ticks ≥ MIN_CONSECUTIVE_TICKS = 2`.
 - After a successful post, the row is **not** cleared — `active_post_uri` and `active_post_ts` are pinned. While `active_post_uri` is set, subsequent matching candidates skip the post but continue to refresh state. This is what wires the eventual bot-side clear directly to the right post.
+- **`from_station` / `to_station` are also pinned once `active_post_uri` is set.** Without this, the cold run could drift one bin (one station) per tick during a multi-hour outage, the row's named stations would follow, and the eventual `✅` clear reply would name different stations than the original suspended post said. The original post text is canonical; ticks that update the run boundaries don't update the row's station names.
 - A cooldown prevents the same dead segment from re-posting if it briefly clears and re-flags. The cooldown key is `train_pulse_<line>_<direction>_<from-slug>__<to-slug>` derived from the bracketing stations (`stableSegmentTag(candidate)`), so single-bin drift between ticks — which used to shift `runLoFt`/`runHiFt` by a few hundred feet and defeat a foot-range cooldown — no longer breaks it.
 - If the pulse candidate disappears, the state row sits for `CLEAR_TICKS_TO_RESET = 3` clean ticks before being deleted, so a single noisy tick where one train sneaks into the dead zone doesn't cancel the chain.
+- **Sparse-coverage clear advancement.** If the detector returns `skipped='sparse-coverage'` but observations did arrive on the line *and* an open pulse exists for that line, clear-ticks advance anyway. Previously a stuck pulse on a sparse-coverage line (e.g. Purple at off-peak when only a couple of trains cover the long branch) could never clear because the gate kept the detector from evaluating; the row lived forever.
 
 ### Step 5 — render and thread
 
 The detector emits a `Disruption` object: `{ line, suspendedSegment: { from, to }, alternative, source: 'observed', evidence: { runLengthMi, minutesSinceLastTrain, trainsOutsideRun, … } }`. `src/shared/disruption.js#buildPostText` formats it as:
 
 ```
-🚇⚠️ <Line> Line: trains not seen
+🚇⚠️ <Line> Line: trains to <terminus> not seen
 
 Between <from> and <to>.
 
-📡 No trains seen on this 4.2-mi stretch in the last 18 min (12 trains active elsewhere on the line).
+📡 No trains seen on this 4.2-mi stretch in the last 18 min — ~3 trains missed (12 trains active elsewhere on the line).
 
 Inferred from live train positions; CTA hasn't issued an alert for this yet.
 ```
 
 The observed-pulse title hedges intentionally (*"trains not seen"*, not *"service suspended"*) — the bot can only see an absence of observations and can't distinguish a true suspension from held trains, a snapshot aliasing miss, or a genuinely paused branch. CTA-sourced alerts (`source: 'cta-alert'`) keep the strong *"service suspended"* framing because CTA is authoritative.
+
+Round-trip Loop lines (Brown/Orange/Pink/Purple) detect per-direction, so the title carries the **terminus name** of the affected direction — "trains to 54th/Cermak not seen" or "trains to the Loop not seen." Bidirectional lines (Red/Blue/Green) pool both directions into the same bins, so an observed cold run there means *neither* direction has a train through the segment; the title omits the qualifier. The terminus map lives in `DIRECTION_TERMINUS` in `src/shared/disruption.js`. Evidence text correctly singularises ("~1 train missed" vs "~3 trains missed") and counts unique trains for the "active elsewhere on the line" tally — previously this counted observation rows, which with ~15s observer cadence inflated the count ~80× and produced absurd numbers like "171 trains active elsewhere" for a 5-train line.
 
 If there's an open CTA alert post for the same line in our DB, the pulse post is threaded as a reply to it (`findOpenAlertReplyRef`, which scores open-alert candidates by station-name overlap with the pulse's bracketing stations). The reverse case — pulse first, CTA alert later — is handled symmetrically in `bin/train/alerts.js#postNewAlert` via `getRecentPulsePostsAll` (24h window, broadened from 3h) ranked by station-name overlap with the alert text. Either ordering converges to a single thread. `bin/bus/alerts.js` uses the shared `resolveReplyRef` helper rather than its previous hand-rolled `parseAtUri`.
 
@@ -233,10 +242,10 @@ The bot-side clear (step 6 above) is the one place we deliberately accept a smal
 - `src/shared/ctaAlerts.js` — fetching, normalization, significance gates. `cleanText` decodes both named and numeric HTML entities; `parseCtaDate` accepts ISO 8601 (the actual feed format, not just the legacy wall-clock form).
 - `src/shared/alertPost.js` — alert and resolution post text.
 - `src/shared/disruption.js` — segment-dim disruption post text, alt text, and `buildClearPostText` (shared by republished alerts and pulse). `titleFor` branches on `source`: `'cta-alert'` keeps the strong *"service suspended"* framing; `'observed'` hedges with *"trains not seen"* since the bot only sees an absence and can't certify a true suspension.
-- `src/map/disruption.js` — Mapbox static map renderer that produces the dim/bright overlay on the route line, station-name pills, and title pill. `splitSegments` cuts the polyline at the from/to stations into `active` and `suspended` slices; `truncateRoundTrip` first prunes round-trip lines (Pink/Brown/Orange/Purple, which ship as one terminus→Loop→terminus polyline) at the apex, otherwise the return-leg "active" half visually redraws bright over the dim on short stretches like Pink California↔Western. Active overlays are `path-10+color-0.95`, drawn first (bottom). Suspended is `path-10+color-0.4`, drawn **last** (top) so it covers the bright round-cap overlap that would otherwise bridge the gap on short suspensions. Station labels are placed via `pairedStationLabels` which flips the second pill below the dot if the two would horizontally collide above.
+- `src/map/disruption.js` — Mapbox static map renderer that produces the dim/bright overlay on the route line, station-name pills, and title pill. `splitSegments` cuts the polyline at the from/to stations into `active` and `suspended` slices; `truncateRoundTrip` first prunes round-trip lines (Pink/Brown/Orange/Purple, which ship as one terminus→Loop→terminus polyline) at the apex, otherwise the return-leg "active" half visually redraws bright over the dim on short stretches like Pink California↔Western. The truncation is **disruption-aware**: if either `fromLoc` or `toLoc` is closer to the dropped (return-leg) half than the kept half, the disruption sits on the apex itself (typical for Loop-section pulses on Brown/Orange/Pink/Purple — e.g. Orange Roosevelt↔Washington/Wabash). In that case `truncateRoundTrip` returns the *full* polyline; otherwise `splitSegments` would chop the very geometry the suspended segment lives on and produce bogus bbox/overlay coordinates. Active overlays are `path-10+color-0.95`, drawn first (bottom). Suspended is `path-10+color-0.4`, drawn **last** (top) so it covers the bright round-cap overlap that would otherwise bridge the gap on short suspensions. Station labels are placed via `pairedStationLabels` which flips the second pill below the dot if the two would horizontally collide above.
 - `src/shared/bluesky.js` — `resolveReplyRef` for root-aware threading (used by both pulse and alerts; bus alerts now go through it too).
 - `src/shared/history.js` — `recordAlertSeen` (with flicker reversal), `listUnresolvedAlerts`, `incrementAlertClearTicks`, `pulse_state` rows (now with `active_post_uri` / `active_post_ts`), `recordDisruption`, `getRecentPulsePostsAll` (24h), `hasObservedClearForPulse`, `hasUnresolvedCtaAlert`, `rolloffOld` (now also cleans up the cooldowns table). `ctaAlertPostedSince`, `hasObservedClearSince`, and `parseAtUri` were removed in favor of the new helpers.
-- `src/shared/observations.js` — train position storage + `getRecentTrainPositions` for pulse.
+- `src/shared/observations.js` — train position storage + `getRecentTrainPositions` for pulse, plus `getLineCorridorBbox(line, sinceTs)` (active-corridor bbox over the past 6h, used to clip detection to revenue track) and `getActiveBusRoutesSince(sinceTs)` (Set of routes with ≥1 bus obs in the past 6h, used by bus pulse cold-start grace).
 - `src/train/pulse.js` — dead-segment detector (pure, no DB). Composite distance gate, full-line synthetic candidates, `stableSegmentTag`, `snapToLineWithPerp` (equirectangular).
 - `bin/bus/alerts.js`, `bin/train/alerts.js` — CTA-republishing cron entry points.
 - `bin/train/pulse.js` — pulse detector cron entry point (debounce, cooldown, threading, posting).

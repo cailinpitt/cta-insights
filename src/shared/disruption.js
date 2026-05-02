@@ -42,24 +42,56 @@ function titleFor(d) {
   return `🚇⚠️ ${lineName} Line: trains not seen`;
 }
 
-function buildPostText(d, { ctaAlertOpen = false } = {}) {
-  const { suspendedSegment, alternative, reason, source, evidence } = d;
-  const lines = [titleFor(d)];
-  const reasonPhrase = reason ? ` (${reason})` : '';
-  lines.push('', `Between ${suspendedSegment.from} and ${suspendedSegment.to}${reasonPhrase}.`);
-  if (alternative?.type === 'shortTurn') {
-    lines.push(`Trains currently running: ${alternative.from} ↔ ${alternative.to}.`);
-  } else if (alternative?.type === 'shuttle') {
-    lines.push(`Shuttle buses running: ${alternative.from} ↔ ${alternative.to}.`);
+const POST_GRAPHEME_LIMIT = 300;
+
+function graphemeLen(s) {
+  // Bluesky enforces grapheme count, not UTF-16 length. Use Intl.Segmenter
+  // when available; fall back to character length (a slight overcount that
+  // errs on the side of trimming, which is safer than under-counting).
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    const seg = new Intl.Segmenter('en', { granularity: 'grapheme' });
+    let n = 0;
+    for (const _ of seg.segment(s)) n++;
+    return n;
   }
-  if (source === 'observed' && evidence) {
-    lines.push('', evidenceLine(evidence));
-  }
-  lines.push('', footerFor(source, { ctaAlertOpen }));
-  return lines.join('\n');
+  return [...s].length;
 }
 
-function evidenceLine(e) {
+function buildPostText(d, { ctaAlertOpen = false } = {}) {
+  const { suspendedSegment, alternative, reason, source, evidence } = d;
+  const reasonPhrase = reason ? ` (${reason})` : '';
+  // Build the evidence line in two tiers — full and short — so we can
+  // gracefully shed the longest parenthetical (and then the second longest)
+  // when station names + terminus name push the post past Bluesky's 300-
+  // grapheme cap. The post is the source of truth; an over-length post fails
+  // outright on AT-proto, so we have to fit the limit before sending.
+  const fullEvidence = source === 'observed' && evidence ? evidenceLine(evidence) : null;
+  const shortEvidence =
+    source === 'observed' && evidence ? evidenceLine(evidence, { compact: true }) : null;
+
+  const compose = (evidenceText) => {
+    const lines = [titleFor(d)];
+    lines.push('', `Between ${suspendedSegment.from} and ${suspendedSegment.to}${reasonPhrase}.`);
+    if (alternative?.type === 'shortTurn') {
+      lines.push(`Trains currently running: ${alternative.from} ↔ ${alternative.to}.`);
+    } else if (alternative?.type === 'shuttle') {
+      lines.push(`Shuttle buses running: ${alternative.from} ↔ ${alternative.to}.`);
+    }
+    if (evidenceText) lines.push('', evidenceText);
+    lines.push('', footerFor(source, { ctaAlertOpen }));
+    return lines.join('\n');
+  };
+
+  let text = compose(fullEvidence);
+  if (graphemeLen(text) <= POST_GRAPHEME_LIMIT) return text;
+  text = compose(shortEvidence);
+  if (graphemeLen(text) <= POST_GRAPHEME_LIMIT) return text;
+  // Last resort: drop evidence entirely. Title + segment + footer is the
+  // bare minimum that still communicates the alert.
+  return compose(null);
+}
+
+function evidenceLine(e, { compact = false } = {}) {
   if (e.synthetic) {
     const stations = e.coldStations >= 2 ? ` (${e.coldStations} stations affected)` : '';
     return `📡 No trains observed anywhere on the line in the last ${e.lookbackMin || 20} min${stations}.`;
@@ -70,6 +102,12 @@ function evidenceLine(e) {
     e.minutesSinceLastTrain != null
       ? `the last ${e.minutesSinceLastTrain} min`
       : `the last ${e.lookbackMin || 20} min`;
+  // In compact mode drop the two parentheticals — they're additive context,
+  // not load-bearing for the alert. Saves ~50–60 chars to keep the post
+  // under Bluesky's 300-grapheme cap when station + terminus names are long.
+  if (compact) {
+    return `📡 No trains seen on this ${stretch}${stations} in ${since}.`;
+  }
   const missing =
     e.expectedTrains != null && e.expectedTrains >= 1
       ? ` — ~${e.expectedTrains} train${e.expectedTrains === 1 ? '' : 's'} missed`
