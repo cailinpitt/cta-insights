@@ -86,18 +86,6 @@ function clusterByPixels(points, centerLat, centerLon, zoom, width, height, radi
       }
     }
   }
-  if (process.env.HEATMAP_DEBUG) {
-    console.error(
-      '[heatmap] final clusters:',
-      items.map((c) => ({
-        x: Math.round(c.x),
-        y: Math.round(c.y),
-        count: c.count,
-        group: c.group,
-        labels: c.labels,
-      })),
-    );
-  }
   return items;
 }
 
@@ -186,8 +174,13 @@ async function renderLoopInset({ points, kind, trainLines, lineColors }) {
 
   const centerLat = (LOOP_BBOX.minLat + LOOP_BBOX.maxLat) / 2;
   const centerLon = (LOOP_BBOX.minLon + LOOP_BBOX.maxLon) / 2;
+  // Use the raw fit zoom (capped) instead of floor — flooring zoomed in
+  // past the bbox, pushing south-edge Loop stations (Roosevelt, Jackson,
+  // etc.) off the bottom of the 400×400 canvas. Their clusters then
+  // failed to render even though they were correctly grouped, making the
+  // inset's visible total smaller than the main map's downtown bubble.
   const rawZoom = fitZoom(LOOP_BBOX, LOOP_INSET_SIZE, LOOP_INSET_SIZE, 20);
-  const zoom = Math.max(13, Math.min(17, Math.floor(rawZoom)));
+  const zoom = Math.max(13, Math.min(17, rawZoom));
 
   const token = requireMapboxToken();
   const overlayPart = overlays.length ? `${overlays.join(',')}/` : '';
@@ -256,18 +249,6 @@ async function renderHeatmap({ points, kind, trainLines = null, lineColors = nul
     lon >= LOOP_BBOX.minLon &&
     lon <= LOOP_BBOX.maxLon;
   const taggedPoints = points.map((p) => ({ ...p, group: inLoop(p.lat, p.lon) ? 'loop' : 'rest' }));
-  if (process.env.HEATMAP_DEBUG) {
-    console.error(
-      '[heatmap] tagged points:',
-      taggedPoints.map((p) => ({
-        label: p.label,
-        lat: p.lat,
-        lon: p.lon,
-        count: p.count,
-        group: p.group,
-      })),
-    );
-  }
   const clusters = clusterByPixels(
     taggedPoints,
     centerLat,
