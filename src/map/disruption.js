@@ -183,8 +183,11 @@ function splitSegments(segments, fromLoc, toLoc) {
   // branch (e.g. Cottage Grove → 1.3 km from a vertex on the Ashland/63rd
   // segment, well under nearestVertexIdx's 4 km cutoff), so naïvely
   // splitting every segment dims a bogus stretch on the wrong branch and
-  // blows up the bbox. Pick the segment whose (from+to) snaps are tightest
-  // and split only that one; treat the others as fully active.
+  // blows up the bbox. Pick the segment whose (from+to) snaps are tightest,
+  // split only that one, and *drop the others entirely* — keeping them
+  // active overlays bright stroke on the shared trunk under the dim
+  // suspended overlay, washing out the dim and making it hard to tell
+  // which stretch is suspended.
   const prepared = segments.map((rawSeg) => {
     const seg = truncateRoundTrip(densifyLoopPolyline(rawSeg), fromLoc, toLoc);
     if (seg.length < 2) return { seg };
@@ -203,13 +206,19 @@ function splitSegments(segments, fromLoc, toLoc) {
       bestI = i;
     }
   }
+  // Fallback when no segment yielded both snaps (extremely-far branch,
+  // station name resolution miss, etc.): keep every segment active so the
+  // line is at least drawn, instead of returning an empty render.
+  if (bestI === -1) {
+    for (const { seg } of prepared) {
+      if (seg.length >= 2) active.push(seg);
+    }
+    return { active, suspended };
+  }
   for (let i = 0; i < prepared.length; i++) {
     const { seg } = prepared[i];
     if (seg.length < 2) continue;
-    if (i !== bestI) {
-      active.push(seg);
-      continue;
-    }
+    if (i !== bestI) continue;
     const fromIdx = prepared[i].from.idx;
     const toIdx = prepared[i].to.idx;
     if (fromIdx === toIdx) {
