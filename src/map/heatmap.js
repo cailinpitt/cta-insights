@@ -86,6 +86,18 @@ function clusterByPixels(points, centerLat, centerLon, zoom, width, height, radi
       }
     }
   }
+  if (process.env.HEATMAP_DEBUG) {
+    console.error(
+      '[heatmap] final clusters:',
+      items.map((c) => ({
+        x: Math.round(c.x),
+        y: Math.round(c.y),
+        count: c.count,
+        group: c.group,
+        labels: c.labels,
+      })),
+    );
+  }
   return items;
 }
 
@@ -244,6 +256,18 @@ async function renderHeatmap({ points, kind, trainLines = null, lineColors = nul
     lon >= LOOP_BBOX.minLon &&
     lon <= LOOP_BBOX.maxLon;
   const taggedPoints = points.map((p) => ({ ...p, group: inLoop(p.lat, p.lon) ? 'loop' : 'rest' }));
+  if (process.env.HEATMAP_DEBUG) {
+    console.error(
+      '[heatmap] tagged points:',
+      taggedPoints.map((p) => ({
+        label: p.label,
+        lat: p.lat,
+        lon: p.lon,
+        count: p.count,
+        group: p.group,
+      })),
+    );
+  }
   const clusters = clusterByPixels(
     taggedPoints,
     centerLat,
