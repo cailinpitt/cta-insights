@@ -221,6 +221,29 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     // degenerate "Halsted → Halsted" candidate.
     if (fromStation.station.name === toStation.station.name) continue;
 
+    // Ramp-up veto: the day's first direction-matching train may simply not
+    // have reached this stretch yet. Brown 06:10 FPs are the canonical case —
+    // outbound service started at 05:34, but vehicle 401 was still climbing
+    // toward Western and hadn't entered Francisco↔Irving Park. The 20 min
+    // lookback can't tell that apart from a real outage; a 2 h lookback
+    // can. If no direction-matching observation has reached the cold run's
+    // near edge in the past 2 h, treat it as not-yet-served, not cold.
+    if (opts.longLookbackPositions && opts.longLookbackPositions.length > 0 && trDrFilter) {
+      let maxAlongDirMatch = -Infinity;
+      for (const p of opts.longLookbackPositions) {
+        if (p.trDr !== trDrFilter) continue;
+        const { cumDist: along, perpDist } = snapToLineWithPerp(p.lat, p.lon, points, cumDist);
+        if (perpDist > MAX_PERP_FT) continue;
+        if (along > maxAlongDirMatch) maxAlongDirMatch = along;
+      }
+      if (maxAlongDirMatch < runLoFt) {
+        console.log(
+          `[${lineLabel(line)}/${directionKeyFor(branches, branchIdx, directionHint)}] ramp-up suppressed: no direction-${trDrFilter} obs reached ${(runLoFt / 5280).toFixed(1)}mi in past 2h (max=${(maxAlongDirMatch / 5280).toFixed(1)}mi)`,
+        );
+        continue;
+      }
+    }
+
     // Aliasing veto: did any train's consecutive observations bracket the
     // cold run? If so, the train physically crossed it between snapshots —
     // not a true outage, just a fast traversal.

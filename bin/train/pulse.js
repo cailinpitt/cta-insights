@@ -502,14 +502,37 @@ async function main() {
     // doesn't read as "cold" against the full Linden→Loop polyline.
     const CORRIDOR_LOOKBACK_MS = 6 * 60 * 60 * 1000;
     const corridorBbox = getLineCorridorBbox(line, now - CORRIDOR_LOOKBACK_MS);
+    // A tighter "still warm?" probe: was the line observed recently (60 min)?
+    // The 6 h corridor pretends a line is active if last night's owl service
+    // bled into the window, which let early-morning Purple FPs through. The
+    // cold-start grace really wants "service is currently running," not "ran
+    // sometime today."
+    const COLD_START_RECENT_MS = 60 * 60 * 1000;
+    const recentlyActive = !!getLineCorridorBbox(line, now - COLD_START_RECENT_MS);
     if (recent.length === 0) {
       tally.noObs++;
       tally.syntheticChecked++;
-      await maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now, corridorBbox);
+      await maybeSyntheticFullLineCandidate(
+        line,
+        allRecent,
+        agentGetter,
+        now,
+        corridorBbox,
+        recentlyActive,
+      );
       continue;
     }
 
     const headwayMin = safeHeadway(line);
+
+    // Past-2h positions for the stretch-path ramp-up check. If the day's
+    // first direction-matching train hasn't yet reached a stretch, the
+    // 20 min lookback alone reads it as cold; the 2h lookback verifies
+    // service has actually been running on the stretch recently.
+    const RAMP_UP_LOOKBACK_MS = 2 * 60 * 60 * 1000;
+    const longRecent = getRecentTrainPositions(now - RAMP_UP_LOOKBACK_MS).filter(
+      (r) => r.line === line,
+    );
 
     let detection;
     try {
@@ -527,6 +550,12 @@ async function main() {
             lat: r.lat,
             lon: r.lon,
             rn: r.rn,
+            trDr: r.trDr,
+          })),
+          longLookbackPositions: longRecent.map((r) => ({
+            ts: r.ts,
+            lat: r.lat,
+            lon: r.lon,
             trDr: r.trDr,
           })),
         },
@@ -601,7 +630,14 @@ async function main() {
 // failure across all interlockings) the API returns zero observations for it.
 // If other lines have data and GTFS says service should be running, treat it
 // as a full-branch candidate so pulse can flag the outage.
-async function maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now, corridorBbox) {
+async function maybeSyntheticFullLineCandidate(
+  line,
+  allRecent,
+  agentGetter,
+  now,
+  corridorBbox,
+  recentlyActive,
+) {
   if (allRecent.length === 0) return; // pipeline-wide problem, not line-specific
   let expected = 0;
   try {
@@ -617,9 +653,19 @@ async function maybeSyntheticFullLineCandidate(line, allRecent, agentGetter, now
   // an alert in that gap produces an FP that resolves on its own ~5 min
   // later. The corridorBbox is a cheap proxy for "anything on this line
   // recently"; null means nothing in the last 6h.
-  if (!corridorBbox) {
+  //
+  // The 6h window also catches a softer ramp-up case: last night's owl
+  // service bled into the window (e.g. Purple's last train at 00:07 still
+  // counts as "recent" at 06:05), so corridorBbox is non-null even though
+  // service has been dark for hours. recentlyActive is a tighter probe
+  // (60 min) over the same observations table — if nothing's been seen
+  // recently, treat it as cold-start regardless of stale 6h evidence.
+  if (!corridorBbox || !recentlyActive) {
+    const reason = corridorBbox
+      ? 'no obs in past 60 min — service likely hasn’t started yet'
+      : 'no obs in past 6h';
     console.log(
-      `pulse: zero observations on line=${lineLabel(line)} but ${expected} trips expected — within cold-start grace window (no obs in past 6h), skipping synthetic candidate`,
+      `pulse: zero observations on line=${lineLabel(line)} but ${expected} trips expected — within cold-start grace window (${reason}), skipping synthetic candidate`,
     );
     return;
   }
