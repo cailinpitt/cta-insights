@@ -230,6 +230,32 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     // degenerate "Halsted → Halsted" candidate.
     if (fromStation.station.name === toStation.station.name) continue;
 
+    // Turnaround-tail veto: on round-trip lines (Brown/Orange/Pink/Purple)
+    // each branch is filtered by trDr, but Train Tracker flips trDr at the
+    // terminal as trains turn around. The result is that the segment between
+    // the second-to-last station and the terminal sees only brief 1–2 obs
+    // dir-matched windows per inbound train (everything else gets re-tagged
+    // outbound). At off-peak headways that's enough random clustering to
+    // produce 30+ min gaps in the dir-matched feed even though service is
+    // running normally. The geometric terminal-zone clip (terminalZoneFt =
+    // 1500 ft) doesn't help: South Boulevard→Howard on Purple is 0.7 mi, so
+    // the run sits just outside the zone but still names Howard as `to`.
+    // Reject candidates whose named endpoint IS the branch's first or last
+    // station when a trDrFilter is in play — those are tail artifacts, not
+    // service gaps.
+    if (trDrFilter && stationsOnBranch.length >= 2) {
+      const branchHead = stationsOnBranch[0].station.name;
+      const branchTail = stationsOnBranch[stationsOnBranch.length - 1].station.name;
+      if (
+        fromStation.station.name === branchHead ||
+        toStation.station.name === branchHead ||
+        fromStation.station.name === branchTail ||
+        toStation.station.name === branchTail
+      ) {
+        continue;
+      }
+    }
+
     // Ramp-up veto: the day's first direction-matching train may simply not
     // have reached this stretch yet. Brown 06:10 FPs are the canonical case —
     // outbound service started at 05:34, but vehicle 401 was still climbing
@@ -289,6 +315,42 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     const coldStations = stationsInRun.length;
     const coldStationNames = stationsInRun.map((s) => s.station.name);
 
+    // Direction-of-travel destination for the trDr-matched feed, derived
+    // empirically from where in the branch the trDr-tagged trains actually
+    // end up. Lets the title say "trains to Howard not seen" on a Sunday
+    // Purple shuttle (where inbound trains terminate at Howard) instead of
+    // the static "trains to the Loop" — which is only correct on weekday
+    // peak when Express service runs through. We use the trDr-matched obs's
+    // farthest-along position, then snap to the nearest in-corridor station.
+    let directionDestinationName = null;
+    if (trDrFilter && stationsOnBranch.length >= 2) {
+      let dirMaxAlong = -Infinity;
+      let dirMinAlong = Infinity;
+      for (const p of branchObs) {
+        if (p.trDr !== trDrFilter) continue;
+        const { cumDist: along, perpDist } = snapToLineWithPerp(p.lat, p.lon, points, cumDist);
+        if (perpDist > MAX_PERP_FT) continue;
+        if (along > dirMaxAlong) dirMaxAlong = along;
+        if (along < dirMinAlong) dirMinAlong = along;
+      }
+      if (dirMaxAlong > -Infinity) {
+        // Pick whichever extreme is farther from the branch midpoint — that's
+        // the side trDr-matched trains travel toward. Snap to the nearest
+        // station that doesn't exceed corridor bounds.
+        const mid = totalFt / 2;
+        const towardHi = Math.abs(dirMaxAlong - mid) >= Math.abs(dirMinAlong - mid);
+        const corridorLoFt = corridorLo * (totalFt / numBins);
+        const corridorHiFt = corridorHi * (totalFt / numBins);
+        const inCorridor = stationsOnBranch.filter(
+          (s) => s.trackDist >= corridorLoFt && s.trackDist <= corridorHiFt,
+        );
+        if (inCorridor.length > 0) {
+          const dest = towardHi ? inCorridor[inCorridor.length - 1] : inCorridor[0];
+          directionDestinationName = dest.station.name;
+        }
+      }
+    }
+
     // Composite admit gate: any one of the three paths is sufficient. Minor
     // veto already happened upstream via cold-threshold + terminal exclusion.
     const passLong = runLengthFt >= minRunFtLong;
@@ -320,6 +382,7 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
       coldStationNames,
       expectedTrains,
       headwayMin: headwayMin != null ? headwayMin : null,
+      directionDestinationName,
     });
   }
 

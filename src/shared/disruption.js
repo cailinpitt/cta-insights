@@ -7,10 +7,13 @@
 
 const { LINE_NAMES } = require('../train/api');
 
-// Terminus label per line + direction for round-trip Loop lines. Used in
-// post titles so readers know which direction's trains are missing — saying
-// "trains toward 54th/Cermak not seen" is far clearer than "outbound" for
-// a non-rider audience.
+// Static terminus fallback per line + direction for round-trip Loop lines.
+// Used only when the detector didn't supply an empirical destination — see
+// directionDestinationName, which is derived from where the trDr-matched
+// trains actually end up in the active service corridor. The static map is
+// only correct on weekday peaks (e.g. Purple Express runs through to the
+// Loop); on Sundays the Purple shuttle terminates at Howard, and the
+// detector-supplied value picks that up.
 const DIRECTION_TERMINUS = {
   brn: { outbound: 'Kimball', inbound: 'the Loop' },
   org: { outbound: 'Midway', inbound: 'the Loop' },
@@ -19,6 +22,7 @@ const DIRECTION_TERMINUS = {
 };
 
 function terminusFor(d) {
+  if (d.directionDestinationName) return d.directionDestinationName;
   if (!d.directionHint) return null;
   return DIRECTION_TERMINUS[d.line]?.[d.directionHint] || null;
 }
