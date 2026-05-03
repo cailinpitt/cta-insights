@@ -3,13 +3,16 @@ const { encode } = require('../shared/polyline');
 const { fitZoom, project } = require('../shared/projection');
 const { STYLE, WIDTH, HEIGHT, requireMapboxToken, fetchMapboxStatic } = require('./common');
 
-// Tighter than the metro-area bbox so the city itself fills the frame.
-// Covers Howard/Rogers Park (north) to 130th (south), O'Hare (west) to
-// the lakefront (east).
+// Sized to contain the full CTA rail system so it sits centered in the
+// frame: Linden (Purple, ~42.073) and Dempster-Skokie (Yellow, ~42.038)
+// at the north, 95th/Dan Ryan (~41.722) at the south, Forest Park
+// (~41.875, -87.817) and O'Hare (~41.978, -87.904) at the west, and the
+// lakefront at the east. Earlier bbox stopped at 42.03, which clipped
+// the Yellow and Purple termini at the top of the image.
 const CHICAGO_BBOX = {
-  minLat: 41.65,
-  maxLat: 42.03,
-  minLon: -87.85,
+  minLat: 41.69,
+  maxLat: 42.1,
+  minLon: -87.92,
   maxLon: -87.52,
 };
 
