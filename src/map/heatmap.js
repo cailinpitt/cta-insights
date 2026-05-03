@@ -48,6 +48,9 @@ function clusterByPixels(points, centerLat, centerLon, zoom, width, height, radi
       y,
       count: p.count,
       r: radiusFn(p.count),
+      // Optional group tag — when set, clustering refuses merges across
+      // groups so an inset-bbox bubble doesn't absorb non-inset stations.
+      group: p.group,
       // Keep the dominant label so the alt text from the post still maps to a
       // recognizable intersection.
       labels: [{ label: p.label, count: p.count }],
@@ -61,6 +64,7 @@ function clusterByPixels(points, centerLat, centerLon, zoom, width, height, radi
       for (let j = i + 1; j < items.length; j++) {
         const a = items[i];
         const b = items[j];
+        if (a.group && b.group && a.group !== b.group) continue;
         const dx = a.x - b.x;
         const dy = a.y - b.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -229,20 +233,19 @@ async function renderHeatmap({ points, kind, trainLines = null, lineColors = nul
   const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlayStr}${centerLon.toFixed(5)},${centerLat.toFixed(5)},${zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
   const baseMap = await fetchMapboxStatic(url, 30000);
 
-  // Strip Loop-bbox points before clustering so the inset is the sole
-  // home for downtown hotspots. Without this, a merged cluster's weighted
-  // centroid could land visually over downtown while including stations
-  // outside the Loop (Belmont, Fullerton, etc.) — the main bubble's
-  // count then wouldn't match the inset, which only counts strict-Loop
-  // stations.
+  // Tag each point as Loop or non-Loop so clustering can refuse cross-
+  // boundary merges. Without this, a Loop station and a near-Loop station
+  // (Belmont, Fullerton) can merge at citywide zoom and the resulting
+  // bubble's count exceeds what the Loop inset shows below — confusing
+  // because the inset only breaks down strict-Loop stations.
   const inLoop = (lat, lon) =>
     lat >= LOOP_BBOX.minLat &&
     lat <= LOOP_BBOX.maxLat &&
     lon >= LOOP_BBOX.minLon &&
     lon <= LOOP_BBOX.maxLon;
-  const nonLoopPoints = points.filter((p) => !inLoop(p.lat, p.lon));
+  const taggedPoints = points.map((p) => ({ ...p, group: inLoop(p.lat, p.lon) ? 'loop' : 'rest' }));
   const clusters = clusterByPixels(
-    nonLoopPoints,
+    taggedPoints,
     centerLat,
     centerLon,
     zoom,
