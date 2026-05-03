@@ -177,15 +177,41 @@ function _findNearestIndex(poly, loc) {
 function splitSegments(segments, fromLoc, toLoc) {
   const active = [];
   const suspended = [];
-  for (const rawSeg of segments) {
+  // Branched lines (Green: Ashland/63rd vs Cottage Grove; Red: 95th vs the
+  // unused stub) ship as separate polylines that share a trunk. A station
+  // on one branch can still find a closeish nearest vertex on the *other*
+  // branch (e.g. Cottage Grove → 1.3 km from a vertex on the Ashland/63rd
+  // segment, well under nearestVertexIdx's 4 km cutoff), so naïvely
+  // splitting every segment dims a bogus stretch on the wrong branch and
+  // blows up the bbox. Pick the segment whose (from+to) snaps are tightest
+  // and split only that one; treat the others as fully active.
+  const prepared = segments.map((rawSeg) => {
     const seg = truncateRoundTrip(densifyLoopPolyline(rawSeg), fromLoc, toLoc);
+    if (seg.length < 2) return { seg };
+    const from = nearestVertexInfo(seg, fromLoc);
+    const to = nearestVertexInfo(seg, toLoc);
+    return { seg, from, to };
+  });
+  let bestI = -1;
+  let bestScore = Infinity;
+  for (let i = 0; i < prepared.length; i++) {
+    const { from, to } = prepared[i];
+    if (!from || !to || from.idx == null || to.idx == null) continue;
+    const score = from.distMeters + to.distMeters;
+    if (score < bestScore) {
+      bestScore = score;
+      bestI = i;
+    }
+  }
+  for (let i = 0; i < prepared.length; i++) {
+    const { seg } = prepared[i];
     if (seg.length < 2) continue;
-    const fromIdx = nearestVertexIdx(seg, fromLoc);
-    const toIdx = nearestVertexIdx(seg, toLoc);
-    if (fromIdx == null || toIdx == null) {
+    if (i !== bestI) {
       active.push(seg);
       continue;
     }
+    const fromIdx = prepared[i].from.idx;
+    const toIdx = prepared[i].to.idx;
     if (fromIdx === toIdx) {
       // Close-together stations (e.g. California ↔ Western on Pink, ~0.3 mi)
       // can both snap to the same polyline vertex. Earlier this fell through
@@ -224,6 +250,11 @@ function splitSegments(segments, fromLoc, toLoc) {
 }
 
 function nearestVertexIdx(seg, loc) {
+  const info = nearestVertexInfo(seg, loc);
+  return info ? info.idx : null;
+}
+
+function nearestVertexInfo(seg, loc) {
   let bestIdx = -1;
   let bestD = Infinity;
   for (let i = 0; i < seg.length; i++) {
@@ -236,7 +267,8 @@ function nearestVertexIdx(seg, loc) {
   // Reject snaps that are absurdly far — those mean the station isn't on
   // this segment (e.g. trying to dim a Forest Park station on the O'Hare-only
   // segment if the polyline ever gets split into branches).
-  return bestD < 4000 ? bestIdx : null;
+  if (bestD >= 4000) return null;
+  return { idx: bestIdx, distMeters: bestD };
 }
 
 function resolveStation(stations, line, name) {
