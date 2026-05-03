@@ -135,9 +135,10 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
   }
 
   // Keep ghosts visible until the end of the clip, fading slowly across the
-  // whole remainder. Position is dead-reckoned only up to MAX_DEAD_RECKON_MS
-  // (don't extrapolate stale speed indefinitely) — past that the ghost freezes
-  // at that projected spot and continues to fade in place.
+  // whole remainder. Dead-reckon position at last-known speed for the whole
+  // clip too — pointAlongLine clamps at the polyline endpoints if the
+  // extrapolation runs past the terminal, so a ghost just parks at the end
+  // of the line rather than disappearing or jumping.
   const videoEndTs = snapshots[lastSnapIdx].ts;
   function ghostsAt(frameTs) {
     const out = [];
@@ -145,11 +146,10 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
       const ageMs = frameTs - drop.lastSeenTs;
       if (ageMs <= 0) continue;
       const fadeMs = Math.max(1, videoEndTs - drop.lastSeenTs);
-      const positionAgeMs = Math.min(ageMs, MAX_DEAD_RECKON_MS);
       let lat = drop.lastV.lat;
       let lon = drop.lastV.lon;
       if (hasPolyline && drop.lastV.track != null) {
-        const newTrack = drop.lastV.track + drop.speedFtPerSec * (positionAgeMs / 1000);
+        const newTrack = drop.lastV.track + drop.speedFtPerSec * (ageMs / 1000);
         const p = pointAlongLine(linePts, lineCum, newTrack);
         if (p) {
           lat = p.lat;
