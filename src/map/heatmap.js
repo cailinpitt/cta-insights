@@ -229,8 +229,20 @@ async function renderHeatmap({ points, kind, trainLines = null, lineColors = nul
   const url = `https://api.mapbox.com/styles/v1/${STYLE}/static/${overlayStr}${centerLon.toFixed(5)},${centerLat.toFixed(5)},${zoom.toFixed(2)}/${WIDTH}x${HEIGHT}@2x?access_token=${token}`;
   const baseMap = await fetchMapboxStatic(url, 30000);
 
+  // Strip Loop-bbox points before clustering so the inset is the sole
+  // home for downtown hotspots. Without this, a merged cluster's weighted
+  // centroid could land visually over downtown while including stations
+  // outside the Loop (Belmont, Fullerton, etc.) — the main bubble's
+  // count then wouldn't match the inset, which only counts strict-Loop
+  // stations.
+  const inLoop = (lat, lon) =>
+    lat >= LOOP_BBOX.minLat &&
+    lat <= LOOP_BBOX.maxLat &&
+    lon >= LOOP_BBOX.minLon &&
+    lon <= LOOP_BBOX.maxLon;
+  const nonLoopPoints = points.filter((p) => !inLoop(p.lat, p.lon));
   const clusters = clusterByPixels(
-    points,
+    nonLoopPoints,
     centerLat,
     centerLon,
     zoom,
