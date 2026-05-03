@@ -21,10 +21,10 @@ const DEFAULT_TICKS = 40; // 10 min of real time
 const DEFAULT_INTERPOLATE = 4;
 const DEFAULT_FRAMERATE = 16;
 // CTA's train tracker can briefly drop a train (GPS loss, prediction
-// suppression near terminals/yards). For tail drops (train never reappears),
-// advance last-known position along the polyline at last-known speed and
-// fade opacity to zero over this window, then drop entirely.
-const MAX_DEAD_RECKON_MS = 30_000;
+// suppression near terminals/yards). For tail drops (train never reappears)
+// we render a fading gray ghost dead-reckoned along the polyline at
+// last-known speed for the rest of the clip rather than letting the marker
+// vanish mid-frame.
 
 // CTA occasionally returns a single-tick GPS teleport (~0.5–1 mi off-route
 // and back). At ~15 s tick spacing, anything past this caps real train motion
@@ -188,7 +188,10 @@ async function captureTrainBunchingVideo(bunch, lineColors, trainLines, stations
     const out = [];
     for (const [rn, drop] of tailDrops) {
       const ageMs = frameTs - drop.lastSeenTs;
-      if (ageMs <= 0) continue;
+      // Render at the exact transition frame (ageMs == 0) so the ghost
+      // takes over without a one-frame gap; the train is already excluded
+      // from normal rendering starting at this snapshot.
+      if (ageMs < 0) continue;
       const fadeMs = Math.max(1, videoEndTs - drop.lastSeenTs);
       let lat = drop.lastT.lat;
       let lon = drop.lastT.lon;

@@ -17,11 +17,10 @@ const DEFAULT_TICKS = 40; // 10 min of real time
 const DEFAULT_INTERPOLATE = 4; // turns 16 real samples → 61 smoothed frames
 const DEFAULT_FRAMERATE = 16; // ~4s clip at 16× speed
 // CTA's getvehicles can briefly drop a vehicle (GPS loss, prediction
-// suppression near terminals, single missed poll). Without bridging, a bus
-// "vanishes" mid-clip. For tail drops (vehicle never reappears), advance the
-// last known position along the polyline at last-known speed and fade out
-// over this window. Past the cap we stop rendering it entirely.
-const MAX_DEAD_RECKON_MS = 30_000;
+// suppression near terminals, single missed poll). For tail drops (vehicle
+// never reappears) we render a fading gray ghost dead-reckoned along the
+// polyline at last-known speed for the rest of the clip rather than letting
+// the marker vanish mid-frame.
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -100,8 +99,8 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
 
   // Tail drops: VIDs missing from the final snapshot that the API stopped
   // reporting before the clip ended. Without special handling these vanish
-  // abruptly. We dead-reckon them along the polyline at last-known speed and
-  // fade opacity to zero over MAX_DEAD_RECKON_MS, then drop them entirely.
+  // abruptly. We dead-reckon them along the polyline at last-known speed
+  // and fade opacity from full to a 0.15 floor across the rest of the clip.
   const lastSnapIdx = snapshots.length - 1;
   const finalByVid = new Map(snapshots[lastSnapIdx].vehicles.map((v) => [v.vid, v]));
   const tailDrops = new Map();
@@ -144,7 +143,10 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
     const out = [];
     for (const [vid, drop] of tailDrops) {
       const ageMs = frameTs - drop.lastSeenTs;
-      if (ageMs <= 0) continue;
+      // Render at the exact transition frame (ageMs == 0) so the ghost
+      // takes over without a one-frame gap; the bus is already excluded
+      // from normal rendering starting at this snapshot.
+      if (ageMs < 0) continue;
       const fadeMs = Math.max(1, videoEndTs - drop.lastSeenTs);
       let lat = drop.lastV.lat;
       let lon = drop.lastV.lon;
