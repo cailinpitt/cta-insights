@@ -174,13 +174,15 @@ async function renderLoopInset({ points, kind, trainLines, lineColors }) {
 
   const centerLat = (LOOP_BBOX.minLat + LOOP_BBOX.maxLat) / 2;
   const centerLon = (LOOP_BBOX.minLon + LOOP_BBOX.maxLon) / 2;
-  // Use the raw fit zoom (capped) instead of floor — flooring zoomed in
-  // past the bbox, pushing south-edge Loop stations (Roosevelt, Jackson,
-  // etc.) off the bottom of the 400×400 canvas. Their clusters then
-  // failed to render even though they were correctly grouped, making the
-  // inset's visible total smaller than the main map's downtown bubble.
+  // Use whatever fitZoom gives us, only capped from above. Earlier code
+  // forced a min of 13 and floored the zoom — both pushed the projection
+  // tighter than the bbox, so south-edge Loop stations (Roosevelt etc.)
+  // and north-edge stations (Chicago Red) projected off the 400×400
+  // canvas. Their clusters then dropped silently and the inset's visible
+  // total ran short of the main map's downtown bubble. fitZoom already
+  // includes margin; trust it.
   const rawZoom = fitZoom(LOOP_BBOX, LOOP_INSET_SIZE, LOOP_INSET_SIZE, 20);
-  const zoom = Math.max(13, Math.min(17, rawZoom));
+  const zoom = Math.min(17, rawZoom);
 
   const token = requireMapboxToken();
   const overlayPart = overlays.length ? `${overlays.join(',')}/` : '';
