@@ -64,6 +64,9 @@ const trainStations = require('../../src/train/data/trainStations.json');
 const DRY_RUN = process.env.PULSE_DRY_RUN === '1' || process.argv.includes('--dry-run');
 
 const LOOKBACK_MS = 20 * 60 * 1000;
+// Match the detector's 2.5× cold-threshold multiplier — keeps lookback wide
+// enough that any bin reading cold has actual observation evidence behind it.
+const COLD_HEADWAY_MULT_FOR_LOOKBACK = 2.5;
 const MIN_CONSECUTIVE_TICKS = 2;
 const CLEAR_TICKS_TO_RESET = 3;
 const POST_COOLDOWN_MS = 90 * 60 * 1000;
@@ -527,6 +530,25 @@ async function main() {
 
     const headwayMin = safeHeadway(line);
 
+    // Scale lookback with scheduled headway so the window is always at least
+    // as wide as the detector's cold threshold + a small buffer. Otherwise,
+    // when threshold (max(15min, 2.5× headway)) exceeds the 20-min default
+    // lookback (any line with headway > 6min), bins that simply weren't seen
+    // in the 20-min window read cold without any real evidence. For Green @
+    // 20-min Sunday headway: threshold = 50 min, so we look back ≥ 55 min,
+    // and a bin only reads cold if no train was actually observed there in
+    // 50+ min. For peak-frequency Red @ 4-min headway: threshold = 15 min,
+    // lookback stays at 20 min.
+    const LOOKBACK_BUFFER_MS = 5 * 60 * 1000;
+    const headwayDrivenLookbackMs = headwayMin
+      ? COLD_HEADWAY_MULT_FOR_LOOKBACK * headwayMin * 60 * 1000 + LOOKBACK_BUFFER_MS
+      : 0;
+    const lineLookbackMs = Math.max(LOOKBACK_MS, headwayDrivenLookbackMs);
+    const lineRecent =
+      lineLookbackMs > LOOKBACK_MS
+        ? getRecentTrainPositions(now - lineLookbackMs).filter((r) => r.line === line)
+        : recent;
+
     // Past-2h positions for the stretch-path ramp-up check. If the day's
     // first direction-matching train hasn't yet reached a stretch, the
     // 20 min lookback alone reads it as cold; the 2h lookback verifies
@@ -545,9 +567,9 @@ async function main() {
         headwayMin,
         now,
         opts: {
-          lookbackMs: LOOKBACK_MS,
+          lookbackMs: lineLookbackMs,
           corridorBbox,
-          recentPositions: recent.map((r) => ({
+          recentPositions: lineRecent.map((r) => ({
             ts: r.ts,
             lat: r.lat,
             lon: r.lon,

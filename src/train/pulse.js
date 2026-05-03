@@ -353,8 +353,14 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
 
     // Composite admit gate: any one of the three paths is sufficient. Minor
     // veto already happened upstream via cold-threshold + terminal exclusion.
-    const passLong = runLengthFt >= minRunFtLong;
-    const passMulti = coldStations >= 2;
+    // Every path also requires coldMs >= coldThresholdMs — without this gate,
+    // passLong/passMulti would admit a 2-mi cold run at coldMs == headway
+    // (1× scheduled), which is well within natural bunching variance and
+    // produced FPs on sparse-service lines (Sunday Green @ 20-min headway,
+    // Pulaski→Kedzie went cold for ~20 min and tripped the alert despite
+    // service running normally).
+    const passLong = runLengthFt >= minRunFtLong && coldMs >= coldThresholdMs;
+    const passMulti = coldStations >= 2 && coldMs >= coldThresholdMs;
     const passSolo =
       coldStations >= 1 &&
       expectedTrains != null &&

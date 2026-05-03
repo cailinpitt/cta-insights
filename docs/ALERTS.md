@@ -153,9 +153,13 @@ Pulse `direction` keys derive from a stable hash of geometry, not the branch's i
 
 The distance gate is composite. The candidate is admitted if **any** of the following pass:
 
-- `passLong` — run length ≥ `MIN_RUN_FT` (2 mi). Sparse-fallback for outer branches with few stations.
-- `passMulti` — ≥ 2 named stations fully inside the cold run.
+- `passLong` — run length ≥ `MIN_RUN_FT` (2 mi) *and* `coldMs ≥ max(15 min, 2.5 × headway)`. Sparse-fallback for outer branches with few stations.
+- `passMulti` — ≥ 2 named stations fully inside the cold run *and* `coldMs ≥ max(15 min, 2.5 × headway)`.
 - `passSolo` — ≥ 1 named station inside, *and* `expectedTrains = floor(coldMin / headwayMin) ≥ SOLO_EXPECTED_TRAINS = 3`, *and* `coldMs ≥ max(15 min, 3.5 × headway)`.
+
+The shared `coldMs ≥ threshold` clause keeps every admit path scaling with service density. Without it, `passLong`/`passMulti` could admit a 2-mi or 2-station cold run at exactly 1× scheduled headway — within natural bunching variance — which produced FPs on sparse-service lines (e.g. Sunday Green @ 20-min headway).
+
+The bin script (`bin/train/pulse.js`) sizes its observation lookback to match: `lookbackMs = max(20 min, 2.5 × headway + 5 min buffer)`. With a fixed 20-min lookback, any line with headway > 6 min would have a cold threshold larger than the lookback window, meaning every bin not seen in 20 min would read cold against the (longer) threshold despite no actual evidence of how long it had been empty. The headway-driven lookback ensures bins read cold only when there's real observation data backing the claim.
 
 The flat 2-mi minimum is gone. `passSolo`'s time-side `expectedTrains ≥ 3` factor is what blocks the obvious false-positive — a single train held at a station — without rejecting Belmont-style single-tracking, where one to two stations go cold for long enough that several trains *should* have passed through.
 
