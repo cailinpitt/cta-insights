@@ -363,10 +363,14 @@ async function renderDisruption({
   const baseMap = await fetchMapboxStatic(url);
 
   const lineName = LINE_NAMES[line] || line;
-  const defaultTitle =
-    disruption.source === 'cta-alert'
-      ? `⚠ ${lineName} Line suspended`
-      : `⚠ ${lineName} Line: trains not seen`;
+  let defaultTitle;
+  if (disruption.source === 'cta-alert') {
+    defaultTitle = `⚠ ${lineName} Line suspended`;
+  } else if (disruption.kind === 'held' || disruption.source === 'observed-held') {
+    defaultTitle = `🚨 ${lineName} Line: service halted`;
+  } else {
+    defaultTitle = `⚠ ${lineName} Line: trains stalled`;
+  }
   const titleText = title || defaultTitle;
   const titleFontSize = 42;
   // Real glyph measurement via the same renderer that draws the SVG. Earlier

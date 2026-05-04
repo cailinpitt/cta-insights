@@ -38,16 +38,20 @@ function titleFor(d) {
     const anchor = d.suspendedSegment?.from || 'this stretch';
     return `🚇🚨 ${lineName} Line: service halted around ${anchor}`;
   }
-  // Round-trip lines (Brown/Orange/Pink/Purple) detect per-direction; without
-  // a direction qualifier in the title, "trains not seen" reads as both
-  // directions which is misleading when the other direction is running. Use
-  // the terminus name rather than "outbound/inbound" so the audience doesn't
-  // need to know rail-system jargon to read the post.
+  // Cold-segment detection measures whether trains have *advanced through* a
+  // stretch — bins warm only when a new train enters them. A train held in a
+  // station keeps pinging the same bin and reads "cold" once the threshold
+  // passes, even though the train is still visible on the map. The title and
+  // evidence wording reflect this: "stalled" is accurate whether trains are
+  // missing or just stopped, and doesn't contradict riders who can see trains
+  // sitting in stations on CTA's own train tracker. Round-trip lines
+  // (Brown/Orange/Pink/Purple) detect per-direction; without the terminus
+  // qualifier the title reads as both directions even when the other is fine.
   const terminus = terminusFor(d);
   if (terminus) {
-    return `🚇⚠️ ${lineName} Line: trains to ${terminus} not seen`;
+    return `🚇⚠️ ${lineName} Line: trains toward ${terminus} stalled`;
   }
-  return `🚇⚠️ ${lineName} Line: trains not seen`;
+  return `🚇⚠️ ${lineName} Line: trains stalled`;
 }
 
 const POST_GRAPHEME_LIMIT = 300;
@@ -128,8 +132,11 @@ function evidenceLine(e, { compact = false, kind = 'cold' } = {}) {
   // In compact mode drop the two parentheticals — they're additive context,
   // not load-bearing for the alert. Saves ~50–60 chars to keep the post
   // under Bluesky's 300-grapheme cap when station + terminus names are long.
+  // The "Trains may be holding" hint stays in both tiers — it's what makes
+  // the post accurate when trains are visible on the map but not advancing.
+  // Compact mode sheds the missing/elsewhere parentheticals only.
   if (compact) {
-    return `📡 No trains seen on this ${stretch}${stations} in ${since}${headwayClause}.`;
+    return `📡 No trains have moved through this ${stretch}${stations} in ${since}${headwayClause}. Trains may be holding in stations.`;
   }
   const missing =
     e.expectedTrains != null && e.expectedTrains >= 1
@@ -137,19 +144,23 @@ function evidenceLine(e, { compact = false, kind = 'cold' } = {}) {
       : '';
   const elsewhere =
     e.trainsOutsideRun != null
-      ? ` (${e.trainsOutsideRun} train${e.trainsOutsideRun === 1 ? '' : 's'} active elsewhere on the line)`
+      ? ` (${e.trainsOutsideRun} train${e.trainsOutsideRun === 1 ? '' : 's'} still moving elsewhere on the line)`
       : '';
-  return `📡 No trains seen on this ${stretch}${stations} in ${since}${headwayClause}${missing}${elsewhere}.`;
+  return `📡 No trains have moved through this ${stretch}${stations} in ${since}${headwayClause}${missing}${elsewhere}. Trains may be holding in stations.`;
 }
 
 function buildAltText(d) {
   const lineName = LINE_NAMES[d.line] || d.line;
   const terminus = terminusFor(d);
-  const directionPhrase = terminus ? ` heading to ${terminus}` : '';
-  const dimDescription =
-    d.source === 'cta-alert'
-      ? 'dimmed to indicate service is suspended'
-      : `dimmed to indicate no trains${directionPhrase} were seen on this segment`;
+  const directionPhrase = terminus ? ` toward ${terminus}` : '';
+  let dimDescription;
+  if (d.source === 'cta-alert') {
+    dimDescription = 'dimmed to indicate service is suspended';
+  } else if (d.kind === 'held' || d.source === 'observed-held') {
+    dimDescription = `dimmed to indicate trains${directionPhrase} are held in stations there`;
+  } else {
+    dimDescription = `dimmed to indicate trains${directionPhrase} have not advanced through that stretch`;
+  }
   const base = `Map of the ${lineName} Line with the segment between ${d.suspendedSegment.from} and ${d.suspendedSegment.to} ${dimDescription}.`;
   if (d.alternative?.type === 'shortTurn') {
     return `${base} Trains are running short-turned between ${d.alternative.from} and ${d.alternative.to}.`;
