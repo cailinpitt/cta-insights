@@ -9,29 +9,35 @@
 # silently wipe every unrelated entry on the user's crontab. Use the
 # marker-based merge below instead.
 #
-# Safe install procedure (works whether or not other jobs exist):
+# Safe install procedure (works whether or not other jobs exist, and is
+# idempotent — repeated runs leave one CTA-INSIGHTS block in the live
+# crontab, never duplicates):
 #
 #   1. Snapshot the live crontab:
 #        crontab -l > /tmp/live.crontab
-#   2. Strip any existing CTA-INSIGHTS block (markers below):
+#   2. Strip any existing CTA-INSIGHTS block from the live crontab:
 #        awk '/^# CTA-INSIGHTS-START/{skip=1} /^# CTA-INSIGHTS-END/{skip=0; next} !skip' \
 #          /tmp/live.crontab > /tmp/live.stripped
-#   3. Append this file's content:
-#        cat /tmp/live.stripped cron/crontab.txt > /tmp/merged.crontab
-#   4. Install the merged version:
-#        crontab /tmp/merged.crontab
+#   3. Extract just the marker block (NOT the docs above) from this file:
+#        awk '/^# CTA-INSIGHTS-START/,/^# CTA-INSIGHTS-END/' cron/crontab.txt \
+#          > /tmp/cta-block.txt
+#   4. Concat + install:
+#        cat /tmp/live.stripped /tmp/cta-block.txt | crontab -
 #   5. Verify line counts pre/post match for unrelated jobs.
 #
-# Update the REPO_ROOT variable below to point to wherever the repo is
-# checked out on the target server.
+# IMPORTANT: only the content between # CTA-INSIGHTS-START and
+# # CTA-INSIGHTS-END below gets installed by the procedure above. The
+# install header (REPO_ROOT, R=, comments) lives INSIDE the markers so a
+# repeated merge replaces them in place rather than stacking.
 #
-# All jobs run via bin/cron-run.sh <log-name> <script> [args...] which handles
-# cd, timestamping, and log redirection.
-
-REPO_ROOT=/path/to/cta-insights
-R=$REPO_ROOT/bin/cron-run.sh
+# Update REPO_ROOT below to the repo's checkout path on the target server.
 
 # CTA-INSIGHTS-START
+
+# All jobs run via bin/cron-run.sh <log-name> <script> [args...] which
+# handles cd, timestamping, and log redirection.
+REPO_ROOT=/path/to/cta-insights
+R=$REPO_ROOT/bin/cron-run.sh
 
 # --- Trains ---
 # train-alerts staggered to :02 offset so it never collides with train-pulse's
