@@ -9,6 +9,7 @@ const {
   fetchMapboxStatic,
   xmlEscape,
   measureTextWidth,
+  fitTitlePill,
   paddedBbox,
   bboxOf,
 } = require('./common');
@@ -375,11 +376,15 @@ async function renderDisruption({
     defaultTitle = `⚠ ${lineName} Line: trains stalled`;
   }
   const titleText = title || defaultTitle;
-  const titleFontSize = 42;
   // Real glyph measurement via the same renderer that draws the SVG. Earlier
   // estimators (flat 24px/char, then per-glyph ratios) drifted on each new
-  // title format and either clipped the text or trailed dead space.
-  const titleWidth = 48 + (await measureTextWidth(titleText, titleFontSize, { bold: true }));
+  // title format and either clipped the text or trailed dead space. Long
+  // titles also shrink the font so the pill stays inside the canvas.
+  const { fontSize: titleFontSize, pillWidth: titleWidth } = await fitTitlePill(
+    titleText,
+    42,
+    WIDTH - 48,
+  );
 
   const fromPx = project(fromLoc.lat, fromLoc.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
   const toPx = project(toLoc.lat, toLoc.lon, centerLat, centerLon, zoom, WIDTH, HEIGHT);
@@ -390,7 +395,7 @@ async function renderDisruption({
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">
     <rect x="24" y="24" width="${titleWidth}" height="88" fill="#000" fill-opacity="0.78" rx="10"/>
-    <text x="48" y="84" fill="#fff" font-family="Helvetica, Arial, sans-serif" font-size="42" font-weight="700">${xmlEscape(titleText)}</text>
+    <text x="48" y="84" fill="#fff" font-family="Helvetica, Arial, sans-serif" font-size="${titleFontSize}" font-weight="700">${xmlEscape(titleText)}</text>
     ${labels}
   </svg>`;
 
@@ -415,7 +420,10 @@ async function pairedStationLabels(stations) {
     const text = s.name.split(' (')[0]; // drop "(Red)" style disambiguation
     const fontSize = 28;
     const pad = 12;
-    const textW = await measureTextWidth(text, fontSize);
+    // Pill text is rendered semi-bold below; measure at bold to match the
+    // glyph metrics, otherwise the pill is sized for normal-weight and the
+    // semi-bold text overflows on the right.
+    const textW = await measureTextWidth(text, fontSize, { bold: true });
     const pillW = textW + pad * 2;
     const h = fontSize + pad * 1.4;
     const xPill = Math.round(s.px.x - pillW / 2);

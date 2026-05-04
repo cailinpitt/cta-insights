@@ -12,7 +12,7 @@ const {
   requireMapboxToken,
   fetchMapboxStatic,
   xmlEscape,
-  measureTextWidth,
+  fitTitlePill,
   paddedBbox,
   bboxOf,
 } = require('../common');
@@ -88,11 +88,16 @@ async function renderBusDisruption({ routes, getKnownPidsForRoute, loadPattern, 
   const baseMap = await fetchMapboxStatic(url);
 
   const titleText = title;
-  const titleFontSize = 42;
   // Measure with the same renderer that draws the SVG so the pill always
   // hugs the text — earlier we used a per-glyph estimator that drifted with
-  // every new title format and kept clipping (e.g. "service impact" titles).
-  const titleWidth = 48 + (await measureTextWidth(titleText, titleFontSize, { bold: true }));
+  // every new title format and kept clipping. Shrink the font when a long
+  // title would overflow the canvas (e.g. "#53A South Pulaski service
+  // appears suspended" at 42px exceeds 1200px wide).
+  const { fontSize: titleFontSize, pillWidth: titleWidth } = await fitTitlePill(
+    titleText,
+    42,
+    WIDTH - 48,
+  );
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}">
     <rect x="24" y="24" width="${titleWidth}" height="88" fill="#000" fill-opacity="0.78" rx="10"/>
     <text x="48" y="84" fill="#fff" font-family="Helvetica, Arial, sans-serif" font-size="${titleFontSize}" font-weight="700">${xmlEscape(titleText)}</text>
@@ -267,8 +272,11 @@ async function renderBusDisruptionRich({ route, pattern, focusZone, title, mode 
   const baseMap = await fetchMapboxStatic(url);
 
   const titleText = title || `⚠ Route ${route} · service impact`;
-  const titleFontSize = 42;
-  const titleWidth = 48 + (await measureTextWidth(titleText, titleFontSize, { bold: true }));
+  const { fontSize: titleFontSize, pillWidth: titleWidth } = await fitTitlePill(
+    titleText,
+    42,
+    WIDTH - 48,
+  );
 
   // Project focus boundary stops to pixel space so we can label them with the
   // same paired-label treatment trains use.

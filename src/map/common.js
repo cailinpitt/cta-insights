@@ -403,9 +403,24 @@ module.exports = {
   separateMarkers,
   perpendicularFromBearing,
   measureTextWidth,
+  fitTitlePill,
   paddedBbox,
   bboxOf,
 };
+
+// Compute a title pill width and font size that fits within `maxPillWidth`,
+// shrinking the font when the rendered text would overflow. Padding is the
+// horizontal slack (left+right combined) baked into the pill background.
+async function fitTitlePill(text, baseFontSize, maxPillWidth, { padding = 48 } = {}) {
+  let fontSize = baseFontSize;
+  let textW = await measureTextWidth(text, fontSize, { bold: true });
+  if (padding + textW > maxPillWidth) {
+    const ratio = (maxPillWidth - padding) / textW;
+    fontSize = Math.max(20, Math.floor(fontSize * ratio));
+    textW = await measureTextWidth(text, fontSize, { bold: true });
+  }
+  return { fontSize, pillWidth: padding + textW };
+}
 
 // Real glyph measurement via librsvg — the same renderer that draws the SVG
 // composite. The earlier per-character estimator was a guess that drifted
