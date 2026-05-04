@@ -222,6 +222,14 @@ const ghosts = [
 // read the same snapshot or rotate across the full list, so this list also
 // keeps pulse symmetric with bin/bus/alerts.js so a CTA alert and a pulse
 // signal can converge on the same thread.
-const allRoutes = Object.keys(names);
+//
+// Night Owl routes (N-prefixed) are excluded EXCEPT N5: CTA's getvehicles
+// reports overnight vehicles under the daytime route_id (e.g. a 3 AM 87-bus
+// comes back as rt: "87"), so polling for "N87" perpetually returns "no data
+// found" — only the daytime number ever has live data, even at 3 AM. N5 is
+// the lone exception because no daytime "5" route exists; CTA tracks it as
+// its own route in both getvehicles and GTFS. Names stay in `names` for
+// alert-display lookups (CTA may still issue alerts tagged with N87, etc.).
+const allRoutes = Object.keys(names).filter((r) => !/^N\d/.test(r) || r === 'N5');
 
 module.exports = { names, gaps, ghosts, allRoutes };
