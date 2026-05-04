@@ -427,8 +427,10 @@ async function pairedStationLabels(stations) {
     const pillW = textW + pad * 2;
     const h = fontSize + pad * 1.4;
     const xPill = Math.round(s.px.x - pillW / 2);
-    const above = Math.round(s.px.y - h - 14);
-    const below = Math.round(s.px.y + 14);
+    // Marker dot has r=18 + stroke=5; offset the pill ~26px from the dot
+    // center so there's visible breathing room between marker and label.
+    const above = Math.round(s.px.y - h - 26);
+    const below = Math.round(s.px.y + 26);
     const wouldHitTitle =
       above < TITLE_KEEPOUT.y + TITLE_KEEPOUT.h &&
       xPill < TITLE_KEEPOUT.x + TITLE_KEEPOUT.w &&
