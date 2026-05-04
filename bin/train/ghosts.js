@@ -20,7 +20,7 @@ const { loginTrain, postText } = require('../../src/train/bluesky');
 const { runBin } = require('../../src/shared/runBin');
 const { logDropSummary } = require('../../src/shared/ghostsLog');
 const { findStationByDestination } = require('../../src/train/findStation');
-const { recordMetaSignal } = require('../../src/shared/history');
+const { recordMetaSignal, recordGhostEvent } = require('../../src/shared/history');
 const { MISSING_ABS_THRESHOLD } = require('../../src/bus/ghosts');
 
 const WINDOW_MS = 60 * 60 * 1000;
@@ -124,16 +124,32 @@ async function main() {
 
   if (argv['dry-run'] || process.env.GHOSTS_DRY_RUN) {
     for (let i = 0; i < posts.length; i++) {
-      console.log(`\n--- DRY RUN post ${i + 1}/${posts.length} ---\n${posts[i]}`);
+      console.log(`\n--- DRY RUN post ${i + 1}/${posts.length} ---\n${posts[i].text}`);
     }
     return;
   }
 
   const agent = await loginTrain();
   let replyRef = null;
+  let eventCursor = 0;
+  const ts = Date.now();
   for (let i = 0; i < posts.length; i++) {
-    const result = await postText(agent, posts[i], replyRef);
+    const result = await postText(agent, posts[i].text, replyRef);
     console.log(`Posted ${i + 1}/${posts.length}: ${result.url}`);
+    const slice = events.slice(eventCursor, eventCursor + posts[i].lineCount);
+    for (const e of slice) {
+      recordGhostEvent({
+        kind: 'train',
+        route: e.line,
+        direction: e.destination || null,
+        observed: e.observedActive,
+        expected: e.expectedActive,
+        missing: e.missing,
+        postUri: result.uri,
+        ts,
+      });
+    }
+    eventCursor += posts[i].lineCount;
     if (i < posts.length - 1) replyRef = await resolveReplyRef(agent, result.uri);
   }
 }

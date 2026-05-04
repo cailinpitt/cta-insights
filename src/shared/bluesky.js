@@ -146,11 +146,47 @@ async function getPostRecord(agent, uri) {
 // Build a reply ref pointing at `parentUri`. Inherits the parent's `root`
 // when the parent is itself a reply, so the new post lands in the same thread
 // rather than starting a sub-thread.
+// Walk down the thread starting at `parentUri` and return a reply ref whose
+// `parent` is the most recent leaf — this keeps the thread linear when
+// quote-attach posts have been added between the original post and now (e.g.
+// related-quotes inserts on bunching/gap posts under a CTA alert thread).
+// Without this, the resolution post becomes a sibling of the original alert
+// rather than a continuation of the chain.
 async function resolveReplyRef(agent, parentUri) {
   const record = await getPostRecord(agent, parentUri);
   if (!record) return null;
-  const parent = { uri: record.uri, cid: record.cid };
-  const root = record.value?.reply?.root ? record.value.reply.root : parent;
+  const root = record.value?.reply?.root || { uri: record.uri, cid: record.cid };
+  let parent = { uri: record.uri, cid: record.cid };
+
+  if (typeof agent.getPostThread === 'function') {
+    try {
+      const resp = await agent.getPostThread({ uri: parentUri, depth: 100 });
+      const top = resp?.data?.thread;
+      if (top?.post) {
+        let bestLeaf = top.post;
+        let bestTs = Date.parse(top.post.indexedAt || '') || 0;
+        const visit = (node) => {
+          if (!node?.post) return;
+          const replies = node.replies || [];
+          if (replies.length === 0) {
+            const t = Date.parse(node.post.indexedAt || '') || 0;
+            if (t >= bestTs) {
+              bestTs = t;
+              bestLeaf = node.post;
+            }
+            return;
+          }
+          for (const r of replies) visit(r);
+        };
+        visit(top);
+        parent = { uri: bestLeaf.uri, cid: bestLeaf.cid };
+      }
+    } catch (_e) {
+      // Fall through to the original-post parent — better to land as a
+      // sibling than to fail the resolution post entirely.
+    }
+  }
+
   return { root, parent };
 }
 

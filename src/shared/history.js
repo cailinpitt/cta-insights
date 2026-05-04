@@ -143,6 +143,20 @@ function db() {
     );
     CREATE INDEX IF NOT EXISTS idx_thread_quote_posts_root ON thread_quote_posts(thread_root_uri);
 
+    CREATE TABLE IF NOT EXISTS ghost_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      route TEXT NOT NULL,
+      direction TEXT,
+      observed REAL,
+      expected REAL,
+      missing REAL,
+      post_uri TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ghost_events_kind_route_ts
+      ON ghost_events(kind, route, ts);
+
     CREATE TABLE IF NOT EXISTS roundup_anchors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kind TEXT NOT NULL,
@@ -413,6 +427,24 @@ function listActiveTrainPulseAnchors() {
       WHERE active_post_uri IS NOT NULL
     `)
     .all();
+}
+
+function recordGhostEvent({ kind, route, direction, observed, expected, missing, postUri, ts }) {
+  db()
+    .prepare(`
+      INSERT INTO ghost_events (ts, kind, route, direction, observed, expected, missing, post_uri)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      ts || Date.now(),
+      kind,
+      String(route),
+      direction || null,
+      observed ?? null,
+      expected ?? null,
+      missing ?? null,
+      postUri,
+    );
 }
 
 function recordRoundupAnchor({ kind, line, postUri, postCid, ts, ttlMs = 2 * 60 * 60 * 1000 }) {
@@ -1132,11 +1164,22 @@ function findRelatedAnalyticsPosts({ kind, routes, sinceTs, untilTs, excludeSour
       AND posted = 1 AND post_uri IS NOT NULL
       AND ts BETWEEN ? AND ?${excludeClause}
   `;
+  // Ghost rollup posts can cover multiple routes per post — one ghost_events
+  // row per (route, post_uri) is written, so the IN-clause filter works as
+  // expected and a single rollup post can match multiple anchor groups.
+  const ghostSql = `
+    SELECT * FROM ghost_events
+    WHERE kind = ? AND route IN (${routePlaceholders})
+      AND ts BETWEEN ? AND ?${excludeClause}
+  `;
   const bunchRows = db()
     .prepare(bunchSql)
     .all(...baseParams);
   const gapRows = db()
     .prepare(gapSql)
+    .all(...baseParams);
+  const ghostRows = db()
+    .prepare(ghostSql)
     .all(...baseParams);
   const out = [];
   for (const r of bunchRows) {
@@ -1157,6 +1200,17 @@ function findRelatedAnalyticsPosts({ kind, routes, sinceTs, untilTs, excludeSour
       route: r.route,
       direction: r.direction,
       near_stop: r.near_stop,
+      post_uri: r.post_uri,
+      raw: r,
+    });
+  }
+  for (const r of ghostRows) {
+    out.push({
+      source: 'ghost',
+      ts: r.ts,
+      route: r.route,
+      direction: r.direction,
+      near_stop: null, // ghost posts are route-level, no near_stop
       post_uri: r.post_uri,
       raw: r,
     });
@@ -1188,6 +1242,7 @@ module.exports = {
   listActiveTrainPulseAnchors,
   recordRoundupAnchor,
   listActiveRoundupAnchors,
+  recordGhostEvent,
   ALERT_CLEAR_TICKS,
   recordDisruption,
   getRecentPulsePost,

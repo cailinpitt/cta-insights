@@ -135,6 +135,45 @@ test('bus: roundup anchor quote-attaches a route-matching bunching post (no segm
   }
 });
 
+test('bus: roundup anchor attaches a route-matching ghost post', async () => {
+  const { history, sweepMod, cleanup } = loadWithFreshDb();
+  try {
+    const ROUNDUP_URI = 'at://did:plc:alerts/app.bsky.feed.post/roundup-66';
+    const ROUNDUP_CID = 'cid-roundup-66';
+    const GHOST_URI = 'at://did:plc:bus/app.bsky.feed.post/ghost-1';
+    const GHOST_CID = 'cid-ghost-1';
+    const now = Date.now();
+    history.recordRoundupAnchor({
+      kind: 'bus',
+      line: '66',
+      postUri: ROUNDUP_URI,
+      postCid: ROUNDUP_CID,
+      ts: now - 27 * 60 * 1000,
+    });
+    history.recordGhostEvent({
+      kind: 'bus',
+      route: '66',
+      direction: 'Westbound',
+      observed: 9,
+      expected: 17,
+      missing: 8,
+      postUri: GHOST_URI,
+      ts: now,
+    });
+    const agent = buildMockAgent({
+      records: {
+        [ROUNDUP_URI]: { cid: ROUNDUP_CID, value: {} },
+        [GHOST_URI]: { cid: GHOST_CID, value: {} },
+      },
+    });
+    const out = await sweepMod.sweepRelatedQuotes({ kind: 'bus', agent, now });
+    assert.equal(out.posted, 1);
+    assert.equal(agent.posts[0].embed.record.uri, GHOST_URI);
+  } finally {
+    cleanup();
+  }
+});
+
 test('bus: roundup anchor does NOT attach a different-route bunching post', async () => {
   const { history, sweepMod, cleanup } = loadWithFreshDb();
   try {

@@ -38,24 +38,24 @@ function buildRollupPost(header, lines, maxChars = POST_MAX_CHARS) {
  */
 function buildRollupThread(header, lines, { footer = null, maxChars = POST_MAX_CHARS } = {}) {
   if (lines.length === 0) return null;
+  // Each entry is { text, lineCount } — lineCount tells callers which slice
+  // of the input `lines` array landed in that post, so the caller can map
+  // its underlying items (e.g. ghost events) back to the resulting post URI
+  // for downstream linkage (related-quotes attach).
   const posts = [];
   const footerSuffix = footer ? `\n\n${footer}` : '';
 
-  // First post: header + as many lines as fit + footer (if supplied).
   let firstCount = 0;
   for (let k = lines.length; k >= 1; k--) {
     const candidate = `${header}\n\n${lines.slice(0, k).join('\n')}${footerSuffix}`;
     if (graphemeLength(candidate) <= maxChars) {
       firstCount = k;
-      posts.push(candidate);
+      posts.push({ text: candidate, lineCount: k });
       break;
     }
   }
   if (firstCount === 0) return null;
 
-  // Continuation posts: pack remaining lines greedily into bodies that fit
-  // on their own. No header repetition — they show up threaded under the
-  // first post, where the context is already set.
   let i = firstCount;
   while (i < lines.length) {
     let k = i;
@@ -70,7 +70,7 @@ function buildRollupThread(header, lines, { footer = null, maxChars = POST_MAX_C
       i++;
       continue;
     }
-    posts.push(lines.slice(i, k).join('\n'));
+    posts.push({ text: lines.slice(i, k).join('\n'), lineCount: k - i });
     i = k;
   }
   return posts;
