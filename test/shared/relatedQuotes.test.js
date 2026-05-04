@@ -263,7 +263,7 @@ test('train: candidate inside segment is quoted; candidate outside segment is no
     const sent = agent.posts[0];
     assert.equal(sent.embed.$type, 'app.bsky.embed.record');
     assert.equal(sent.embed.record.uri, BUNCHING_RED_WILSON);
-    assert.equal(sent.text, 'Related observation:');
+    assert.equal(sent.text, '🕵 Related observation');
     // Reply ref roots on the alert post.
     assert.equal(sent.reply.root.uri, TRAIN_ALERT_URI);
   } finally {

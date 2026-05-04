@@ -28,7 +28,7 @@ const { resolveStopOnRoute } = require('../bus/patterns');
 
 const LEAD_MS = 30 * 60 * 1000;
 const MAX_QUOTES_PER_THREAD = 3;
-const QUOTE_TEXT = 'Related observation:';
+const QUOTE_TEXT = '🕵 Related observation';
 const TRAIN_BUFFER_STOPS = 1;
 const BUS_BUFFER_FT = 2640; // ½ mile
 
