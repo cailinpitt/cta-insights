@@ -42,7 +42,7 @@ async function detectBusBlackouts({
   observationsByRoute,
   loadPattern,
   getKnownPidsForRoute,
-  expectedActive,
+  expectedRouteActive,
   expectedHeadway,
   globalDistinctTs,
   recentlyActiveRoutes,
@@ -111,12 +111,16 @@ async function detectBusBlackouts({
     }
     if (patterns.length === 0) continue;
 
-    let expectedActiveSum = 0;
+    // expectedRouteActive sums activeByHour across all GTFS directions of the
+    // route once; do NOT sum per-pattern, since multiple patterns resolve to
+    // the same direction and would multiply the value (e.g. 53A has 9 PIDs at
+    // Sun 23:00 → per-pattern sum was ~9× the true 0.5, defeating the
+    // MIN_EXPECTED_ACTIVE gate and the wind-down guard).
+    const eaRoute = expectedRouteActive(routeStr, now);
+    const expectedActiveSum = Number.isFinite(eaRoute) ? eaRoute : 0;
     let minHeadwayMin = null;
     let maxHeadwayMin = null;
     for (const pattern of patterns) {
-      const ea = expectedActive(routeStr, pattern, now);
-      if (Number.isFinite(ea)) expectedActiveSum += ea;
       const h = expectedHeadway(routeStr, pattern, now);
       if (Number.isFinite(h) && h > 0) {
         if (minHeadwayMin == null || h < minHeadwayMin) minHeadwayMin = h;
@@ -159,11 +163,8 @@ async function detectBusBlackouts({
     const lookbackQuietProbe = (() => {
       const samples = [new Date(nowMs - guardLookbackMs), new Date(nowMs - guardLookbackMs / 2)];
       for (const t of samples) {
-        let active = 0;
-        for (const pattern of patterns) {
-          const ea = expectedActive(routeStr, pattern, t);
-          if (Number.isFinite(ea)) active += ea;
-        }
+        const ea = expectedRouteActive(routeStr, t);
+        const active = Number.isFinite(ea) ? ea : 0;
         if (active < rampPriorActiveThreshold) {
           return { quiet: true, active, at: t };
         }
@@ -183,11 +184,8 @@ async function detectBusBlackouts({
     // route shutting down for the night.
     if (minuteOfHour != null && minuteOfHour >= 60 - windDownMinuteThreshold) {
       const nextWhen = new Date(nowMs + 60 * 60 * 1000);
-      let nextActiveSum = 0;
-      for (const pattern of patterns) {
-        const ea = expectedActive(routeStr, pattern, nextWhen);
-        if (Number.isFinite(ea)) nextActiveSum += ea;
-      }
+      const eaNext = expectedRouteActive(routeStr, nextWhen);
+      const nextActiveSum = Number.isFinite(eaNext) ? eaNext : 0;
       if (nextActiveSum < windDownNextActiveThreshold) {
         console.log(
           `bus-pulse: skipping ${routeStr} — wind-down (next-hour active=${nextActiveSum.toFixed(1)}, minute=${minuteOfHour})`,

@@ -32,7 +32,7 @@ const {
 } = require('../../src/shared/disruption');
 const {
   expectedHeadwayMin,
-  expectedActiveTrips,
+  expectedBusRouteActiveTrips,
   chicagoMinuteOfHour,
 } = require('../../src/shared/gtfs');
 const {
@@ -396,7 +396,7 @@ async function main() {
     observationsByRoute,
     loadPattern,
     getKnownPidsForRoute: (route) => getKnownPidsForRoute(route, now),
-    expectedActive: (route, pattern, when) => expectedActiveTrips(route, pattern, when),
+    expectedRouteActive: (route, when) => expectedBusRouteActiveTrips(route, when),
     expectedHeadway: (route, pattern, when) => expectedHeadwayMin(route, pattern, when),
     globalDistinctTs,
     recentlyActiveRoutes,
