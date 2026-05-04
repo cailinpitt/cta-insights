@@ -97,6 +97,103 @@ function seedBunching(history, { route, near_stop, post_uri, ts, direction = nul
     .run(ts, route, direction, 2, 1500, near_stop, post_uri);
 }
 
+test('bus: roundup anchor quote-attaches a route-matching bunching post (no segment needed)', async () => {
+  const { history, sweepMod, cleanup } = loadWithFreshDb();
+  try {
+    const ROUNDUP_URI = 'at://did:plc:alerts/app.bsky.feed.post/roundup-66';
+    const ROUNDUP_CID = 'cid-roundup-66';
+    const BUS_BUNCH_URI = 'at://did:plc:bus/app.bsky.feed.post/bunch-66';
+    const BUS_BUNCH_CID = 'cid-bunch-66';
+    const now = Date.now();
+    history.recordRoundupAnchor({
+      kind: 'bus',
+      line: '66',
+      postUri: ROUNDUP_URI,
+      postCid: ROUNDUP_CID,
+      ts: now - 27 * 60 * 1000,
+    });
+    history
+      .getDb()
+      .prepare(`
+        INSERT INTO bunching_events
+          (ts, kind, route, direction, vehicle_count, severity_ft, near_stop, posted, post_uri)
+        VALUES (?, 'bus', '66', 'pid-x', 7, 1584, 'Grand & Union', 1, ?)
+      `)
+      .run(now, BUS_BUNCH_URI);
+    const agent = buildMockAgent({
+      records: {
+        [ROUNDUP_URI]: { cid: ROUNDUP_CID, value: {} },
+        [BUS_BUNCH_URI]: { cid: BUS_BUNCH_CID, value: {} },
+      },
+    });
+    const out = await sweepMod.sweepRelatedQuotes({ kind: 'bus', agent, now });
+    assert.equal(out.posted, 1, 'bunching post should attach to roundup');
+    assert.equal(agent.posts[0].embed.record.uri, BUS_BUNCH_URI);
+    assert.equal(agent.posts[0].reply.root.uri, ROUNDUP_URI);
+  } finally {
+    cleanup();
+  }
+});
+
+test('bus: roundup anchor does NOT attach a different-route bunching post', async () => {
+  const { history, sweepMod, cleanup } = loadWithFreshDb();
+  try {
+    const ROUNDUP_URI = 'at://did:plc:alerts/app.bsky.feed.post/roundup-66';
+    history.recordRoundupAnchor({
+      kind: 'bus',
+      line: '66',
+      postUri: ROUNDUP_URI,
+      postCid: 'cid-roundup-66',
+      ts: Date.now(),
+    });
+    history
+      .getDb()
+      .prepare(`
+        INSERT INTO bunching_events
+          (ts, kind, route, direction, vehicle_count, severity_ft, near_stop, posted, post_uri)
+        VALUES (?, 'bus', '49', 'pid-x', 5, 2000, 'Belmont', 1, ?)
+      `)
+      .run(Date.now(), 'at://did:plc:bus/app.bsky.feed.post/bunch-49');
+    const agent = buildMockAgent({
+      records: { [ROUNDUP_URI]: { cid: 'cid-roundup-66', value: {} } },
+    });
+    const out = await sweepMod.sweepRelatedQuotes({ kind: 'bus', agent });
+    assert.equal(out.posted, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test('bus: expired roundup anchor is skipped', async () => {
+  const { history, sweepMod, cleanup } = loadWithFreshDb();
+  try {
+    const ROUNDUP_URI = 'at://did:plc:alerts/app.bsky.feed.post/roundup-old';
+    const now = Date.now();
+    history.recordRoundupAnchor({
+      kind: 'bus',
+      line: '66',
+      postUri: ROUNDUP_URI,
+      postCid: 'cid-old',
+      ts: now - 3 * 60 * 60 * 1000, // 3h ago
+      ttlMs: 2 * 60 * 60 * 1000, // expires after 2h
+    });
+    history
+      .getDb()
+      .prepare(`
+        INSERT INTO bunching_events
+          (ts, kind, route, direction, vehicle_count, severity_ft, near_stop, posted, post_uri)
+        VALUES (?, 'bus', '66', 'pid-x', 7, 1584, 'Grand & Union', 1, ?)
+      `)
+      .run(now, 'at://did:plc:bus/app.bsky.feed.post/bunch-66-late');
+    const agent = buildMockAgent({ records: {} });
+    const out = await sweepMod.sweepRelatedQuotes({ kind: 'bus', agent, now });
+    assert.equal(out.posted, 0);
+    assert.equal(out.groups, 0);
+  } finally {
+    cleanup();
+  }
+});
+
 test('train: candidate inside segment is quoted; candidate outside segment is not', async () => {
   const { history, sweepMod, cleanup } = loadWithFreshDb();
   try {

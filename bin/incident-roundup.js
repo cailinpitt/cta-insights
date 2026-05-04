@@ -14,7 +14,7 @@ require('../src/shared/env');
 const { setup, runBin } = require('../src/shared/runBin');
 const { ALL_LINES, lineLabel } = require('../src/train/api');
 const { allRoutes: busRoutes, names: busRouteNames } = require('../src/bus/routes');
-const { getRecentMetaSignals, getDb } = require('../src/shared/history');
+const { getRecentMetaSignals, getDb, recordRoundupAnchor } = require('../src/shared/history');
 const { acquireCooldown } = require('../src/shared/state');
 const { loginAlerts, postText } = require('../src/shared/bluesky');
 
@@ -42,19 +42,46 @@ function describeSignal(s, kind) {
     detail = {};
   }
   if (s.source === 'gap') {
-    return `· ${detail.ratio || '?'}x gap (${detail.suppressed || 'recorded'})`;
+    const ratio = Number.isFinite(detail.ratio) ? `${detail.ratio.toFixed(1)}` : '?';
+    const why =
+      detail.suppressed === 'cooldown'
+        ? 'covered by a recent post'
+        : detail.suppressed === 'cap'
+          ? "over today's post limit"
+          : detail.suppressed || 'recorded';
+    return `· ${ratio}x longer wait than scheduled (${why})`;
   }
   if (s.source === 'ghost') {
     const noun = kind === 'bus' ? 'buses' : 'trains';
-    return `· ${Math.round((detail.missing || 0) * 10) / 10} of ${Math.round((detail.expected || 0) * 10) / 10} ${noun} missing`;
+    // Round to whole vehicles — "7.3 of 18.3 buses" reads as nonsense to a
+    // rider; the underlying schedule numbers are activeByHour averages, not
+    // counts, but the reader-facing prose should look like a count.
+    const missing = Math.max(0, Math.round(detail.missing || 0));
+    const expected = Math.max(0, Math.round(detail.expected || 0));
+    return `· ${missing} of ${expected} ${noun} missing`;
   }
   if (s.source === 'bunching') {
-    return `· bunching near-miss (${detail.vehicles || '?'} buses, ${detail.suppressed || 'recorded'})`;
+    // Suppression here means a real bunching event was detected but not
+    // posted to keep posts from spamming the route. "near-miss" was wrong —
+    // the threshold was crossed.
+    const n = detail.vehicles || '?';
+    const why =
+      detail.suppressed === 'cooldown'
+        ? 'covered by a recent post'
+        : detail.suppressed === 'cap'
+          ? "over today's post limit"
+          : detail.suppressed || 'recorded';
+    return `· ${n} buses bunched together (${why})`;
   }
   if (s.source === 'pulse-cold' || s.source === 'pulse-held') {
     const seg =
       detail.fromStation && detail.toStation ? ` ${detail.fromStation} → ${detail.toStation}` : '';
-    return `· pulse near-miss${seg}`;
+    const noun = kind === 'bus' ? 'buses' : 'trains';
+    // Pre-threshold candidates: blackout (cold) = no vehicles seen, held =
+    // vehicles seen but stuck. Couched as "possible/may" because they
+    // haven't yet hit the consecutive-tick bar for a standalone post.
+    if (s.source === 'pulse-held') return `· ${noun} appear stuck in place${seg}`;
+    return `· possible service gap forming${seg}`;
   }
   return `· ${s.source}`;
 }
@@ -71,7 +98,7 @@ function buildRoundupText({ kind, line, name, signals }) {
   }
   lines.push('');
   lines.push(
-    'None individually crossed its alert threshold; together they suggest service is degraded.',
+    'Individually, none of these warranted a standalone post; together they suggest service is degraded.',
   );
   return lines.join('\n');
 }
@@ -102,6 +129,15 @@ async function processKind({ kind, identifiers, getName, agentGetter, now }) {
       const a = await agentGetter();
       const result = await postText(a, text, null);
       console.log(`Posted roundup ${label}: ${result.url}`);
+      // Anchor the rollup so the related-quotes sweep can attach
+      // subsequent on-route bunching/gap posts to this thread.
+      recordRoundupAnchor({
+        kind,
+        line: id,
+        postUri: result.uri,
+        postCid: result.cid,
+        ts: now,
+      });
       const ids = signals.map((s) => s.id);
       if (ids.length > 0) {
         const placeholders = ids.map(() => '?').join(',');

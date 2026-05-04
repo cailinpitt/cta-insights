@@ -17,6 +17,7 @@ const {
   listUnresolvedAlerts,
   listActiveBusPulseAnchors,
   listActiveTrainPulseAnchors,
+  listActiveRoundupAnchors,
   findRelatedAnalyticsPosts,
   recordThreadQuote,
   getThreadQuotedSourceUris,
@@ -97,7 +98,26 @@ async function buildWorkItems({ kind, agent, now }) {
         busAlertSegment: null,
       });
     }
-  } else if (kind === 'bus') {
+  }
+
+  // Roundup anchors are route/line-only — the rollup itself is a "this whole
+  // route is degraded" claim, so route equality is the right relevance bar
+  // (no segment match required).
+  for (const a of listActiveRoundupAnchors(kind, now)) {
+    anchors.push({
+      kind,
+      postUri: a.post_uri,
+      postCid: a.post_cid || null,
+      routes: [a.line],
+      ts: a.ts || now,
+      trainSegment: null,
+      busHeldSegment: null,
+      busAlertSegment: null,
+      routeOnlyMatch: true,
+    });
+  }
+
+  if (kind === 'bus') {
     for (const a of listActiveBusPulseAnchors()) {
       anchors.push({
         kind,
@@ -141,6 +161,10 @@ async function buildWorkItems({ kind, agent, now }) {
         trainSegments: [],
         busHeldSegments: [],
         busAlertSegments: [],
+        // Routes for which any anchor in this group accepts route-only match
+        // (currently: incident-roundup posts, which assert "this whole route
+        // is degraded" and therefore don't need segment alignment).
+        routeOnlyRoutes: new Set(),
       };
       groups.set(rootUri, g);
     }
@@ -154,6 +178,7 @@ async function buildWorkItems({ kind, agent, now }) {
     if (anchor.trainSegment) g.trainSegments.push(anchor.trainSegment);
     if (anchor.busHeldSegment) g.busHeldSegments.push(anchor.busHeldSegment);
     if (anchor.busAlertSegment) g.busAlertSegments.push(anchor.busAlertSegment);
+    if (anchor.routeOnlyMatch) for (const r of anchor.routes) g.routeOnlyRoutes.add(String(r));
   }
   return [...groups.values()];
 }
@@ -178,6 +203,9 @@ function canonicalSegDirection(seg) {
 }
 
 function trainCandidateRelevant(candidate, group) {
+  // Route-only anchors (incident roundups) accept any candidate on the same
+  // line, no segment match required.
+  if (group.routeOnlyRoutes?.has(String(candidate.route))) return true;
   if (group.trainSegments.length === 0) return false;
   for (const seg of group.trainSegments) {
     if (candidate.route !== seg.line) continue;
@@ -205,6 +233,9 @@ function trainCandidateRelevant(candidate, group) {
 }
 
 async function busCandidateRelevant(candidate, group, getKnownPidsForRoute, loadPattern) {
+  // Route-only anchors (incident roundups) accept any candidate on the same
+  // route, no near_stop / segment match required.
+  if (group.routeOnlyRoutes?.has(String(candidate.route))) return true;
   if (!candidate.near_stop) return false;
   // Held-cluster observation: pid + pdist range known precisely.
   for (const seg of group.busHeldSegments) {

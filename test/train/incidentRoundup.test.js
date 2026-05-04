@@ -50,13 +50,59 @@ test('bus roundup text uses #route framing and "buses missing"', () => {
   });
   assert.ok(text.includes('#147'));
   assert.ok(text.includes('Outer DuSable'));
-  assert.ok(text.includes('bunching near-miss'));
-  assert.ok(text.includes('pulse near-miss'));
+  assert.ok(text.includes('buses bunched together'));
+  assert.ok(text.includes('appear stuck in place') || text.includes('service gap forming'));
 });
 
 test('describeSignal handles unknown source gracefully', () => {
   const text = describeSignal({ source: 'unknown', severity: 0.5, detail: null }, 'train');
   assert.ok(text.includes('unknown'));
+});
+
+test('describeSignal: bunching uses plain-language suppression reason', () => {
+  const cd = describeSignal(
+    {
+      source: 'bunching',
+      severity: 0.8,
+      detail: JSON.stringify({ vehicles: 4, suppressed: 'cooldown' }),
+    },
+    'bus',
+  );
+  assert.ok(cd.includes('4 buses bunched together'));
+  assert.ok(cd.includes('covered by a recent post'));
+  assert.ok(!cd.toLowerCase().includes('near-miss'));
+
+  const cap = describeSignal(
+    {
+      source: 'bunching',
+      severity: 0.8,
+      detail: JSON.stringify({ vehicles: 5, suppressed: 'cap' }),
+    },
+    'bus',
+  );
+  assert.ok(cap.includes("over today's post limit"));
+});
+
+test('describeSignal: gap ratio rounds to one decimal', () => {
+  const text = describeSignal(
+    {
+      source: 'gap',
+      severity: 0.6,
+      detail: JSON.stringify({ ratio: 4.073404856013552, suppressed: 'cooldown' }),
+    },
+    'bus',
+  );
+  assert.ok(text.includes('4.1x'));
+  assert.ok(!text.includes('4.073'));
+});
+
+test('describeSignal: ghost missing/expected round to whole vehicles', () => {
+  const text = describeSignal(
+    { source: 'ghost', severity: 0.7, detail: JSON.stringify({ missing: 7.3, expected: 18.3 }) },
+    'bus',
+  );
+  assert.ok(text.includes('7 of 18 buses missing'));
+  assert.ok(!text.includes('.3'));
 });
 
 test('describeSignal: bus ghost says "buses" not "trains"', () => {

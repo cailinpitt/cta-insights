@@ -143,6 +143,18 @@ function db() {
     );
     CREATE INDEX IF NOT EXISTS idx_thread_quote_posts_root ON thread_quote_posts(thread_root_uri);
 
+    CREATE TABLE IF NOT EXISTS roundup_anchors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      line TEXT NOT NULL,
+      post_uri TEXT NOT NULL UNIQUE,
+      post_cid TEXT,
+      ts INTEGER NOT NULL,
+      expires_ts INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_roundup_anchors_kind_expires
+      ON roundup_anchors(kind, expires_ts);
+
     CREATE TABLE IF NOT EXISTS meta_signals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ts INTEGER NOT NULL,
@@ -401,6 +413,25 @@ function listActiveTrainPulseAnchors() {
       WHERE active_post_uri IS NOT NULL
     `)
     .all();
+}
+
+function recordRoundupAnchor({ kind, line, postUri, postCid, ts, ttlMs = 2 * 60 * 60 * 1000 }) {
+  db()
+    .prepare(`
+      INSERT OR REPLACE INTO roundup_anchors (kind, line, post_uri, post_cid, ts, expires_ts)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+    .run(kind, String(line), postUri, postCid || null, ts, ts + ttlMs);
+}
+
+function listActiveRoundupAnchors(kind, now = Date.now()) {
+  return db()
+    .prepare(`
+      SELECT line, post_uri, post_cid, ts
+      FROM roundup_anchors
+      WHERE kind = ? AND expires_ts > ?
+    `)
+    .all(kind, now);
 }
 
 function getRecentPulsePost(
@@ -1155,6 +1186,8 @@ module.exports = {
   listUnresolvedAlerts,
   listActiveBusPulseAnchors,
   listActiveTrainPulseAnchors,
+  recordRoundupAnchor,
+  listActiveRoundupAnchors,
   ALERT_CLEAR_TICKS,
   recordDisruption,
   getRecentPulsePost,
