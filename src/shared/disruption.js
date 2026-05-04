@@ -215,6 +215,16 @@ function buildBusPostText(
   return `${header}\n\n${evidence}\n\n${footer}`;
 }
 
+function buildBusHeldPostText({ route, name, candidate }, { ctaAlertOpen = false } = {}) {
+  const minutes = Math.round((candidate.stationaryMs || 0) / 60000);
+  const header = `🚌🚨 #${route} ${name}: buses stuck`;
+  const evidence = `🛑 ${candidate.busCount} bus${candidate.busCount === 1 ? '' : 'es'} stationary ${minutes}+ min in the same direction. No other buses making it through.`;
+  const footer = ctaAlertOpen
+    ? 'Inferred from live bus positions. (See CTA alert in this thread.)'
+    : "Inferred from live bus positions; CTA hasn't issued an alert for this yet.";
+  return `${header}\n\n${evidence}\n\n${footer}`;
+}
+
 function buildBusClearPostText({ route, name }, { ctaAlertOpen = false } = {}) {
   const tail = ctaAlertOpen
     ? "(CTA hasn't cleared their alert yet.)"
@@ -227,6 +237,7 @@ module.exports = {
   buildAltText,
   buildClearPostText,
   buildBusPostText,
+  buildBusHeldPostText,
   buildBusClearPostText,
   titleFor,
   footerFor,

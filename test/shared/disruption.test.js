@@ -6,6 +6,7 @@ const {
   buildClearPostText,
   buildBusPostText,
   buildBusClearPostText,
+  buildBusHeldPostText,
   evidenceLine,
 } = require('../../src/shared/disruption');
 
@@ -221,4 +222,35 @@ test('buildBusClearPostText (CTA alert open) acknowledges the open alert', () =>
   const text = buildBusClearPostText({ route: '66', name: 'Chicago' }, { ctaAlertOpen: true });
   assert.match(text, /CTA hasn't cleared their alert yet/);
   assert.doesNotMatch(text, /hasn't issued an alert/);
+});
+
+test('buildBusHeldPostText surfaces the stuck-buses framing', () => {
+  const text = buildBusHeldPostText({
+    route: '147',
+    name: 'Outer DuSable Lake Shore Express',
+    candidate: { busCount: 3, stationaryMs: 18 * 60 * 1000 },
+  });
+  assert.match(text, /^🚌🚨 #147/);
+  assert.match(text, /Outer DuSable Lake Shore Express/);
+  assert.match(text, /buses stuck/);
+  assert.match(text, /3 buses stationary 18\+ min/);
+  assert.match(text, /No other buses making it through/);
+  assert.match(text, /Inferred from live bus positions/);
+});
+
+test('buildBusHeldPostText singular when busCount=1 (defensive)', () => {
+  const text = buildBusHeldPostText({
+    route: '66',
+    name: 'Chicago',
+    candidate: { busCount: 1, stationaryMs: 12 * 60 * 1000 },
+  });
+  assert.match(text, /1 bus stationary 12\+ min/);
+});
+
+test('buildBusHeldPostText threads under open CTA alert when present', () => {
+  const text = buildBusHeldPostText(
+    { route: '147', name: 'X', candidate: { busCount: 2, stationaryMs: 10 * 60 * 1000 } },
+    { ctaAlertOpen: true },
+  );
+  assert.match(text, /See CTA alert in this thread/);
 });

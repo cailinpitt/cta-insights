@@ -297,7 +297,7 @@ Rationale: the cap exists to suppress repeated bunching events on a chronically 
 
 ## Multi-signal correlation roundup
 
-`bin/train/incident-roundup.js` runs every 5 min on the `:04` offset and emits a single text-only post when multiple sub-threshold signals correlate within a 30-min window. Each detector writes near-miss rows to a new `meta_signals` table:
+`bin/incident-roundup.js` runs every 5 min on the `:04` offset and emits a single text-only post when multiple sub-threshold signals correlate within a 30-min window. Each detector writes near-miss rows to a new `meta_signals` table:
 
 - Pulse writes `pulse-cold` / `pulse-held` rows for candidates that are 1/2 ticks (would-be-but-not-yet).
 - Gap detector writes `gap` rows when cap- or cooldown-suppressed.

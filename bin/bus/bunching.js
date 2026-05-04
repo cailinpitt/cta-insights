@@ -107,6 +107,19 @@ async function main() {
           nearStop: stop.stopName,
           posted: false,
         });
+        history.recordMetaSignal({
+          kind: 'bus',
+          line: candidate.route,
+          direction: candidate.pid,
+          source: 'bunching',
+          severity: Math.min(1, candidate.vehicles.length / 4),
+          detail: {
+            vehicles: candidate.vehicles.length,
+            span_ft: candidate.spanFt,
+            suppressed: 'cooldown',
+          },
+          posted: false,
+        });
         continue;
       }
       if (routeCdOverride) {
@@ -131,6 +144,19 @@ async function main() {
           vehicleCount: candidate.vehicles.length,
           severityFt: candidate.spanFt,
           nearStop: stop.stopName,
+          posted: false,
+        });
+        history.recordMetaSignal({
+          kind: 'bus',
+          line: candidate.route,
+          direction: candidate.pid,
+          source: 'bunching',
+          severity: Math.min(1, candidate.vehicles.length / 4),
+          detail: {
+            vehicles: candidate.vehicles.length,
+            span_ft: candidate.spanFt,
+            suppressed: 'cap',
+          },
           posted: false,
         });
         continue;

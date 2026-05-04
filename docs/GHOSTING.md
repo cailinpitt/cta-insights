@@ -110,4 +110,4 @@ Whole-hour `MISSING_ABS_THRESHOLD = 3` is the right floor for steady deficits bu
 - `tailMedian < observedActive` (deficit concentrated in the last 25% of the window).
 - `trailingDeficit ≥ 2`.
 
-Steady whole-window under-counts of 2 still drop. The train ghost cron also writes near-miss `meta_signals` rows (severity ≥ 0.5) for sub-threshold drops, plus full-strength rows for posted events — `bin/train/incident-roundup.js` reads these for cross-detector correlation.
+Steady whole-window under-counts of 2 still drop. The train ghost cron also writes near-miss `meta_signals` rows (severity ≥ 0.5) for sub-threshold drops, plus full-strength rows for posted events — `bin/incident-roundup.js` reads these for cross-detector correlation.

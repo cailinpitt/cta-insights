@@ -14,11 +14,16 @@ require('../../src/shared/env');
 
 const { setup, runBin } = require('../../src/shared/runBin');
 const { detectBusBlackouts } = require('../../src/bus/pulse');
+const { detectHeldBusClusters } = require('../../src/bus/heldClusters');
 const { allRoutes: pulseRoutes, names: routeNames } = require('../../src/bus/routes');
 const { loadPattern } = require('../../src/bus/patterns');
 const { getVehiclesCachedOrFresh } = require('../../src/bus/api');
 const { loginAlerts, postText, resolveReplyRef } = require('../../src/shared/bluesky');
-const { buildBusPostText, buildBusClearPostText } = require('../../src/shared/disruption');
+const {
+  buildBusPostText,
+  buildBusClearPostText,
+  buildBusHeldPostText,
+} = require('../../src/shared/disruption');
 const {
   expectedHeadwayMin,
   expectedActiveTrips,
@@ -39,6 +44,7 @@ const {
   hasObservedClearForPulse,
   hasUnresolvedCtaAlert,
   getDb,
+  recordMetaSignal,
 } = require('../../src/shared/history');
 
 const DRY_RUN = process.env.BUS_PULSE_DRY_RUN === '1' || process.argv.includes('--dry-run');
@@ -74,6 +80,7 @@ function getKnownPidsForRoute(route, now) {
 
 async function handleCandidate(candidate, agentGetter, now) {
   const route = candidate.route;
+  const isHeld = candidate.kind === 'held';
   const prior = getBusPulseState(route);
   const consecutive = (prior?.consecutive_ticks || 0) + 1;
   const startedTs = prior?.started_ts || now;
@@ -100,22 +107,38 @@ async function handleCandidate(candidate, agentGetter, now) {
   }
 
   if (consecutive < MIN_CONSECUTIVE_TICKS) {
-    console.log(`[bus/${route}] candidate tick ${consecutive}/${MIN_CONSECUTIVE_TICKS}`);
+    console.log(
+      `[bus/${route}] ${isHeld ? 'held' : 'blackout'} candidate tick ${consecutive}/${MIN_CONSECUTIVE_TICKS}`,
+    );
+    recordMetaSignal({
+      kind: 'bus',
+      line: route,
+      direction: candidate.pid || null,
+      source: isHeld ? 'pulse-held' : 'pulse-cold',
+      severity: 0.5,
+      detail: { route, kind: candidate.kind || 'cold' },
+      posted: false,
+    });
     return;
   }
 
   const ctaAlertOpenInitial = !!hasUnresolvedCtaAlert({ kind: 'bus', ctaRouteCode: route });
 
   if (DRY_RUN) {
-    const text = buildBusPostText(candidate, { ctaAlertOpen: ctaAlertOpenInitial });
-    console.log(`--- DRY RUN bus pulse ${route} ---\n${text}`);
+    const text = isHeld
+      ? buildBusHeldPostText(
+          { route, name: routeNames[route] || route, candidate },
+          { ctaAlertOpen: ctaAlertOpenInitial },
+        )
+      : buildBusPostText(candidate, { ctaAlertOpen: ctaAlertOpenInitial });
+    console.log(`--- DRY RUN bus pulse ${route} (${isHeld ? 'held' : 'blackout'}) ---\n${text}`);
     recordDisruption({
       kind: 'bus',
       line: route,
       direction: null,
       fromStation: null,
       toStation: null,
-      source: 'observed',
+      source: isHeld ? 'observed-held' : 'observed',
       posted: false,
       postUri: null,
     });
@@ -130,7 +153,7 @@ async function handleCandidate(candidate, agentGetter, now) {
       direction: null,
       fromStation: null,
       toStation: null,
-      source: 'observed',
+      source: isHeld ? 'observed-held' : 'observed',
       posted: false,
       postUri: null,
     });
@@ -140,7 +163,9 @@ async function handleCandidate(candidate, agentGetter, now) {
   const agent = await agentGetter();
   const replyRef = await findOpenAlertReplyRefBus(agent, route);
   const ctaAlertOpen = !!replyRef || ctaAlertOpenInitial;
-  const text = buildBusPostText(candidate, { ctaAlertOpen });
+  const text = isHeld
+    ? buildBusHeldPostText({ route, name: routeNames[route] || route, candidate }, { ctaAlertOpen })
+    : buildBusPostText(candidate, { ctaAlertOpen });
 
   const result = await postText(agent, text, replyRef);
   console.log(`Posted bus pulse ${route}: ${result.url}`);
@@ -150,7 +175,7 @@ async function handleCandidate(candidate, agentGetter, now) {
     direction: null,
     fromStation: null,
     toStation: null,
-    source: 'observed',
+    source: isHeld ? 'observed-held' : 'observed',
     posted: true,
     postUri: result.uri,
   });
@@ -322,7 +347,51 @@ async function main() {
   };
 
   const candidateRoutes = new Set(detection.candidates.map((c) => c.route));
-  for (const candidate of detection.candidates) {
+
+  // Held-cluster pass — runs over the same observation set. Buses present
+  // but not advancing (e.g. police hold blocking the route) are invisible
+  // to the strict-zero blackout detector.
+  const heldCandidates = [];
+  if (process.env.HELD_DETECTION !== '0') {
+    for (const route of pulseRoutes) {
+      const obs = observationsByRoute.get(String(route)) || [];
+      if (obs.length === 0) continue;
+      let headwayMin = null;
+      try {
+        headwayMin = expectedHeadwayMin(route, null, new Date(now));
+      } catch (_e) {
+        headwayMin = null;
+      }
+      try {
+        const out = detectHeldBusClusters({
+          route,
+          observations: obs,
+          headwayMin,
+          now,
+        });
+        for (const c of out.candidates) {
+          heldCandidates.push({ ...c, kind: 'held', route });
+        }
+      } catch (e) {
+        console.error(`held bus detect failed for ${route}: ${e.stack || e.message}`);
+      }
+    }
+    if (heldCandidates.length > 0) {
+      console.log(
+        `bus-pulse: held-cluster detection emitted ${heldCandidates.length} candidate(s) across ${new Set(heldCandidates.map((c) => c.route)).size} route(s)`,
+      );
+    }
+  }
+
+  // Sort held > blackout for same route so handleCandidate's per-route
+  // pulse_state gets the more specific signal.
+  const allCandidates = [...detection.candidates, ...heldCandidates];
+  allCandidates.sort((a, b) => (b.kind === 'held' ? 1 : 0) - (a.kind === 'held' ? 1 : 0));
+  const seenRoutes = new Set();
+  for (const candidate of allCandidates) {
+    if (seenRoutes.has(candidate.route)) continue;
+    seenRoutes.add(candidate.route);
+    candidateRoutes.add(candidate.route);
     try {
       await handleCandidate(candidate, agentGetter, now);
     } catch (e) {

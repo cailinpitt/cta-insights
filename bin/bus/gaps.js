@@ -105,6 +105,15 @@ async function main() {
           nearStop: stop.stopName,
           posted: false,
         });
+        history.recordMetaSignal({
+          kind: 'bus',
+          line: candidate.route,
+          direction: candidate.pid,
+          source: 'gap',
+          severity: Math.min(1, candidate.ratio / 4),
+          detail: { ratio: candidate.ratio, suppressed: 'cooldown' },
+          posted: false,
+        });
         continue;
       }
       const capAllows = history.gapCapAllows({
@@ -126,6 +135,15 @@ async function main() {
           expectedMin: candidate.expectedMin,
           ratio: candidate.ratio,
           nearStop: stop.stopName,
+          posted: false,
+        });
+        history.recordMetaSignal({
+          kind: 'bus',
+          line: candidate.route,
+          direction: candidate.pid,
+          source: 'gap',
+          severity: Math.min(1, candidate.ratio / 4),
+          detail: { ratio: candidate.ratio, suppressed: 'cap' },
           posted: false,
         });
         continue;

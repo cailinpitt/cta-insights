@@ -18,6 +18,8 @@ const { getBusObservations, rolloffOldObservations } = require('../../src/shared
 const { loginBus, postText } = require('../../src/bus/bluesky');
 const { runBin } = require('../../src/shared/runBin');
 const { logDropSummary } = require('../../src/shared/ghostsLog');
+const { recordMetaSignal } = require('../../src/shared/history');
+const { MISSING_ABS_THRESHOLD } = require('../../src/bus/ghosts');
 
 const WINDOW_MS = 60 * 60 * 1000;
 
@@ -104,10 +106,43 @@ async function main() {
     }
   }
 
+  // Record sub-threshold near-miss signals for the meta-correlation roundup.
+  for (const d of drops) {
+    if (
+      d.reason === 'below_abs_threshold' &&
+      d.route &&
+      d.missing != null &&
+      d.missing >= MISSING_ABS_THRESHOLD * 0.5
+    ) {
+      recordMetaSignal({
+        kind: 'bus',
+        line: d.route,
+        direction: d.direction || null,
+        source: 'ghost',
+        severity: Math.min(1, d.missing / MISSING_ABS_THRESHOLD),
+        detail: { observed: d.observedActive, expected: d.expectedActive, missing: d.missing },
+        posted: false,
+      });
+    }
+  }
+
   if (events.length === 0) {
     console.log('No ghost bus events meet the threshold, staying silent');
     logDropSummary(drops, 'bus');
     return;
+  }
+
+  // Posted ghosts get full-strength meta_signals so roundup picks them up too.
+  for (const e of events) {
+    recordMetaSignal({
+      kind: 'bus',
+      line: e.route,
+      direction: e.direction || null,
+      source: 'ghost',
+      severity: 1.0,
+      detail: { observed: e.observedActive, expected: e.expectedActive, missing: e.missing },
+      posted: true,
+    });
   }
 
   for (const e of events) {

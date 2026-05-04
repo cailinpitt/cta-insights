@@ -169,7 +169,7 @@ load-bearing — see invariants below.
 Train pulse measures absence of pings; it can't see "held trains still pinging from a stopped state." Two complements:
 
 - **Held-cluster detection** (`src/train/heldClusters.js`) flags ≥ 2 stationary trains clustered within 1 mi when no moving train is nearby in the same direction. Per-train motion comes from `src/train/motion.js` (stationary = displacement ≤ 500 ft over ≥ 3 obs spanning ≥ 5 min). Held candidates flow through the same `handleCandidate` machinery as cold candidates with `kind: 'held'` and a different post template (`🚇🚨 service halted around X` instead of cold "trains not seen").
-- **Multi-signal roundup** (`bin/train/incident-roundup.js`) — when individual detectors all hit sub-threshold signals on the same line within 30 min, the roundup posts a single text-only acknowledgment. Each detector writes to a new `meta_signals` table on near-misses; roundup scores by max-severity-per-source then sums sources, with score ≥ 2.0 triggering a post (60-min cooldown per line).
+- **Multi-signal roundup** (`bin/incident-roundup.js`) — when individual detectors all hit sub-threshold signals on the same line within 30 min, the roundup posts a single text-only acknowledgment. Each detector writes to a new `meta_signals` table on near-misses; roundup scores by max-severity-per-source then sums sources, with score ≥ 2.0 triggering a post (60-min cooldown per line).
 
 Key supporting changes shipped together: trailing-tail threshold drop on ghost (admits `missing ≥ 2` when deficit concentrates in window tail), gap-cap reset per rush period (AM 05–10, midday 10–15, PM 15–20, evening 20–05) with cap-exempt on recent pulse/ghost correlation, terminal-adjacency veto (1.2× margin) and dispatch-continuity veto (1.5× margin) on cold-segment detection, `inLoopTrunk` override scoped to round-trip lines only.
 
@@ -261,7 +261,7 @@ alert with all its routes intact.
 | Motion classifier | `src/train/motion.js` | `DEFAULT_STATIONARY_FT = 500`, `DEFAULT_STATIONARY_MIN_OBS = 3`, `DEFAULT_STATIONARY_MIN_SPAN_MS = 5 min` |
 | Loop trunk override scope | `src/train/speedmap.js` | `LOOP_TRUNK_LINES = {brn, org, pink, p}` |
 | Train gap cap | `bin/train/gaps.js` | `TRAIN_GAP_DAILY_CAP = 2` per rush period (`chicagoStartOfRushPeriod`); cap-exempt on recent pulse (30 min) or recent ghost (90 min) |
-| Roundup scoring | `bin/train/incident-roundup.js` | `WINDOW_MS = 30 min`, `SCORE_THRESHOLD = 2.0`, `ROUNDUP_COOLDOWN_MS = 60 min` |
+| Roundup scoring | `bin/incident-roundup.js` | `WINDOW_MS = 30 min`, `SCORE_THRESHOLD = 2.0`, `ROUNDUP_COOLDOWN_MS = 60 min` |
 | Bus pulse detector | `src/bus/pulse.js` | `MIN_EXPECTED_ACTIVE = 2`, `MIN_OTHER_ROUTES_ACTIVE = 5`, `LOOKBACK_FLOOR_MS = 25 min`, `LOOKBACK_CEIL_MS = 60 min`, `COLD_START_GRACE_MS = 6h` |
 | Significance gate | `src/shared/ctaAlerts.js` | `MIN_SEVERITY = 3`, `MAJOR_PATTERNS`, `MINOR_PATTERNS` |
 | Alert resolution debounce | `src/shared/history.js` | `ALERT_CLEAR_TICKS = 2`, `ALERT_FLICKER_RESET_MS = 30 min` |

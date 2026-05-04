@@ -44,9 +44,12 @@ R=$REPO_ROOT/bin/cron-run.sh
 0       */2 *  *  *  $R train-speedmap   bin/train/speedmap.js
 0       */3 *  *  *  $R train-snapshot   bin/train/snapshot.js
 8       *  *  *  *   $R train-ghosts     bin/train/ghosts.js
-# train-roundup runs every 5 min on :04 offset, separate from pulse :02 / alerts
-# :02 / gaps :07 so its detector-correlation read isn't racing the writers.
-4-59/5  *  *  *  *   $R train-roundup    bin/train/incident-roundup.js
+# incident-roundup runs every 5 min on :04 offset, separate from pulse :02 /
+# alerts :02 / gaps :07 so its detector-correlation read isn't racing the
+# writers. Reads meta_signals for both train and bus near-misses and posts a
+# single rollup when distinct-source signals on the same line/route within
+# 30 min sum past the threshold.
+4-59/5  *  *  *  *   $R incident-roundup bin/incident-roundup.js
 
 # --- Buses ---
 1-59/15 *  *  *  *   $R bus-bunching     bin/bus/bunching.js
