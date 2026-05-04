@@ -350,29 +350,38 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     const coldStationNames = stationsInRun.map((s) => s.station.name);
 
     // Direction-of-travel destination for the trDr-matched feed, derived
-    // empirically from where in the branch the trDr-tagged trains actually
-    // end up. Lets the title say "trains to Howard not seen" on a Sunday
-    // Purple shuttle (where inbound trains terminate at Howard) instead of
-    // the static "trains to the Loop" — which is only correct on weekday
-    // peak when Express service runs through. We use the trDr-matched obs's
-    // farthest-along position, then snap to the nearest in-corridor station.
+    // empirically from per-run net displacement. Lets the title say "trains
+    // to Howard not seen" on a Sunday Purple shuttle (where inbound trains
+    // terminate at Howard) instead of the static "trains to the Loop" —
+    // which is only correct on weekday peak when Express service runs
+    // through. Earlier heuristic compared along-extremes to the branch
+    // midpoint, which silently picked the wrong end whenever trDr-matched
+    // trains traversed (or nearly traversed) the full corridor — both
+    // extremes were equidistant from the midpoint and the tiebreak defaulted
+    // to the high-cumDist station, producing reversed direction text on
+    // Pink/Purple branch-0-outbound posts.
     let directionDestinationName = null;
     if (trDrFilter && stationsOnBranch.length >= 2) {
-      let dirMaxAlong = -Infinity;
-      let dirMinAlong = Infinity;
+      const runFirst = new Map();
+      const runLast = new Map();
       for (const p of branchObs) {
         if (p.trDr !== trDrFilter) continue;
+        if (p.rn == null) continue;
         const { cumDist: along, perpDist } = snapToLineWithPerp(p.lat, p.lon, points, cumDist);
         if (perpDist > MAX_PERP_FT) continue;
-        if (along > dirMaxAlong) dirMaxAlong = along;
-        if (along < dirMinAlong) dirMinAlong = along;
+        const f = runFirst.get(p.rn);
+        if (!f || p.ts < f.ts) runFirst.set(p.rn, { ts: p.ts, along });
+        const l = runLast.get(p.rn);
+        if (!l || p.ts > l.ts) runLast.set(p.rn, { ts: p.ts, along });
       }
-      if (dirMaxAlong > -Infinity) {
-        // Pick whichever extreme is farther from the branch midpoint — that's
-        // the side trDr-matched trains travel toward. Snap to the nearest
-        // station that doesn't exceed corridor bounds.
-        const mid = totalFt / 2;
-        const towardHi = Math.abs(dirMaxAlong - mid) >= Math.abs(dirMinAlong - mid);
+      let netDisplacement = 0;
+      for (const [rn, first] of runFirst) {
+        const last = runLast.get(rn);
+        if (!last || last.ts === first.ts) continue;
+        netDisplacement += last.along - first.along;
+      }
+      if (netDisplacement !== 0) {
+        const towardHi = netDisplacement > 0;
         const corridorLoFt = corridorLo * (totalFt / numBins);
         const corridorHiFt = corridorHi * (totalFt / numBins);
         const inCorridor = stationsOnBranch.filter(

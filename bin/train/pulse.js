@@ -524,8 +524,15 @@ async function main() {
     const recent = allRecent.filter((r) => r.line === line);
     // Corridor bbox over the last 6 hours — restricts detection to the actual
     // revenue track so the Purple Express portion (not running on weekends)
-    // doesn't read as "cold" against the full Linden→Loop polyline.
-    const CORRIDOR_LOOKBACK_MS = 6 * 60 * 60 * 1000;
+    // doesn't read as "cold" against the full Linden→Loop polyline. Purple
+    // additionally needs a tighter window because Express service is rush-
+    // only on weekdays: with a 6h corridor the Loop trunk stayed "in corridor"
+    // through the whole midday gap (FP on 2026-05-04 11:10 AM Sedgwick→Quincy).
+    // Other lines run their full polyline during service hours, so the 6h
+    // tolerance is what keeps long real outages detectable; tightening it
+    // globally would silently drop > 90-min single-segment outages out of
+    // corridor right when the alert should be loudest.
+    const CORRIDOR_LOOKBACK_MS = line === 'p' ? 90 * 60 * 1000 : 6 * 60 * 60 * 1000;
     const corridorBbox = getLineCorridorBbox(line, now - CORRIDOR_LOOKBACK_MS);
     // A tighter "still warm?" probe: was the line observed recently (60 min)?
     // The 6 h corridor pretends a line is active if last night's owl service
