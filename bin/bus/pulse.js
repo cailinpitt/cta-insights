@@ -160,6 +160,9 @@ async function handleCandidate(candidate, agentGetter, now) {
     postedCooldownKey: cooldownKey,
     activePostUri,
     activePostTs,
+    affectedPid: isHeld ? candidate.pid : null,
+    affectedLoFt: isHeld ? candidate.clusterLoFt : null,
+    affectedHiFt: isHeld ? candidate.clusterHiFt : null,
   });
 
   if (activePostUri) {
@@ -259,6 +262,9 @@ async function handleCandidate(candidate, agentGetter, now) {
     postedCooldownKey: cooldownKey,
     activePostUri: result.uri,
     activePostTs: now,
+    affectedPid: isHeld ? candidate.pid : null,
+    affectedLoFt: isHeld ? candidate.clusterLoFt : null,
+    affectedHiFt: isHeld ? candidate.clusterHiFt : null,
   });
 }
 

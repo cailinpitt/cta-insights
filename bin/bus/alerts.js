@@ -12,7 +12,13 @@
 require('../../src/shared/env');
 
 const { setup, runBin } = require('../../src/shared/runBin');
-const { fetchAlerts, isSignificantAlert } = require('../../src/shared/ctaAlerts');
+const {
+  fetchAlerts,
+  isSignificantAlert,
+  extractBetweenStations,
+  extractDirection,
+} = require('../../src/shared/ctaAlerts');
+const { sweepRelatedQuotes } = require('../../src/shared/relatedQuotes');
 const {
   loginAlerts,
   postText,
@@ -115,12 +121,18 @@ async function postNewAlert(alert, agentGetter) {
     );
     return;
   }
+  const summary = [alert.headline, alert.shortDescription].filter(Boolean).join(' \n ');
+  const between = extractBetweenStations(summary);
+  const direction = extractDirection(summary);
   recordAlertSeen({
     alertId: alert.id,
     kind: KIND,
     routes,
     headline: alert.headline,
     postUri: null,
+    affectedFromStation: between?.from || null,
+    affectedToStation: between?.to || null,
+    affectedDirection: direction,
   });
   const agent = await agentGetter();
 
@@ -206,6 +218,20 @@ async function main() {
     } catch (e) {
       console.error(`Failed to post alert ${alert.id}: ${e.stack || e.message}`);
     }
+  }
+
+  // Quote-attach pass — runs regardless of CTA-fetch outcome.
+  try {
+    await sweepRelatedQuotes({
+      kind: KIND,
+      agent: await agentGetter(),
+      dryRun: DRY_RUN,
+      getKnownPidsForRoute: (route) =>
+        getKnownBusPidsForRoute(route, Date.now() - KNOWN_PIDS_LOOKBACK_MS),
+      loadPattern,
+    });
+  } catch (e) {
+    console.error(`related-quotes sweep failed: ${e.stack || e.message}`);
   }
 
   if (alerts.length === 0) {

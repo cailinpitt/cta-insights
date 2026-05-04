@@ -157,6 +157,70 @@ function extractBetweenStations(text) {
   return { from: matches[0].from, to: matches[0].to };
 }
 
+// Direction extraction.
+//
+// Convention: return one of 'north'|'south'|'east'|'west'|'in'|'out', or null.
+// Chosen over speedmap's 'outbound'/'inbound' because (a) most lines are
+// bidirectional with compass semantics, not in/out, and (b) `directionHint`
+// only exists for round-trip lines (brn/org/pink/p) — using it as the universal
+// vocabulary would be lossy for Red/Blue/Green/Yellow. Callers translating to
+// `directionHint` can do so per-line.
+
+// Per-line terminus → compass direction. Terminus names match station 'name'
+// fields in trainStations.json (case-insensitive, base-name strip). When the
+// alert says "toward Howard" on red, we resolve Howard → 'north'. Lines absent
+// from this table fall back to the bare keyword path.
+const TERMINUS_DIRECTION = {
+  red: { howard: 'north', '95th/dan ryan': 'south', '95th': 'south' },
+  blue: { "o'hare": 'north', ohare: 'north', 'forest park': 'west' },
+  brn: { kimball: 'out', loop: 'in' },
+  g: {
+    'harlem/lake': 'west',
+    harlem: 'west',
+    'cottage grove': 'east',
+    'ashland/63rd': 'south',
+    ashland: 'south',
+  },
+  org: { midway: 'out', loop: 'in' },
+  p: { linden: 'out', howard: 'in', loop: 'in' },
+  pink: { '54th/cermak': 'out', cermak: 'out', loop: 'in' },
+  y: { 'dempster-skokie': 'north', dempster: 'north', howard: 'south' },
+};
+
+const COMPASS_KEYWORDS = [
+  [/\bnorth(bound|\b)/i, 'north'],
+  [/\bsouth(bound|\b)/i, 'south'],
+  [/\beast(bound|\b)/i, 'east'],
+  [/\bwest(bound|\b)/i, 'west'],
+  [/\binbound\b/i, 'in'],
+  [/\boutbound\b/i, 'out'],
+];
+
+// Capture group deliberately excludes '.' so "toward 95th." stops at the dot
+// (lookahead). Numbers permitted because terminus names like "95th" / "54th".
+const TOWARD_RE = /\btoward(s)?\s+([A-Za-z0-9/&' -]+?)(?=[.,;]|\bon\b|\bdue\b|$)/i;
+
+// "single-tracking near X" alone (no compass word) is bidirectional from the
+// alert-bot's perspective — we explicitly don't infer a direction.
+function extractDirection(text, line = null) {
+  if (!text) return null;
+  for (const [re, dir] of COMPASS_KEYWORDS) {
+    if (re.test(text)) return dir;
+  }
+  const m = TOWARD_RE.exec(text);
+  if (m && line) {
+    const terminus = m[2].trim().toLowerCase().replace(/\s+/g, ' ');
+    const table = TERMINUS_DIRECTION[line];
+    if (table) {
+      if (terminus in table) return table[terminus];
+      // try base-name strip (drop parenthetical line tag)
+      const base = terminus.split(' (')[0].trim();
+      if (base in table) return table[base];
+    }
+  }
+  return null;
+}
+
 // MajorAlert=1 alone is too noisy: CTA flags single-stop closures, block-party
 // reroutes, and elevator outages as Major. Errs on silence — false negatives
 // (miss a real outage) beat false positives (spam followers with stop closures).
@@ -238,6 +302,7 @@ module.exports = {
   parseAlerts,
   normalizeAlert,
   extractBetweenStations,
+  extractDirection,
   isSignificantAlert,
   parseCtaDate,
   cleanText,

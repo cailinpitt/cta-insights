@@ -4,6 +4,7 @@ const {
   parseAlerts,
   normalizeAlert,
   extractBetweenStations,
+  extractDirection,
   isSignificantAlert,
   cleanText,
 } = require('../../src/shared/ctaAlerts');
@@ -334,4 +335,46 @@ test('not significant: real-world expanded beach service (sev=11, MajorAlert=0)'
     ),
     false,
   );
+});
+
+test('extractDirection: northbound keyword', () => {
+  assert.equal(extractDirection('Northbound trains delayed'), 'north');
+});
+test('extractDirection: southbound keyword', () => {
+  assert.equal(extractDirection('Southbound service halted'), 'south');
+});
+test('extractDirection: eastbound keyword', () => {
+  assert.equal(extractDirection('Eastbound buses rerouted'), 'east');
+});
+test('extractDirection: westbound keyword', () => {
+  assert.equal(extractDirection('Westbound buses rerouted'), 'west');
+});
+test('extractDirection: inbound keyword', () => {
+  assert.equal(extractDirection('Inbound Brown Line trains delayed', 'brn'), 'in');
+});
+test('extractDirection: outbound keyword', () => {
+  assert.equal(extractDirection('Outbound Orange Line', 'org'), 'out');
+});
+test('extractDirection: toward Howard on red → north', () => {
+  assert.equal(
+    extractDirection('Trains running with delays toward Howard due to a medical', 'red'),
+    'north',
+  );
+});
+test('extractDirection: toward 95th on red → south', () => {
+  assert.equal(extractDirection('Trains delayed toward 95th.', 'red'), 'south');
+});
+test('extractDirection: toward Kimball on brn → out', () => {
+  assert.equal(extractDirection('Delays toward Kimball', 'brn'), 'out');
+});
+test('extractDirection: single-tracking with no compass word → null', () => {
+  assert.equal(extractDirection('Single-tracking near Belmont due to signal issue'), null);
+  assert.equal(extractDirection('Single track near Wilson'), null);
+});
+test('extractDirection: no direction word → null', () => {
+  assert.equal(extractDirection('Trains delayed near Belmont due to mechanical issue'), null);
+});
+test('extractDirection: empty/null text → null', () => {
+  assert.equal(extractDirection(null), null);
+  assert.equal(extractDirection(''), null);
 });

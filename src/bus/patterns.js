@@ -47,4 +47,69 @@ function findNearestStop(pattern, pdist) {
   return best;
 }
 
-module.exports = { loadPattern, findNearestStop, patternSignature };
+function normalizeStopName(name) {
+  if (!name) return '';
+  return String(name)
+    .toLowerCase()
+    .replace(/[.,;:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Tokens we expect to be incidental noise in headlines vs. official stop names.
+// "Belmont/Halsted" (headline) vs "Belmont & Halsted" (stop). Normalize both.
+function canonicalizeJunction(name) {
+  return normalizeStopName(name).replace(/\s*[/&]\s*/g, ' & ');
+}
+
+// Search a list of pids for a stop matching `stopName`. Tiered:
+//   1. exact normalized match
+//   2. junction-canonicalized match ('/' ↔ '&')
+//   3. substring containment (either direction) so "Belmont/Halsted" still
+//      finds "Belmont & Halsted" if junction form differs.
+// Returns first match {pid, pdist, stopName} or null.
+async function resolveStopOnRoute({ pids, loadPattern: load, stopName }) {
+  if (!pids?.length || !stopName) return null;
+  const loader = load || loadPattern;
+  const targetNorm = normalizeStopName(stopName);
+  const targetCanon = canonicalizeJunction(stopName);
+  if (!targetNorm) return null;
+
+  for (const pid of pids) {
+    let pattern;
+    try {
+      pattern = await loader(pid);
+    } catch (_e) {
+      continue;
+    }
+    const stops = (pattern?.points || []).filter((p) => p.type === 'S' && p.stopName);
+    // tier 1
+    for (const s of stops) {
+      if (normalizeStopName(s.stopName) === targetNorm) {
+        return { pid: String(pid), pdist: s.pdist, stopName: s.stopName };
+      }
+    }
+    // tier 2
+    for (const s of stops) {
+      if (canonicalizeJunction(s.stopName) === targetCanon) {
+        return { pid: String(pid), pdist: s.pdist, stopName: s.stopName };
+      }
+    }
+    // tier 3 (substring)
+    for (const s of stops) {
+      const sNorm = normalizeStopName(s.stopName);
+      if (sNorm.includes(targetNorm) || targetNorm.includes(sNorm)) {
+        return { pid: String(pid), pdist: s.pdist, stopName: s.stopName };
+      }
+    }
+  }
+  return null;
+}
+
+module.exports = {
+  loadPattern,
+  findNearestStop,
+  patternSignature,
+  resolveStopOnRoute,
+  normalizeStopName,
+};

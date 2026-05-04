@@ -126,21 +126,55 @@ function loginAlerts() {
   return login(process.env.BLUESKY_ALERTS_IDENTIFIER, process.env.BLUESKY_ALERTS_APP_PASSWORD);
 }
 
-// Build a reply ref pointing at `parentUri`. Inherits the parent's `root`
-// when the parent is itself a reply, so the new post lands in the same thread
-// rather than starting a sub-thread.
-async function resolveReplyRef(agent, parentUri) {
-  const m = /^at:\/\/([^/]+)\/([^/]+)\/(.+)$/.exec(parentUri);
+// Fetch a post record by AT-URI. Returns `{ uri, cid, value, replyRoot }` on
+// success, where `replyRoot` is the thread root (the post itself for
+// top-level posts, or `value.reply.root` for replies). Returns null on
+// invalid URI or fetch error.
+async function getPostRecord(agent, uri) {
+  const m = /^at:\/\/([^/]+)\/([^/]+)\/(.+)$/.exec(uri);
   if (!m) return null;
   const [, repo, collection, rkey] = m;
   try {
-    const { data: record } = await agent.com.atproto.repo.getRecord({ repo, collection, rkey });
-    const parent = { uri: parentUri, cid: record.cid };
-    const root = record.value?.reply?.root ? record.value.reply.root : parent;
-    return { root, parent };
+    const { data } = await agent.com.atproto.repo.getRecord({ repo, collection, rkey });
+    const replyRoot = data.value?.reply?.root || { uri, cid: data.cid };
+    return { uri, cid: data.cid, value: data.value, replyRoot };
   } catch (_) {
     return null;
   }
 }
 
-module.exports = { login, loginAlerts, postWithImage, postWithVideo, postText, resolveReplyRef };
+// Build a reply ref pointing at `parentUri`. Inherits the parent's `root`
+// when the parent is itself a reply, so the new post lands in the same thread
+// rather than starting a sub-thread.
+async function resolveReplyRef(agent, parentUri) {
+  const record = await getPostRecord(agent, parentUri);
+  if (!record) return null;
+  const parent = { uri: record.uri, cid: record.cid };
+  const root = record.value?.reply?.root ? record.value.reply.root : parent;
+  return { root, parent };
+}
+
+// Quote-post `quoted` ({uri, cid}) with the given text, optionally threaded
+// under `replyRef`. Mirrors postText/postWithImage return shape.
+async function postQuote(agent, text, quoted, replyRef = null) {
+  const result = await agent.post({
+    text,
+    ...(replyRef && { reply: replyRef }),
+    embed: {
+      $type: 'app.bsky.embed.record',
+      record: { uri: quoted.uri, cid: quoted.cid },
+    },
+  });
+  return { url: postUrl(result), uri: result.uri, cid: result.cid };
+}
+
+module.exports = {
+  login,
+  loginAlerts,
+  postWithImage,
+  postWithVideo,
+  postText,
+  postQuote,
+  resolveReplyRef,
+  getPostRecord,
+};

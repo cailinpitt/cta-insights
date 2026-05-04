@@ -5,8 +5,10 @@ const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
 const {
   fetchAlerts,
   extractBetweenStations,
+  extractDirection,
   isSignificantAlert,
 } = require('../../src/shared/ctaAlerts');
+const { sweepRelatedQuotes } = require('../../src/shared/relatedQuotes');
 const { findStationByDestination } = require('../../src/train/findStation');
 const { renderDisruption } = require('../../src/map');
 const { LINE_COLORS, LINE_NAMES } = require('../../src/train/api');
@@ -97,12 +99,28 @@ async function postNewAlert(alert, agentGetter) {
     return;
   }
 
+  const between =
+    alert.trainLines.length === 1
+      ? extractBetweenStations(
+          [alert.headline, alert.shortDescription].filter(Boolean).join(' \n '),
+        )
+      : null;
+  const direction =
+    alert.trainLines.length === 1
+      ? extractDirection(
+          [alert.headline, alert.shortDescription].filter(Boolean).join(' \n '),
+          alert.trainLines[0],
+        )
+      : null;
   recordAlertSeen({
     alertId: alert.id,
     kind: KIND,
     routes,
     headline: alert.headline,
     postUri: null,
+    affectedFromStation: between?.from || null,
+    affectedToStation: between?.to || null,
+    affectedDirection: direction,
   });
 
   const agent = await agentGetter();
@@ -218,6 +236,15 @@ async function main() {
     } catch (e) {
       console.error(`Failed to post alert ${alert.id}: ${e.stack || e.message}`);
     }
+  }
+
+  // Quote-attach pass — runs regardless of CTA-fetch outcome, since active
+  // anchors (existing alerts, observation pulses) are independent of this
+  // tick's fetch.
+  try {
+    await sweepRelatedQuotes({ kind: KIND, agent: await agentGetter(), dryRun: DRY_RUN });
+  } catch (e) {
+    console.error(`related-quotes sweep failed: ${e.stack || e.message}`);
   }
 
   if (alerts.length === 0) {

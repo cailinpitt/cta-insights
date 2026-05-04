@@ -82,7 +82,10 @@ function db() {
       post_uri TEXT,
       resolved_ts INTEGER,
       resolved_reply_uri TEXT,
-      clear_ticks INTEGER NOT NULL DEFAULT 0
+      clear_ticks INTEGER NOT NULL DEFAULT 0,
+      affected_from_station TEXT,
+      affected_to_station TEXT,
+      affected_direction TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_alert_posts_kind
       ON alert_posts(kind);
@@ -125,8 +128,20 @@ function db() {
       clear_ticks INTEGER NOT NULL DEFAULT 0,
       posted_cooldown_key TEXT,
       active_post_uri TEXT,
-      active_post_ts INTEGER
+      active_post_ts INTEGER,
+      affected_pid TEXT,
+      affected_lo_ft INTEGER,
+      affected_hi_ft INTEGER
     );
+
+    CREATE TABLE IF NOT EXISTS thread_quote_posts (
+      thread_root_uri TEXT NOT NULL,
+      source_post_uri TEXT NOT NULL,
+      quote_post_uri TEXT,
+      ts INTEGER NOT NULL,
+      PRIMARY KEY (thread_root_uri, source_post_uri)
+    );
+    CREATE INDEX IF NOT EXISTS idx_thread_quote_posts_root ON thread_quote_posts(thread_root_uri);
 
     CREATE TABLE IF NOT EXISTS meta_signals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,6 +209,28 @@ function db() {
   if (!alertCols.includes('clear_ticks')) {
     _db.exec('ALTER TABLE alert_posts ADD COLUMN clear_ticks INTEGER NOT NULL DEFAULT 0');
   }
+  if (!alertCols.includes('affected_from_station')) {
+    _db.exec('ALTER TABLE alert_posts ADD COLUMN affected_from_station TEXT');
+  }
+  if (!alertCols.includes('affected_to_station')) {
+    _db.exec('ALTER TABLE alert_posts ADD COLUMN affected_to_station TEXT');
+  }
+  if (!alertCols.includes('affected_direction')) {
+    _db.exec('ALTER TABLE alert_posts ADD COLUMN affected_direction TEXT');
+  }
+  const busPulseCols = _db
+    .prepare('PRAGMA table_info(bus_pulse_state)')
+    .all()
+    .map((c) => c.name);
+  if (!busPulseCols.includes('affected_pid')) {
+    _db.exec('ALTER TABLE bus_pulse_state ADD COLUMN affected_pid TEXT');
+  }
+  if (!busPulseCols.includes('affected_lo_ft')) {
+    _db.exec('ALTER TABLE bus_pulse_state ADD COLUMN affected_lo_ft INTEGER');
+  }
+  if (!busPulseCols.includes('affected_hi_ft')) {
+    _db.exec('ALTER TABLE bus_pulse_state ADD COLUMN affected_hi_ft INTEGER');
+  }
   const pulseCols = _db
     .prepare('PRAGMA table_info(pulse_state)')
     .all()
@@ -256,7 +293,22 @@ const ALERT_CLEAR_TICKS = 2;
 // gap, treat the new sighting as a re-published incident and reset tracking.
 const ALERT_FLICKER_RESET_MS = 30 * 60 * 1000;
 
-function recordAlertSeen({ alertId, kind, routes, headline, postUri }, now = Date.now()) {
+function recordAlertSeen(
+  {
+    alertId,
+    kind,
+    routes,
+    headline,
+    postUri,
+    affectedFromStation,
+    affectedToStation,
+    affectedDirection,
+  },
+  now = Date.now(),
+) {
+  const af = affectedFromStation == null ? null : affectedFromStation;
+  const at = affectedToStation == null ? null : affectedToStation;
+  const ad = affectedDirection == null ? null : affectedDirection;
   const existing = getAlertPost(alertId);
   if (existing) {
     // Re-engage tracking when (a) post finally lands after a premature
@@ -273,28 +325,36 @@ function recordAlertSeen({ alertId, kind, routes, headline, postUri }, now = Dat
         UPDATE alert_posts
         SET last_seen_ts = ?, post_uri = COALESCE(?, post_uri),
             headline = COALESCE(?, headline), routes = COALESCE(?, routes),
+            affected_from_station = COALESCE(?, affected_from_station),
+            affected_to_station = COALESCE(?, affected_to_station),
+            affected_direction = COALESCE(?, affected_direction),
             resolved_ts = NULL, resolved_reply_uri = NULL, clear_ticks = 0
         WHERE alert_id = ?
       `)
-        .run(now, postUri || null, headline || null, routes || null, alertId);
+        .run(now, postUri || null, headline || null, routes || null, af, at, ad, alertId);
     } else {
       db()
         .prepare(`
         UPDATE alert_posts
         SET last_seen_ts = ?, post_uri = COALESCE(?, post_uri),
-            headline = COALESCE(?, headline), routes = COALESCE(?, routes)
+            headline = COALESCE(?, headline), routes = COALESCE(?, routes),
+            affected_from_station = COALESCE(?, affected_from_station),
+            affected_to_station = COALESCE(?, affected_to_station),
+            affected_direction = COALESCE(?, affected_direction)
         WHERE alert_id = ?
       `)
-        .run(now, postUri || null, headline || null, routes || null, alertId);
+        .run(now, postUri || null, headline || null, routes || null, af, at, ad, alertId);
     }
     return;
   }
   db()
     .prepare(`
-    INSERT INTO alert_posts (alert_id, kind, routes, headline, first_seen_ts, last_seen_ts, post_uri)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO alert_posts
+      (alert_id, kind, routes, headline, first_seen_ts, last_seen_ts, post_uri,
+       affected_from_station, affected_to_station, affected_direction)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
-    .run(alertId, kind, routes || null, headline || null, now, now, postUri || null);
+    .run(alertId, kind, routes || null, headline || null, now, now, postUri || null, af, at, ad);
 }
 
 function recordAlertResolved({ alertId, replyUri }, now = Date.now()) {
@@ -317,6 +377,30 @@ function resetAlertClearTicks(alertId) {
 
 function listUnresolvedAlerts(kind) {
   return db().prepare('SELECT * FROM alert_posts WHERE kind = ? AND resolved_ts IS NULL').all(kind);
+}
+
+// Active observation-pulse posts that are still live anchors for a thread.
+// Bus side: held-cluster pulses only (affected_pid is set). Whole-route
+// blackouts have no segment, so they're never used as quote anchors.
+function listActiveBusPulseAnchors() {
+  return db()
+    .prepare(`
+      SELECT route, started_ts, active_post_uri, affected_pid, affected_lo_ft, affected_hi_ft
+      FROM bus_pulse_state
+      WHERE active_post_uri IS NOT NULL AND affected_pid IS NOT NULL
+    `)
+    .all();
+}
+
+// Active train pulse anchors carry from/to + direction directly.
+function listActiveTrainPulseAnchors() {
+  return db()
+    .prepare(`
+      SELECT line, direction, from_station, to_station, started_ts, active_post_uri
+      FROM pulse_state
+      WHERE active_post_uri IS NOT NULL
+    `)
+    .all();
 }
 
 function getRecentPulsePost(
@@ -509,13 +593,20 @@ function upsertBusPulseState({
   postedCooldownKey,
   activePostUri = null,
   activePostTs = null,
+  affectedPid,
+  affectedLoFt,
+  affectedHiFt,
 }) {
+  const pid = affectedPid === undefined ? null : affectedPid;
+  const lo = affectedLoFt === undefined || affectedLoFt === null ? null : Math.round(affectedLoFt);
+  const hi = affectedHiFt === undefined || affectedHiFt === null ? null : Math.round(affectedHiFt);
   db()
     .prepare(`
     INSERT INTO bus_pulse_state
       (route, started_ts, last_seen_ts, consecutive_ticks, clear_ticks,
-       posted_cooldown_key, active_post_uri, active_post_ts)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       posted_cooldown_key, active_post_uri, active_post_ts,
+       affected_pid, affected_lo_ft, affected_hi_ft)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(route) DO UPDATE SET
       started_ts = excluded.started_ts,
       last_seen_ts = excluded.last_seen_ts,
@@ -523,7 +614,10 @@ function upsertBusPulseState({
       clear_ticks = excluded.clear_ticks,
       posted_cooldown_key = excluded.posted_cooldown_key,
       active_post_uri = excluded.active_post_uri,
-      active_post_ts = excluded.active_post_ts
+      active_post_ts = excluded.active_post_ts,
+      affected_pid = COALESCE(excluded.affected_pid, affected_pid),
+      affected_lo_ft = COALESCE(excluded.affected_lo_ft, affected_lo_ft),
+      affected_hi_ft = COALESCE(excluded.affected_hi_ft, affected_hi_ft)
   `)
     .run(
       String(route),
@@ -534,6 +628,9 @@ function upsertBusPulseState({
       postedCooldownKey || null,
       activePostUri || null,
       activePostTs || null,
+      pid,
+      lo,
+      hi,
     );
 }
 
@@ -963,6 +1060,80 @@ function recentDetectorActivity({ kind, line, withinMs }, now = Date.now()) {
   return { gaps, pulses, alerts };
 }
 
+function recordThreadQuote({ threadRootUri, sourcePostUri, quotePostUri }, now = Date.now()) {
+  db()
+    .prepare(`
+    INSERT OR REPLACE INTO thread_quote_posts
+      (thread_root_uri, source_post_uri, quote_post_uri, ts)
+    VALUES (?, ?, ?, ?)
+  `)
+    .run(threadRootUri, sourcePostUri, quotePostUri || null, now);
+}
+
+function getThreadQuotedSourceUris(threadRootUri) {
+  const rows = db()
+    .prepare('SELECT source_post_uri FROM thread_quote_posts WHERE thread_root_uri = ?')
+    .all(threadRootUri);
+  return new Set(rows.map((r) => r.source_post_uri));
+}
+
+function findRelatedAnalyticsPosts({ kind, routes, sinceTs, untilTs, excludeSourceUris }) {
+  if (!routes || routes.length === 0) return [];
+  const exclude = Array.isArray(excludeSourceUris)
+    ? excludeSourceUris
+    : excludeSourceUris instanceof Set
+      ? [...excludeSourceUris]
+      : [];
+  const routePlaceholders = routes.map(() => '?').join(',');
+  const excludeClause = exclude.length
+    ? ` AND post_uri NOT IN (${exclude.map(() => '?').join(',')})`
+    : '';
+  const baseParams = [kind, ...routes, sinceTs, untilTs, ...exclude];
+  const bunchSql = `
+    SELECT * FROM bunching_events
+    WHERE kind = ? AND route IN (${routePlaceholders})
+      AND posted = 1 AND post_uri IS NOT NULL
+      AND ts BETWEEN ? AND ?${excludeClause}
+  `;
+  const gapSql = `
+    SELECT * FROM gap_events
+    WHERE kind = ? AND route IN (${routePlaceholders})
+      AND posted = 1 AND post_uri IS NOT NULL
+      AND ts BETWEEN ? AND ?${excludeClause}
+  `;
+  const bunchRows = db()
+    .prepare(bunchSql)
+    .all(...baseParams);
+  const gapRows = db()
+    .prepare(gapSql)
+    .all(...baseParams);
+  const out = [];
+  for (const r of bunchRows) {
+    out.push({
+      source: 'bunching',
+      ts: r.ts,
+      route: r.route,
+      direction: r.direction,
+      near_stop: r.near_stop,
+      post_uri: r.post_uri,
+      raw: r,
+    });
+  }
+  for (const r of gapRows) {
+    out.push({
+      source: 'gap',
+      ts: r.ts,
+      route: r.route,
+      direction: r.direction,
+      near_stop: r.near_stop,
+      post_uri: r.post_uri,
+      raw: r,
+    });
+  }
+  out.sort((a, b) => b.ts - a.ts);
+  return out;
+}
+
 module.exports = {
   rolloffOld,
   recordBunching,
@@ -982,6 +1153,8 @@ module.exports = {
   incrementAlertClearTicks,
   resetAlertClearTicks,
   listUnresolvedAlerts,
+  listActiveBusPulseAnchors,
+  listActiveTrainPulseAnchors,
   ALERT_CLEAR_TICKS,
   recordDisruption,
   getRecentPulsePost,
@@ -1003,4 +1176,7 @@ module.exports = {
   recentPulseOnLine,
   recentGhostOnLine,
   recentDetectorActivity,
+  recordThreadQuote,
+  getThreadQuotedSourceUris,
+  findRelatedAnalyticsPosts,
 };
