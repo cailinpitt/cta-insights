@@ -433,11 +433,26 @@ async function main() {
       } catch (_e) {
         headwayMin = null;
       }
+      // Load pattern lengths for every pid present in this route's obs so
+      // the detector can suppress terminal layovers + require moving-veto
+      // headroom. Patterns are file-cached by loadPattern.
+      const pidsInObs = new Set();
+      for (const o of obs) if (o.direction != null) pidsInObs.add(String(o.direction));
+      const patternLengthByPid = new Map();
+      for (const pid of pidsInObs) {
+        try {
+          const pattern = await loadPattern(pid);
+          if (pattern && Number.isFinite(pattern.lengthFt)) {
+            patternLengthByPid.set(pid, pattern.lengthFt);
+          }
+        } catch (_e) {}
+      }
       try {
         const out = detectHeldBusClusters({
           route,
           observations: obs,
           headwayMin,
+          patternLengthByPid,
           now,
         });
         for (const c of out.candidates) {

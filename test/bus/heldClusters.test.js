@@ -4,6 +4,14 @@ const { detectHeldBusClusters } = require('../../src/bus/heldClusters');
 
 const NOW = 1_700_000_000_000;
 
+// Long enough that the default ¼-mi terminal grace + ½-mi moving-veto
+// headroom never trip on the legacy mid-route fixtures (clusters at ~5000).
+const DEFAULT_PATTERN_LENGTH_FT = 60000;
+const DEFAULT_PATTERN_LENGTHS = new Map([
+  ['p1', DEFAULT_PATTERN_LENGTH_FT],
+  ['p2', DEFAULT_PATTERN_LENGTH_FT],
+]);
+
 function stationaryBus(vid, pid, pdist, durationMs = 30 * 60 * 1000, obsCount = 4) {
   // Default 30 min over 4 obs → 10 min between obs (matches observe-buses
   // */10 cadence). Tail of 3 obs spans 20 min, easily satisfying the
@@ -43,6 +51,7 @@ test('2 stationary buses on same pid within cluster, no moving → admit', () =>
     route: '147',
     observations: obs,
     headwayMin: 8,
+    patternLengthByPid: DEFAULT_PATTERN_LENGTHS,
     now: NOW,
   });
   assert.equal(candidates.length, 1);
@@ -61,6 +70,7 @@ test('2 stationary on same pid + 1 fast-moving through cluster area → drop', (
     route: '147',
     observations: obs,
     headwayMin: 8,
+    patternLengthByPid: DEFAULT_PATTERN_LENGTHS,
     now: NOW,
   });
   assert.equal(candidates.length, 0);
@@ -76,6 +86,7 @@ test('2 stationary on same pid + 1 fast-moving > 2640ft away → admit', () => {
     route: '147',
     observations: obs,
     headwayMin: 8,
+    patternLengthByPid: DEFAULT_PATTERN_LENGTHS,
     now: NOW,
   });
   assert.equal(candidates.length, 1);
@@ -93,6 +104,7 @@ test('2 stationary on same pid + 1 slow-creep bus inside cluster → admit (cree
     route: '147',
     observations: obs,
     headwayMin: 8,
+    patternLengthByPid: DEFAULT_PATTERN_LENGTHS,
     now: NOW,
   });
   assert.equal(candidates.length, 1, 'creeping bus should not veto held cluster');
@@ -107,6 +119,7 @@ test('insufficient duration → drop', () => {
     route: '147',
     observations: obs,
     headwayMin: 8,
+    patternLengthByPid: DEFAULT_PATTERN_LENGTHS,
     now: NOW,
   });
   assert.equal(candidates.length, 0);
@@ -118,6 +131,7 @@ test('1 stationary bus alone → drop', () => {
     route: '147',
     observations: obs,
     headwayMin: 8,
+    patternLengthByPid: DEFAULT_PATTERN_LENGTHS,
     now: NOW,
   });
   assert.equal(candidates.length, 0);
@@ -129,6 +143,7 @@ test('stationary buses on DIFFERENT pids → drop (not the same direction of tra
     route: '147',
     observations: obs,
     headwayMin: 8,
+    patternLengthByPid: DEFAULT_PATTERN_LENGTHS,
     now: NOW,
   });
   assert.equal(candidates.length, 0);
@@ -144,6 +159,7 @@ test('cluster with 3 buses on same pid → busCount = 3 admits', () => {
     route: '147',
     observations: obs,
     headwayMin: 8,
+    patternLengthByPid: DEFAULT_PATTERN_LENGTHS,
     now: NOW,
   });
   assert.equal(candidates.length, 1);
@@ -159,9 +175,71 @@ test('headway scaling: 20-min headway requires 30 min stationary', () => {
     route: '147',
     observations: obs,
     headwayMin: 20,
+    patternLengthByPid: DEFAULT_PATTERN_LENGTHS,
     now: NOW,
   });
   assert.equal(candidates.length, 0, '20 min not enough at 20-min headway (1.5x = 30min)');
+});
+
+test('cluster at pattern end (terminal layover) → drop', () => {
+  // Reproduces the Archer 62 false positive: 2 buses sitting ~140 ft from
+  // the terminal at the very end of the pattern.
+  const patternLen = 68481;
+  const obs = [
+    ...stationaryBus('a', 'p1', patternLen - 144),
+    ...stationaryBus('b', 'p1', patternLen - 123),
+  ];
+  const { candidates } = detectHeldBusClusters({
+    route: '62',
+    observations: obs,
+    headwayMin: 8,
+    patternLengthByPid: new Map([['p1', patternLen]]),
+    now: NOW,
+  });
+  assert.equal(candidates.length, 0, 'terminal layover should be suppressed');
+});
+
+test('cluster at pattern start (terminal layover) → drop', () => {
+  const obs = [...stationaryBus('a', 'p1', 200), ...stationaryBus('b', 'p1', 400)];
+  const { candidates } = detectHeldBusClusters({
+    route: '62',
+    observations: obs,
+    headwayMin: 8,
+    patternLengthByPid: new Map([['p1', 60000]]),
+    now: NOW,
+  });
+  assert.equal(candidates.length, 0, 'start-terminal layover should be suppressed');
+});
+
+test('cluster with insufficient downstream headroom → drop', () => {
+  // Past the ¼-mi terminal grace but inside the ½-mi moving-veto
+  // headroom — "no buses making it through" is structurally untestable.
+  const patternLen = 60000;
+  const clusterLo = patternLen - 1500 - 1320; // ~57180
+  const obs = [
+    ...stationaryBus('a', 'p1', clusterLo),
+    ...stationaryBus('b', 'p1', clusterLo + 200),
+  ];
+  const { candidates } = detectHeldBusClusters({
+    route: 'X',
+    observations: obs,
+    headwayMin: 8,
+    patternLengthByPid: new Map([['p1', patternLen]]),
+    now: NOW,
+  });
+  assert.equal(candidates.length, 0);
+});
+
+test('missing pattern length for pid → drop (fail closed)', () => {
+  const obs = [...stationaryBus('a', 'p1', 30000), ...stationaryBus('b', 'p1', 30800)];
+  const { candidates } = detectHeldBusClusters({
+    route: 'X',
+    observations: obs,
+    headwayMin: 8,
+    patternLengthByPid: new Map(),
+    now: NOW,
+  });
+  assert.equal(candidates.length, 0);
 });
 
 test('no observations → skipped', () => {
@@ -169,6 +247,7 @@ test('no observations → skipped', () => {
     route: '147',
     observations: [],
     headwayMin: 8,
+    patternLengthByPid: DEFAULT_PATTERN_LENGTHS,
     now: NOW,
   });
   assert.equal(out.skipped, 'no-input');

@@ -11,8 +11,16 @@ const DEFAULT_HELD_CLUSTER_FT = 1320; // 0.25 mi (~3 city blocks)
 const DEFAULT_HELD_MIN_BUSES = 2;
 const DEFAULT_HELD_MIN_DURATION_MS = 10 * 60 * 1000;
 const DEFAULT_MOVING_VETO_FT = 2640;
+const DEFAULT_TERMINAL_GRACE_FT = 1320; // ¼ mi — buses routinely lay over at terminals
 
-function detectHeldBusClusters({ route, observations, now, headwayMin, opts = {} }) {
+function detectHeldBusClusters({
+  route,
+  observations,
+  now,
+  headwayMin,
+  patternLengthByPid,
+  opts = {},
+}) {
   const clusterFt = opts.clusterFt || DEFAULT_HELD_CLUSTER_FT;
   const minBuses = opts.minBuses || DEFAULT_HELD_MIN_BUSES;
   const minDurationMs = Math.max(
@@ -20,6 +28,8 @@ function detectHeldBusClusters({ route, observations, now, headwayMin, opts = {}
     headwayMin != null ? 1.5 * headwayMin * 60 * 1000 : DEFAULT_HELD_MIN_DURATION_MS,
   );
   const movingVetoFt = opts.movingVetoFt || DEFAULT_MOVING_VETO_FT;
+  const terminalGraceFt =
+    opts.terminalGraceFt != null ? opts.terminalGraceFt : DEFAULT_TERMINAL_GRACE_FT;
 
   if (!observations || observations.length === 0) {
     return { skipped: 'no-input', candidates: [] };
@@ -72,6 +82,22 @@ function detectHeldBusClusters({ route, observations, now, headwayMin, opts = {}
     );
     if (movingNearCluster.length > 0) continue;
 
+    // Terminal layover suppression. Buses routinely sit at the start/end
+    // of a pattern between trips; without pattern length we can't tell a
+    // terminal layover apart from a real held cluster, and the
+    // moving-veto can't fire because there's no route past the terminal
+    // for moving buses to occupy.
+    const patternLengthFt = patternLengthByPid ? patternLengthByPid.get(pid) : null;
+    if (patternLengthFt == null || !Number.isFinite(patternLengthFt)) continue;
+    if (clusterMidFt < terminalGraceFt) continue;
+    if (clusterMidFt > patternLengthFt - terminalGraceFt) continue;
+    // Headroom on at least one side for the moving-veto to be meaningful —
+    // without ≥ movingVetoFt of pattern on each side, "no buses making it
+    // through" is structurally untestable rather than observed.
+    const upstreamFt = clusterLoFt;
+    const downstreamFt = patternLengthFt - clusterHiFt;
+    if (Math.min(upstreamFt, downstreamFt) < movingVetoFt) continue;
+
     const stationaryMs = Math.max(...cluster.map((c) => c.tailSpanMs || c.spanMs));
     candidates.push({
       route,
@@ -102,4 +128,5 @@ module.exports = {
   DEFAULT_HELD_MIN_BUSES,
   DEFAULT_HELD_MIN_DURATION_MS,
   DEFAULT_MOVING_VETO_FT,
+  DEFAULT_TERMINAL_GRACE_FT,
 };
