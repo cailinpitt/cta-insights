@@ -389,7 +389,20 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
         );
         if (inCorridor.length > 0) {
           const dest = towardHi ? inCorridor[inCorridor.length - 1] : inCorridor[0];
-          directionDestinationName = dest.station.name;
+          // If the picked terminus station sits inside the Loop trunk on a
+          // Loop-circling line (Brown/Orange/Pink/Purple), leave the empirical
+          // name unset so terminusFor() falls back to the "the Loop" string.
+          // Naming a specific Loop station ("Harold Washington Library",
+          // "Quincy") misleads readers — these lines circle through the Loop
+          // rather than terminating at any one stop on it.
+          const stLat = dest.station.lat;
+          const stLon = dest.station.lon;
+          const inTrunk =
+            LOOP_TRUNK_LINES.has(line) &&
+            stLat != null &&
+            stLon != null &&
+            inLoopTrunk(stLat, stLon);
+          if (!inTrunk) directionDestinationName = dest.station.name;
         }
       }
     }
