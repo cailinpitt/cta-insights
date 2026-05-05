@@ -158,23 +158,16 @@ function projectTrains(trains, view, lineColors) {
   return out;
 }
 
-function inLoopBbox(t) {
-  return (
-    t.lat >= LOOP_BBOX.minLat &&
-    t.lat <= LOOP_BBOX.maxLat &&
-    t.lon >= LOOP_BBOX.minLon &&
-    t.lon <= LOOP_BBOX.maxLon
-  );
-}
-
 async function renderSnapshotFrame(layers, lineColors, trains) {
   const { mainBase, insetBase, view, insetView } = layers;
 
   const mainPixels = projectTrains(trains, view, lineColors);
   const mainSvg = buildPinSvg(view.width, view.height, mainPixels, PIN_RADIUS_MAIN);
 
-  const loopTrains = trains.filter(inLoopBbox);
-  const insetPixels = projectTrains(loopTrains, insetView, lineColors);
+  // Don't pre-filter by LOOP_BBOX — the inset map area extends slightly past
+  // the bbox (zoom is floored), so pre-filtering makes trains pop in/out
+  // mid-view. Let projectTrains' pixel-bounds clip handle visibility instead.
+  const insetPixels = projectTrains(trains, insetView, lineColors);
   const insetSvg = buildPinSvg(insetView.width, insetView.height, insetPixels, PIN_RADIUS_INSET);
 
   const insetWithPins = await sharp(insetBase)
