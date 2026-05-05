@@ -977,6 +977,22 @@ function formatCallouts(callouts) {
 
 // Soft cap: a chronically-bad route gets `cap` posts/day, but a strictly-more-
 // severe escalation ("3-bus pileup → 6") still gets through.
+// Records the highest vehicle_count ever posted for `kind` (across all
+// routes / lines). Used by the post-text builder to award a 🥇 medal when a
+// new record is set. Excludes the current event itself by virtue of
+// recordBunching only writing posted=1 after commitAndPost succeeds —
+// callers compare BEFORE recording, so the candidate isn't in the result.
+function previousMaxBunchingVehicleCount(kind) {
+  const row = db()
+    .prepare(
+      `SELECT MAX(vehicle_count) AS maxVc
+         FROM bunching_events
+        WHERE kind = ? AND posted = 1`,
+    )
+    .get(kind);
+  return row?.maxVc ?? 0;
+}
+
 function bunchingCapAllows({ kind, route, candidate, cap }, now = Date.now()) {
   const events = db()
     .prepare(`
@@ -1273,6 +1289,7 @@ module.exports = {
   leastRecentlyPostedSpeedmapRoute,
   bunchingCapAllows,
   bunchingCooldownAllows,
+  previousMaxBunchingVehicleCount,
   gapCapAllows,
   getAlertPost,
   recordAlertSeen,

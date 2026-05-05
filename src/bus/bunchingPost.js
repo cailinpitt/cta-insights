@@ -7,14 +7,22 @@ function routeTitle(route) {
   return name ? `Route ${route} (${name})` : `Route ${route}`;
 }
 
-function buildPostText(bunch, pattern, stop, callouts = []) {
+function buildPostText(bunch, pattern, stop, callouts = [], opts = {}) {
   const title = routeTitle(bunch.route);
   const vids = bunch.vehicles
     .map((v) => `#${v.vid}`)
     .filter((s) => s !== '#undefined')
     .join(', ');
   const busesLine = vids ? `\nBuses: ${vids}` : '';
-  const base = `🚌 ${title} — ${pattern.direction}\n${bunch.vehicles.length} buses within ${formatDistance(bunch.spanFt)} near ${stop.stopName}${busesLine}`;
+  // 🥇 medal line when this bunch sets a new record for most buses ever seen
+  // bunched on any route. Sits above the buses listing so the medal headlines
+  // the post.
+  const recordLine = opts.isAllTimeRecord
+    ? `\n🥇 New record: most buses ever bunched${
+        opts.previousRecord != null ? ` (was ${opts.previousRecord})` : ''
+      }`
+    : '';
+  const base = `🚌 ${title} — ${pattern.direction}\n${bunch.vehicles.length} buses within ${formatDistance(bunch.spanFt)} near ${stop.stopName}${recordLine}${busesLine}`;
   const tail = formatCallouts(callouts);
   return tail ? `${base}\n${tail}` : base;
 }

@@ -26,6 +26,25 @@ test('buildPostText appends callouts when provided', () => {
   assert.ok(text.includes('3rd on this route today'));
 });
 
+test('buildPostText shows 🥇 record line when isAllTimeRecord is true', () => {
+  const text = buildPostText(bunch, pattern, stop, [], {
+    isAllTimeRecord: true,
+    previousRecord: 4,
+  });
+  assert.ok(text.includes('🥇'));
+  assert.ok(text.includes('most buses ever bunched'));
+  assert.ok(text.includes('was 4'));
+});
+
+test('buildPostText omits record line when isAllTimeRecord is false', () => {
+  const text = buildPostText(bunch, pattern, stop, [], {
+    isAllTimeRecord: false,
+    previousRecord: 9,
+  });
+  assert.ok(!text.includes('🥇'));
+  assert.ok(!text.includes('record'));
+});
+
 test('buildAltText describes the map for screen readers', () => {
   const alt = buildAltText(bunch, pattern, stop);
   assert.ok(alt.includes('Map of Route 151'));

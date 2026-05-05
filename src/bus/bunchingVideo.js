@@ -37,24 +37,31 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
   const signals = opts.signals || [];
   const stops = opts.stops || [];
 
-  const bunchVids = new Set(bunch.vehicles.map((v) => v.vid));
-  const snapshots = [{ ts: Date.now(), vehicles: bunch.vehicles }];
+  // Caller-provided snapshots short-circuit the live polling loop. Used to
+  // re-render a past bunch (observations already captured) when prod missed
+  // the post window — see scripts/post-historical-bunch.js.
+  const snapshots = opts.snapshots
+    ? opts.snapshots.map((s) => ({ ts: s.ts, vehicles: s.vehicles }))
+    : [{ ts: Date.now(), vehicles: bunch.vehicles }];
 
-  for (let i = 1; i < ticks; i++) {
-    await sleep(tickMs);
-    let vehicles = [];
-    try {
-      const all = await getVehicles([bunch.route], { record: false });
-      vehicles = all.filter((v) => v.pid === bunch.pid && bunchVids.has(v.vid));
-    } catch (e) {
-      console.warn(`video capture tick ${i}: fetch failed — ${e.message}`);
-      continue;
+  if (!opts.snapshots) {
+    const bunchVids = new Set(bunch.vehicles.map((v) => v.vid));
+    for (let i = 1; i < ticks; i++) {
+      await sleep(tickMs);
+      let vehicles = [];
+      try {
+        const all = await getVehicles([bunch.route], { record: false });
+        vehicles = all.filter((v) => v.pid === bunch.pid && bunchVids.has(v.vid));
+      } catch (e) {
+        console.warn(`video capture tick ${i}: fetch failed — ${e.message}`);
+        continue;
+      }
+      if (vehicles.length === 0) {
+        console.log(`video capture: all bunched buses dropped at tick ${i}, stopping`);
+        break;
+      }
+      snapshots.push({ ts: Date.now(), vehicles });
     }
-    if (vehicles.length === 0) {
-      console.log(`video capture: all bunched buses dropped at tick ${i}, stopping`);
-      break;
-    }
-    snapshots.push({ ts: Date.now(), vehicles });
   }
 
   if (snapshots.length < 2) return null;

@@ -200,6 +200,14 @@ async function main() {
     severityFt: bunch.spanFt,
   });
   if (callouts.length > 0) console.log(`Callouts: ${callouts.join(' · ')}`);
+  // All-time record check also pre-record: previousMaxBunchingVehicleCount
+  // queries posted=1 rows, and recordBunching only flips posted=1 after
+  // commitAndPost succeeds.
+  const previousRecord = history.previousMaxBunchingVehicleCount('bus');
+  const isAllTimeRecord = bunch.vehicles.length > previousRecord;
+  if (isAllTimeRecord) {
+    console.log(`🥇 new all-time record: ${bunch.vehicles.length} buses (was ${previousRecord})`);
+  }
 
   console.log('Rendering map...');
   // Full-pattern bbox (vs the still-image bbox) — the video reframes as buses
@@ -226,7 +234,10 @@ async function main() {
     image = null;
   }
 
-  const text = buildPostText(bunch, pattern, stop, callouts);
+  const text = buildPostText(bunch, pattern, stop, callouts, {
+    isAllTimeRecord,
+    previousRecord,
+  });
   const alt = buildAltText(bunch, pattern, stop);
 
   if (argv['dry-run']) {
