@@ -133,9 +133,39 @@ async function render(view, gap, outPath) {
   console.log(`wrote ${outPath} (${buf.length} bytes)`);
 }
 
+// Synthetic trains for off-hours lines (Yellow stops running mid-evening, so
+// preview can't always find a real same-direction pair).
+const SYNTHETIC_PAIRS = {
+  y: [
+    {
+      line: 'y',
+      trDr: '5',
+      rn: '801',
+      destination: 'Dempster-Skokie',
+      lat: 41.9844,
+      lon: -87.6731,
+      heading: 330,
+    },
+    {
+      line: 'y',
+      trDr: '5',
+      rn: '802',
+      destination: 'Dempster-Skokie',
+      lat: 42.0411,
+      lon: -87.7515,
+      heading: 330,
+    },
+  ],
+};
+
 async function main() {
   console.log('Fetching live train positions...');
-  const trains = await getAllTrainPositions();
+  let trains = await getAllTrainPositions();
+  if (argv.synth && SYNTHETIC_PAIRS[argv.synth]) {
+    console.log(`Injecting synthetic trains for ${argv.synth}.`);
+    trains = trains.concat(SYNTHETIC_PAIRS[argv.synth]);
+    if (!argv.line) argv.line = argv.synth;
+  }
   const gaps = detectAllTrainGaps(
     trains,
     trainLines,
