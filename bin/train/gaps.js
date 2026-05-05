@@ -102,7 +102,7 @@ async function main() {
       if (dirCdOverride || lineCdOverride) {
         const which = dirCdOverride ? 'direction' : 'line';
         console.log(
-          `  override ${which} cooldown for ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${candidate.ratio.toFixed(2)}× beats prior post by ≥1.25× margin`,
+          `  override ${which} cooldown for ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${candidate.ratio.toFixed(2)}× clears decaying-margin or sustained-severity gate`,
         );
         cooldownOverridden = true;
       }

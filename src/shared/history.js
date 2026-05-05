@@ -1039,26 +1039,48 @@ function bunchingCooldownAllows(
 }
 
 // Cooldown-bypass for gaps: an active cooldown shouldn't suppress a
-// dramatically-more-severe escalation on the same route. Mirrors
-// bunchingCooldownAllows but uses ratio (actual / scheduled headway) as the
-// severity metric, with a multiplicative margin so noise doesn't flap an
-// escalation on the same incident — ratios bounce ±10–20% as schedules
-// drift, so requiring strictly greater would let a 3.1× break through a
-// 3.0× post on the same incident. 1.25× empirically clears that band
-// while letting a real step-change (3× → 5×) escalate.
-const GAP_COOLDOWN_OVERRIDE_RATIO_MARGIN = 1.25;
+// dramatically-more-severe escalation on the same route, nor a disruption
+// that simply refuses to clear. Two gates, OR'd:
+//
+// 1. Decaying escalation margin. Fresh post needs a real spike to break
+//    through (1.25×) — ratios bounce ±10–20% as schedules drift, so a 3.1×
+//    on top of a 3.0× post on the same incident shouldn't re-fire. The
+//    margin decays linearly toward 1.10× across the cooldown window, so a
+//    gap that's still bad ~50 min later only needs a modest bump to repost.
+// 2. Sustained-severity floor. If ≥ 20 min has elapsed since the prior post
+//    and the candidate is still ≥ 3.0× expected, post a follow-up
+//    regardless of escalation — the disruption persisting at high ratio is
+//    itself news.
+const GAP_COOLDOWN_OVERRIDE_MARGIN_FRESH = 1.25;
+const GAP_COOLDOWN_OVERRIDE_MARGIN_FLOOR = 1.1;
+const GAP_COOLDOWN_OVERRIDE_SUSTAINED_MIN_ELAPSED_MS = 20 * 60 * 1000;
+const GAP_COOLDOWN_OVERRIDE_SUSTAINED_RATIO = 3.0;
 function gapCooldownAllows(
   { kind, route, candidate, withinMs = 60 * 60 * 1000 },
   now = Date.now(),
 ) {
   const events = db()
     .prepare(`
-    SELECT ratio FROM gap_events
+    SELECT ratio, ts FROM gap_events
     WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ?
   `)
     .all(kind, route, now - withinMs);
   if (events.length === 0) return true;
-  return events.every((ev) => candidate.ratio > ev.ratio * GAP_COOLDOWN_OVERRIDE_RATIO_MARGIN);
+  return events.every((ev) => {
+    const elapsed = Math.max(0, now - ev.ts);
+    const t = Math.min(1, elapsed / withinMs);
+    const margin =
+      GAP_COOLDOWN_OVERRIDE_MARGIN_FRESH -
+      (GAP_COOLDOWN_OVERRIDE_MARGIN_FRESH - GAP_COOLDOWN_OVERRIDE_MARGIN_FLOOR) * t;
+    if (candidate.ratio > ev.ratio * margin) return true;
+    if (
+      elapsed >= GAP_COOLDOWN_OVERRIDE_SUSTAINED_MIN_ELAPSED_MS &&
+      candidate.ratio >= GAP_COOLDOWN_OVERRIDE_SUSTAINED_RATIO
+    ) {
+      return true;
+    }
+    return false;
+  });
 }
 
 function gapCapAllows({ kind, route, candidate, cap, windowStartTs }, now = Date.now()) {

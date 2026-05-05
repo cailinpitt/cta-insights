@@ -134,7 +134,7 @@ async function main() {
       if (pidCdOverride || routeCdOverride) {
         const which = pidCdOverride ? 'pid' : 'route';
         console.log(
-          `  override ${which} cooldown for pid ${candidate.pid}: ${candidate.ratio.toFixed(2)}× beats prior post by ≥1.25× margin`,
+          `  override ${which} cooldown for pid ${candidate.pid}: ${candidate.ratio.toFixed(2)}× clears decaying-margin or sustained-severity gate`,
         );
         cooldownOverridden = true;
       }
