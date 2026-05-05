@@ -14,6 +14,7 @@ const argv = require('minimist')(process.argv.slice(2));
 const { getAllTrainPositions, LINE_COLORS } = require('../src/train/api');
 const { detectAllTrainGaps } = require('../src/train/gaps');
 const { findStationByDestination } = require('../src/train/findStation');
+const { expectedTrainHeadwayMin } = require('../src/shared/gtfs');
 const trainLines = require('../src/train/data/trainLines.json');
 const trainStations = require('../src/train/data/trainStations.json');
 
@@ -129,7 +130,13 @@ async function render(view, gap, outPath) {
 async function main() {
   console.log('Fetching live train positions...');
   const trains = await getAllTrainPositions();
-  const gaps = detectAllTrainGaps(trains, trainLines, trainStations, findStationByDestination);
+  const gaps = detectAllTrainGaps(
+    trains,
+    trainLines,
+    trainStations,
+    findStationByDestination,
+    (line, destStation) => expectedTrainHeadwayMin(line, destStation),
+  );
   if (gaps.length === 0) {
     console.error('No gaps detected right now. Try again later.');
     process.exit(1);
