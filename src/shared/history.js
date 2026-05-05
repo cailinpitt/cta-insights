@@ -1038,6 +1038,29 @@ function bunchingCooldownAllows(
   });
 }
 
+// Cooldown-bypass for gaps: an active cooldown shouldn't suppress a
+// dramatically-more-severe escalation on the same route. Mirrors
+// bunchingCooldownAllows but uses ratio (actual / scheduled headway) as the
+// severity metric, with a multiplicative margin so noise doesn't flap an
+// escalation on the same incident — ratios bounce ±10–20% as schedules
+// drift, so requiring strictly greater would let a 3.1× break through a
+// 3.0× post on the same incident. 1.25× empirically clears that band
+// while letting a real step-change (3× → 5×) escalate.
+const GAP_COOLDOWN_OVERRIDE_RATIO_MARGIN = 1.25;
+function gapCooldownAllows(
+  { kind, route, candidate, withinMs = 60 * 60 * 1000 },
+  now = Date.now(),
+) {
+  const events = db()
+    .prepare(`
+    SELECT ratio FROM gap_events
+    WHERE kind = ? AND route = ? AND posted = 1 AND ts >= ?
+  `)
+    .all(kind, route, now - withinMs);
+  if (events.length === 0) return true;
+  return events.every((ev) => candidate.ratio > ev.ratio * GAP_COOLDOWN_OVERRIDE_RATIO_MARGIN);
+}
+
 function gapCapAllows({ kind, route, candidate, cap, windowStartTs }, now = Date.now()) {
   const start = windowStartTs != null ? windowStartTs : chicagoStartOfDay(now);
   const events = db()
@@ -1290,6 +1313,7 @@ module.exports = {
   bunchingCapAllows,
   bunchingCooldownAllows,
   previousMaxBunchingVehicleCount,
+  gapCooldownAllows,
   gapCapAllows,
   getAlertPost,
   recordAlertSeen,

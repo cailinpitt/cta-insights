@@ -54,16 +54,29 @@ async function main() {
   }
 
   let gap = null;
+  // Set when the chosen candidate broke through an active cooldown via the
+  // severity-margin gate (see commitAndPost for why this matters).
+  let cooldownOverridden = false;
   for (const candidate of gaps) {
     const dirKey = `train_gap_${candidate.line}_${candidate.trDr}`;
     const lineKey = `train_gap_line_${candidate.line}`;
     if (!argv['dry-run']) {
       const dirCd = isOnCooldown(dirKey);
       const lineCd = isOnCooldown(lineKey);
-      if (dirCd || lineCd) {
-        console.log(
-          `  skip ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${dirCd ? 'direction' : 'line'} on cooldown`,
-        );
+      // Both direction and line cooldown allow strictly-more-severe
+      // escalations through (1.25× ratio margin) — mirrors the bunching
+      // path. Without the margin, ratios would flap on the same incident
+      // because schedule-derived expectedMin drifts.
+      const cooldownAllows = history.gapCooldownAllows({
+        kind: 'train',
+        route: candidate.line,
+        candidate: { ratio: candidate.ratio },
+      });
+      const dirCdOverride = dirCd && cooldownAllows;
+      const lineCdOverride = lineCd && cooldownAllows;
+      if ((dirCd && !dirCdOverride) || (lineCd && !lineCdOverride)) {
+        const which = dirCd && !dirCdOverride ? 'direction' : 'line';
+        console.log(`  skip ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${which} on cooldown`);
         history.recordGap({
           kind: 'train',
           route: candidate.line,
@@ -85,6 +98,13 @@ async function main() {
           posted: false,
         });
         continue;
+      }
+      if (dirCdOverride || lineCdOverride) {
+        const which = dirCdOverride ? 'direction' : 'line';
+        console.log(
+          `  override ${which} cooldown for ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${candidate.ratio.toFixed(2)}× beats prior post by ≥1.25× margin`,
+        );
+        cooldownOverridden = true;
       }
       const capAllows = history.gapCapAllows({
         kind: 'train',
@@ -198,6 +218,7 @@ async function main() {
   };
   await commitAndPost({
     cooldownKeys: [dirKey, lineKey],
+    forceClearCooldown: cooldownOverridden,
     recordSkip: () => history.recordGap({ ...baseEvent, posted: false }),
     agentLogin: loginTrain,
     image,

@@ -74,6 +74,9 @@ async function main() {
   let gap = null;
   let pattern = null;
   let chosenStop = null;
+  // Set when the chosen candidate broke through an active cooldown via the
+  // severity-margin gate (see commitAndPost for why this matters).
+  let cooldownOverridden = false;
   for (const candidate of gaps) {
     const candidatePattern = patternCache.get(candidate.pid);
     // Anchor at the leading bus: the gap minutes describe a rider who just
@@ -92,8 +95,20 @@ async function main() {
     if (!argv['dry-run']) {
       const pidCd = isOnCooldown(pidKey);
       const routeCd = isOnCooldown(routeKey);
-      if (pidCd || routeCd) {
-        console.log(`  skip pid ${candidate.pid}: ${pidCd ? 'pid' : 'route'} on cooldown`);
+      // Both pid and route cooldown allow a strictly-more-severe-by-margin
+      // escalation through, mirroring the bunching path. Ratio-based gate
+      // with a 1.25× margin so a 3.1× doesn't bypass a 3.0× post on the
+      // same incident.
+      const cooldownAllows = history.gapCooldownAllows({
+        kind: 'bus',
+        route: candidate.route,
+        candidate: { ratio: candidate.ratio },
+      });
+      const pidCdOverride = pidCd && cooldownAllows;
+      const routeCdOverride = routeCd && cooldownAllows;
+      if ((pidCd && !pidCdOverride) || (routeCd && !routeCdOverride)) {
+        const which = pidCd && !pidCdOverride ? 'pid' : 'route';
+        console.log(`  skip pid ${candidate.pid}: ${which} on cooldown`);
         history.recordGap({
           kind: 'bus',
           route: candidate.route,
@@ -115,6 +130,13 @@ async function main() {
           posted: false,
         });
         continue;
+      }
+      if (pidCdOverride || routeCdOverride) {
+        const which = pidCdOverride ? 'pid' : 'route';
+        console.log(
+          `  override ${which} cooldown for pid ${candidate.pid}: ${candidate.ratio.toFixed(2)}× beats prior post by ≥1.25× margin`,
+        );
+        cooldownOverridden = true;
       }
       const capAllows = history.gapCapAllows({
         kind: 'bus',
@@ -258,6 +280,7 @@ async function main() {
   };
   await commitAndPost({
     cooldownKeys: [`gap:${gap.pid}`, `gap:route:${gap.route}`],
+    forceClearCooldown: cooldownOverridden,
     recordSkip: () => history.recordGap({ ...baseEvent, posted: false }),
     agentLogin: loginBus,
     image,
