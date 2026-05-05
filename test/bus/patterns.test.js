@@ -1,6 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { resolveStopOnRoute, normalizeStopName, loadPattern } = require('../../src/bus/patterns');
+const Path = require('node:path');
+const Fs = require('node:fs');
+const { resolveStopOnRoute, normalizeStopName } = require('../../src/bus/patterns');
+
+// Load cached pattern fixtures directly off disk to keep tests independent of
+// loadPattern's 24h TTL — otherwise stale fixtures trigger a live API fetch
+// and the test fails with no network.
+const PATTERN_DIR = Path.join(__dirname, '..', '..', 'data', 'patterns');
+const loadPattern = async (pid) =>
+  JSON.parse(Fs.readFileSync(Path.join(PATTERN_DIR, `${pid}.json`), 'utf8'));
 
 test('normalizeStopName lowercases + collapses whitespace', () => {
   assert.equal(normalizeStopName('Archer & Nottingham'), 'archer & nottingham');
