@@ -48,25 +48,32 @@ async function main() {
   let bunch = null;
   let dirCooldownKey = null;
   let lineCooldownKey = null;
+  // Set when the chosen candidate broke through an active cooldown via the
+  // severity-escalation gate (see commitAndPost for why this matters).
+  let cooldownOverridden = false;
   for (const candidate of bunches) {
     const candDirKey = `train_${candidate.line}_${candidate.trDr}`;
     const candLineKey = `train_line_${candidate.line}`;
     if (!argv['dry-run']) {
       const dirCd = isOnCooldown(candDirKey);
       const lineCd = isOnCooldown(candLineKey);
-      // Direction cooldown stays strict; line cooldown allows a strictly-more-
-      // severe escalation through, mirroring the daily cap's dominance override.
-      const lineCdOverride =
-        lineCd &&
-        history.bunchingCooldownAllows({
-          kind: 'train',
-          route: candidate.line,
-          candidate: { vehicleCount: candidate.trains.length, severityFt: candidate.spanFt },
-        });
-      if (dirCd || (lineCd && !lineCdOverride)) {
-        console.log(
-          `  skip ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${dirCd ? 'direction' : 'line'} on cooldown`,
-        );
+      // Both direction and line cooldown allow strictly-more-severe
+      // escalations through, mirroring the daily cap's dominance override.
+      // Direction used to be strict — same problem as bus pid before
+      // 2026-05-05: an early small bunch on the same direction blocked a
+      // dramatic later one from posting. Same severity gate for both keys
+      // since "this is the same incident, just bigger" is judged the same
+      // way regardless of which key triggered.
+      const cooldownAllows = history.bunchingCooldownAllows({
+        kind: 'train',
+        route: candidate.line,
+        candidate: { vehicleCount: candidate.trains.length, severityFt: candidate.spanFt },
+      });
+      const dirCdOverride = dirCd && cooldownAllows;
+      const lineCdOverride = lineCd && cooldownAllows;
+      if ((dirCd && !dirCdOverride) || (lineCd && !lineCdOverride)) {
+        const which = dirCd && !dirCdOverride ? 'direction' : 'line';
+        console.log(`  skip ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${which} on cooldown`);
         history.recordBunching({
           kind: 'train',
           route: candidate.line,
@@ -78,10 +85,12 @@ async function main() {
         });
         continue;
       }
-      if (lineCdOverride) {
+      if (dirCdOverride || lineCdOverride) {
+        const which = dirCdOverride ? 'direction' : 'line';
         console.log(
-          `  override line cooldown for ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${candidate.trains.length} trains / ${Math.round(candidate.spanFt)} ft beats prior post`,
+          `  override ${which} cooldown for ${LINE_NAMES[candidate.line]} ${candidate.trDr}: ${candidate.trains.length} trains / ${Math.round(candidate.spanFt)} ft beats prior post`,
         );
+        cooldownOverridden = true;
       }
       const capAllows = history.bunchingCapAllows({
         kind: 'train',
@@ -186,6 +195,7 @@ async function main() {
   };
   const result = await commitAndPost({
     cooldownKeys: [dirCooldownKey, lineCooldownKey],
+    forceClearCooldown: cooldownOverridden,
     recordSkip: () => history.recordBunching({ ...baseEvent, posted: false }),
     agentLogin: loginTrain,
     image,

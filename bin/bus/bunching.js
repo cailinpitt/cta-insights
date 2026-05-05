@@ -53,6 +53,10 @@ async function main() {
   }
 
   let bunch = null;
+  // Set when the chosen candidate broke through an active cooldown via the
+  // severity-escalation gate. commitAndPost needs to know so it can clear
+  // the stale cooldown stamp before the atomic acquireCooldown.
+  let cooldownOverridden = false;
   let pattern = null;
   let chosenStop = null;
   for (const candidate of bunches) {
@@ -133,6 +137,7 @@ async function main() {
         console.log(
           `  override ${which} cooldown for pid ${candidate.pid}: ${candidate.vehicles.length} buses / ${candidate.spanFt} ft beats prior post`,
         );
+        cooldownOverridden = true;
       }
       const capAllows = history.bunchingCapAllows({
         kind: 'bus',
@@ -270,6 +275,7 @@ async function main() {
   };
   const result = await commitAndPost({
     cooldownKeys: [bunch.pid, `route:${bunch.route}`],
+    forceClearCooldown: cooldownOverridden,
     recordSkip: () => history.recordBunching({ ...baseEvent, posted: false }),
     agentLogin: loginBus,
     image,
