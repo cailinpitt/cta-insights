@@ -141,6 +141,7 @@ function main() {
       direction: row.direction ?? null,
       from_station: row.from_station ?? null,
       to_station: row.to_station ?? null,
+      detection_source: row._source, // 'pulse' | 'roundup'
       ts: row.ts,
       resolved_ts: row.resolved_ts ?? null,
       duration_ms: row.resolved_ts != null ? row.resolved_ts - row.ts : null,
@@ -155,12 +156,20 @@ function main() {
   if (outputPath) {
     // Only write if the data actually changed — generated_at updates every run
     // so we compare only alerts + observations to avoid spurious git commits.
-    const dataOnly = JSON.stringify({ data_start_ts: out.data_start_ts, alerts: out.alerts, observations: out.observations });
+    const dataOnly = JSON.stringify({
+      data_start_ts: out.data_start_ts,
+      alerts: out.alerts,
+      observations: out.observations,
+    });
     let existingDataOnly = null;
     if (Fs.existsSync(outputPath)) {
       try {
         const existing = JSON.parse(Fs.readFileSync(outputPath, 'utf8'));
-        existingDataOnly = JSON.stringify({ data_start_ts: existing.data_start_ts, alerts: existing.alerts, observations: existing.observations });
+        existingDataOnly = JSON.stringify({
+          data_start_ts: existing.data_start_ts,
+          alerts: existing.alerts,
+          observations: existing.observations,
+        });
       } catch (_) {}
     }
     if (dataOnly === existingDataOnly) {
