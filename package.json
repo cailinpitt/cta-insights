@@ -40,6 +40,7 @@
     "train-ghosts": "node bin/train/ghosts.js",
     "train-ghosts:dry": "node bin/train/ghosts.js --dry-run",
     "test": "node --test test/*.test.js test/**/*.test.js",
+    "export-web": "node bin/export-web.js",
     "smoke": "for f in bin/bus/*.js bin/train/*.js; do node \"$f\" --check || exit 1; done",
     "lint": "biome lint .",
     "format": "biome format --write .",
