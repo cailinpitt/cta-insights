@@ -309,8 +309,12 @@ async function processGroup({
 
   let posted = 0;
   const remaining = MAX_QUOTES_PER_THREAD - alreadyQuoted.size;
+  // Track URIs posted this tick so duplicate rows in the event tables (e.g. two
+  // ghost_events rows for the same route+post_uri) can't cause double-quoting.
+  const postedThisTick = new Set();
   for (const cand of candidates) {
     if (posted >= remaining) break;
+    if (postedThisTick.has(cand.post_uri)) continue;
     let relevant;
     if (kind === 'train') {
       relevant = trainCandidateRelevant(cand, group);
@@ -360,6 +364,7 @@ async function processGroup({
         sourcePostUri: cand.post_uri,
         quotePostUri: result.uri,
       });
+      postedThisTick.add(cand.post_uri);
       // The quote post itself replies to latestPost — it now becomes the new
       // tail for any subsequent quotes this tick.
       group.latestPostUri = result.uri;

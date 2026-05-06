@@ -152,10 +152,13 @@ function db() {
       observed REAL,
       expected REAL,
       missing REAL,
-      post_uri TEXT NOT NULL
+      post_uri TEXT NOT NULL,
+      UNIQUE(route, post_uri)
     );
     CREATE INDEX IF NOT EXISTS idx_ghost_events_kind_route_ts
       ON ghost_events(kind, route, ts);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ghost_events_route_post_uri
+      ON ghost_events(route, post_uri);
 
     CREATE TABLE IF NOT EXISTS roundup_anchors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -441,7 +444,7 @@ function listActiveTrainPulseAnchors() {
 function recordGhostEvent({ kind, route, direction, observed, expected, missing, postUri, ts }) {
   db()
     .prepare(`
-      INSERT INTO ghost_events (ts, kind, route, direction, observed, expected, missing, post_uri)
+      INSERT OR IGNORE INTO ghost_events (ts, kind, route, direction, observed, expected, missing, post_uri)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
