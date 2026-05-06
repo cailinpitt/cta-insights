@@ -712,8 +712,21 @@ async function main() {
       continue;
     }
 
-    // Sort: held > cold for same line; within each kind keep existing ordering.
+    // Sort: (1) directions with an existing active post first so the segment
+    // dedup below preserves the canonical post rather than evicting it,
+    // (2) held > cold, (3) preserve existing ordering within each group.
+    const activeUriByDir = new Map(
+      getDb()
+        .prepare(
+          'SELECT direction, active_post_uri FROM pulse_state WHERE line = ? AND active_post_uri IS NOT NULL',
+        )
+        .all(line)
+        .map((r) => [r.direction, r.active_post_uri]),
+    );
     allCandidates.sort((a, b) => {
+      const aActive = activeUriByDir.has(a.direction) ? 1 : 0;
+      const bActive = activeUriByDir.has(b.direction) ? 1 : 0;
+      if (aActive !== bActive) return bActive - aActive;
       const aHeld = a.kind === 'held' ? 1 : 0;
       const bHeld = b.kind === 'held' ? 1 : 0;
       if (aHeld !== bHeld) return bHeld - aHeld;
@@ -721,9 +734,27 @@ async function main() {
     });
 
     const seenDirs = new Set();
+    const seenSegments = new Set();
     for (const c of allCandidates) {
       if (seenDirs.has(c.direction)) continue;
       seenDirs.add(c.direction);
+
+      // Deduplicate candidates that describe the same physical segment but were
+      // detected via different branch polylines (different direction keys). The
+      // Green Line incident at Ridgeland produced two candidates — branch-len92
+      // and branch-len101 — because both branch polylines traverse that area,
+      // resulting in two posts in the same thread. The sort above puts any
+      // already-posted direction first so the canonical post is preserved.
+      const segKey = `${c.fromStation?.name}__${c.toStation?.name}`;
+      if (seenSegments.has(segKey)) {
+        console.log(
+          `[${lineLabel(line)}/${c.direction}] duplicate segment (${c.fromStation?.name}→${c.toStation?.name}) already handled — evicting shadow pulse_state`,
+        );
+        clearPulseState(line, c.direction);
+        continue;
+      }
+      seenSegments.add(segKey);
+
       tally.candidates++;
       try {
         await handleCandidate(line, c.direction, c, agentGetter, now);
