@@ -49,7 +49,7 @@ function main() {
   // Bot-detected disruptions (pulse observations). Each 'observed' row is
   // paired with the earliest matching 'observed-clear' on the same
   // line/direction/from/to after it, if one exists.
-  const observations = db
+  const pulseObservations = db
     .prepare(
       `SELECT
         d.id, d.kind, d.line, d.direction, d.from_station, d.to_station,
@@ -81,12 +81,34 @@ function main() {
     )
     .all();
 
+  // Multi-signal roundup posts (stored separately in roundup_anchors).
+  const roundupObservations = db
+    .prepare(
+      `SELECT id, kind, line, ts, post_uri, resolved_ts, resolution_post_uri AS resolved_post_uri
+       FROM roundup_anchors
+       ORDER BY ts DESC`,
+    )
+    .all();
+
+  const observations = [
+    ...pulseObservations.map((row) => ({ ...row, _source: 'pulse' })),
+    ...roundupObservations.map((row) => ({
+      ...row,
+      direction: null,
+      from_station: null,
+      to_station: null,
+      _source: 'roundup',
+    })),
+  ].sort((a, b) => b.ts - a.ts);
+
   const dataStart = db
     .prepare(
       `SELECT MIN(ts) as min_ts FROM (
          SELECT MIN(first_seen_ts) as ts FROM alert_posts
          UNION ALL
          SELECT MIN(ts) as ts FROM disruption_events WHERE source = 'observed' AND posted = 1
+         UNION ALL
+         SELECT MIN(ts) as ts FROM roundup_anchors
        )`,
     )
     .get();
