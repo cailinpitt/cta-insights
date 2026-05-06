@@ -15,14 +15,14 @@ CTA_INSIGHTS="${CTA_INSIGHTS:-$HOME/cta-insights}"
 cd "$PAGES_REPO"
 git pull --quiet
 
-node "$CTA_INSIGHTS/bin/export-web.js" data/alerts.json
+node "$CTA_INSIGHTS/bin/export-web.js" public/data/alerts.json
 
-if git diff --quiet data/alerts.json; then
+if git diff --quiet public/data/alerts.json; then
   echo "push-web-data: no changes, skipping commit"
   exit 0
 fi
 
-git add data/alerts.json
+git add public/data/alerts.json
 git commit -m "data: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 git push
 echo "push-web-data: pushed"
