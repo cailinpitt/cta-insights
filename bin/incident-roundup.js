@@ -152,6 +152,7 @@ async function processKind({ kind, identifiers, getName, agentGetter, now }) {
         postUri: result.uri,
         postCid: result.cid,
         ts: now,
+        signals: signals.map((s) => s.source),
       });
       const ids = signals.map((s) => s.id);
       if (ids.length > 0) {

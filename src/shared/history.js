@@ -286,6 +286,9 @@ function db() {
   if (!roundupCols.includes('resolution_post_uri')) {
     _db.exec('ALTER TABLE roundup_anchors ADD COLUMN resolution_post_uri TEXT');
   }
+  if (!roundupCols.includes('signals')) {
+    _db.exec('ALTER TABLE roundup_anchors ADD COLUMN signals TEXT');
+  }
   // One-time cleanup of stale `branch-N` direction keys from before the
   // stable-direction-key change. Gated on user_version so this runs exactly
   // once per DB; without the gate the DELETE fired on every cron startup and
@@ -459,13 +462,23 @@ function recordGhostEvent({ kind, route, direction, observed, expected, missing,
     );
 }
 
-function recordRoundupAnchor({ kind, line, postUri, postCid, ts, ttlMs = 2 * 60 * 60 * 1000 }) {
+function recordRoundupAnchor({
+  kind,
+  line,
+  postUri,
+  postCid,
+  ts,
+  signals,
+  ttlMs = 2 * 60 * 60 * 1000,
+}) {
+  // signals: array of source strings, e.g. ['gap', 'bunching']
+  const signalsStr = signals && signals.length > 0 ? [...new Set(signals)].join(',') : null;
   db()
     .prepare(`
-      INSERT OR REPLACE INTO roundup_anchors (kind, line, post_uri, post_cid, ts, expires_ts)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO roundup_anchors (kind, line, post_uri, post_cid, ts, expires_ts, signals)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
-    .run(kind, String(line), postUri, postCid || null, ts, ts + ttlMs);
+    .run(kind, String(line), postUri, postCid || null, ts, ts + ttlMs, signalsStr);
 }
 
 function listActiveRoundupAnchors(kind, now = Date.now()) {

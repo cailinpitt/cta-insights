@@ -84,7 +84,7 @@ function main() {
   // Multi-signal roundup posts (stored separately in roundup_anchors).
   const roundupObservations = db
     .prepare(
-      `SELECT id, kind, line, ts, post_uri, resolved_ts, resolution_post_uri AS resolved_post_uri
+      `SELECT id, kind, line, ts, post_uri, resolved_ts, resolution_post_uri AS resolved_post_uri, signals
        FROM roundup_anchors
        ORDER BY ts DESC`,
     )
@@ -98,6 +98,7 @@ function main() {
       from_station: null,
       to_station: null,
       _source: 'roundup',
+      // signals is already on row as a comma-separated string
     })),
   ].sort((a, b) => b.ts - a.ts);
 
@@ -142,6 +143,7 @@ function main() {
       from_station: row.from_station ?? null,
       to_station: row.to_station ?? null,
       detection_source: row._source, // 'pulse' | 'roundup'
+      signals: row.signals ? row.signals.split(',') : null, // e.g. ['gap', 'bunching']
       ts: row.ts,
       resolved_ts: row.resolved_ts ?? null,
       duration_ms: row.resolved_ts != null ? row.resolved_ts - row.ts : null,
