@@ -127,17 +127,19 @@ function describeSignal(s, kind) {
 function buildRoundupText({ kind, line, name, signals }) {
   const label = kind === 'bus' ? `#${line} ${name || line}` : `${lineLabel(line)} Line`;
   const prefix = kind === 'bus' ? '🚌⚠️' : '🚇⚠️';
-  const lines = [`${prefix} ${label} · multiple signals`];
   const seen = new Set();
+  const bullets = [];
   for (const s of signals) {
-    const key = s.source;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    lines.push(describeSignal(s, kind));
+    if (seen.has(s.source)) continue;
+    seen.add(s.source);
+    bullets.push(describeSignal(s, kind));
   }
-  lines.push('');
-  lines.push('Multiple signals suggest service may be degraded.');
-  return lines.join('\n');
+  const multi = bullets.length > 1;
+  const header = `${prefix} ${label} · ${multi ? 'multiple signals' : 'signal'}`;
+  const footer = multi
+    ? 'Multiple signals suggest service may be degraded.'
+    : 'Signal suggests service may be degraded.';
+  return [header, ...bullets, '', footer].join('\n');
 }
 
 async function processKind({ kind, identifiers, getName, agentGetter, now }) {
