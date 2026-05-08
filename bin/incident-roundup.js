@@ -23,7 +23,14 @@ const {
   markRoundupResolved,
 } = require('../src/shared/history');
 const { acquireCooldown } = require('../src/shared/state');
-const { loginAlerts, postText, resolveReplyRef } = require('../src/shared/bluesky');
+const {
+  loginAlerts,
+  postText,
+  postTextWithLinkCard,
+  resolveReplyRef,
+} = require('../src/shared/bluesky');
+
+const EVENT_BASE_URL = 'https://chicagotransitalerts.app/event';
 
 const WINDOW_MS = 30 * 60 * 1000;
 const SCORE_THRESHOLD = 1.75;
@@ -253,8 +260,12 @@ async function sweepResolutions({ kind, getName, agentGetter, now }) {
       continue;
     }
     const text = buildResolutionText({ kind, line: row.line, name: getName(row.line) });
+    // The roundup_anchors row stores the original AT URI; its rkey is the
+    // canonical event id used by chicagotransitalerts.app/event/<id>.
+    const rkey = row.post_uri.split('/').pop();
+    const eventUrl = `${EVENT_BASE_URL}/${rkey}`;
     if (DRY_RUN) {
-      console.log(`--- DRY RUN roundup-resolve ${label} ---\n${text}`);
+      console.log(`--- DRY RUN roundup-resolve ${label} (link: ${eventUrl}) ---\n${text}`);
       continue;
     }
     try {
@@ -267,7 +278,12 @@ async function sweepResolutions({ kind, getName, agentGetter, now }) {
         console.log(`roundup-resolve: ${label} source post missing — marked resolved silently`);
         continue;
       }
-      const result = await postText(a, text, replyRef);
+      const result = await postTextWithLinkCard(a, text, replyRef, {
+        url: eventUrl,
+        title: text,
+        description: 'View this incident on the CTA Alert History archive.',
+        thumbUrl: `${eventUrl}/og.png`,
+      });
       markRoundupResolved(row.id, result.uri, now);
       console.log(`Posted roundup resolution ${label}: ${result.url}`);
     } catch (e) {

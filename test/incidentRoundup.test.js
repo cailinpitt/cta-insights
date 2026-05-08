@@ -274,6 +274,15 @@ test('sweepResolutions: posts after MIN_CLEAR_TICKS consecutive sub-threshold ti
   const history = require('../src/shared/history');
   const { sweepResolutions: sweep } = require('../bin/incident-roundup');
   history.getDb();
+  // Stub global fetch so the link-card path doesn't hit the real
+  // chicagotransitalerts.app during tests. Returning !ok skips the
+  // uploadBlob branch entirely; the post still goes out without a thumb.
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: false,
+    headers: new Map(),
+    arrayBuffer: async () => new ArrayBuffer(0),
+  });
   try {
     const ROUNDUP_URI = 'at://did:plc:alerts/app.bsky.feed.post/roundup-1';
     history.recordRoundupAnchor({
@@ -283,6 +292,7 @@ test('sweepResolutions: posts after MIN_CLEAR_TICKS consecutive sub-threshold ti
       postCid: 'cid-1',
       ts: Date.now() - 10 * 60_000,
     });
+
     const posts = [];
     const agent = {
       session: { did: 'did:plc:test' },
@@ -311,11 +321,20 @@ test('sweepResolutions: posts after MIN_CLEAR_TICKS consecutive sub-threshold ti
     assert.equal(posts.length, 1, 'should resolve on 3rd consecutive clear tick');
     assert.ok(posts[0].text.startsWith('🚌✅'));
     assert.equal(posts[0].reply.root.uri, ROUNDUP_URI);
+    // The event link is carried by the embed card only — not duplicated in
+    // the post text.
+    assert.ok(
+      !posts[0].text.includes('chicagotransitalerts.app'),
+      `URL should not be in post text, got: ${posts[0].text}`,
+    );
+    assert.equal(posts[0].embed?.$type, 'app.bsky.embed.external');
+    assert.equal(posts[0].embed?.external?.uri, 'https://chicagotransitalerts.app/event/roundup-1');
 
     // Subsequent sweeps shouldn't post again — resolved_ts is now set.
     await sweep({ kind: 'bus', getName: () => 'Chicago', agentGetter, now: now + 180_000 });
     assert.equal(posts.length, 1, 'resolved roundups are not swept again');
   } finally {
+    global.fetch = originalFetch;
     try {
       history.getDb().close();
     } catch (_e) {}

@@ -176,6 +176,57 @@ async function postText(agent, text, replyRef = null) {
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
+// Post text that contains a URL, with an explicit external-link embed so the
+// post carries a card preview in its record (rather than relying on Bluesky's
+// lazy URL scraping). Adds a richtext link facet over the URL so the text is
+// also clickable for clients that don't render the embed. Image fetch/upload
+// failures are swallowed — the post still goes out without a thumb.
+async function postTextWithLinkCard(agent, text, replyRef, link) {
+  let thumb;
+  if (link.thumbUrl) {
+    try {
+      const resp = await fetch(link.thumbUrl);
+      if (resp.ok) {
+        const buf = Buffer.from(await resp.arrayBuffer());
+        const ct = resp.headers.get('content-type') || 'image/png';
+        const upload = await agent.uploadBlob(buf, { encoding: ct });
+        thumb = upload.data.blob;
+      }
+    } catch (_e) {}
+  }
+
+  let facets;
+  const idx = text.indexOf(link.url);
+  if (idx >= 0) {
+    const enc = (s) => Buffer.byteLength(s, 'utf8');
+    facets = [
+      {
+        index: {
+          byteStart: enc(text.slice(0, idx)),
+          byteEnd: enc(text.slice(0, idx + link.url.length)),
+        },
+        features: [{ $type: 'app.bsky.richtext.facet#link', uri: link.url }],
+      },
+    ];
+  }
+
+  const result = await agent.post({
+    text,
+    ...(replyRef && { reply: replyRef }),
+    ...(facets && { facets }),
+    embed: {
+      $type: 'app.bsky.embed.external',
+      external: {
+        uri: link.url,
+        title: link.title,
+        description: link.description,
+        ...(thumb && { thumb }),
+      },
+    },
+  });
+  return { url: postUrl(result), uri: result.uri, cid: result.cid };
+}
+
 // Login helper for the dedicated alerts/disruptions account. Used by
 // bin/{bus,train}/alerts.js (CTA-sourced alerts) and bin/train/pulse.js
 // (auto-detected service disruptions). Kept separate from the analytics-
@@ -269,6 +320,7 @@ module.exports = {
   postWithImage,
   postWithVideo,
   postText,
+  postTextWithLinkCard,
   postQuote,
   resolveReplyRef,
   getPostRecord,
