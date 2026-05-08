@@ -90,12 +90,44 @@ Each alert is normalized into:
 
 Two filters in series.
 
-**Significance** (`isSignificantAlert`): CTA's `MajorAlert=1` flag is unreliable in both directions — it tags single-stop closures and elevator outages as major, but also leaves real bus-substitution events flagged minor. We no longer require `MajorAlert=1`. The gate is:
+**Significance** (`isSignificantAlert`): CTA's `MajorAlert=1` flag is unreliable in both directions — it tags single-stop closures and elevator outages as major, but also leaves real bus-substitution events flagged minor. We no longer require `MajorAlert=1`. The gate runs in this order:
 
-1. None of the `MINOR_PATTERNS` match (`reroute`, `detour`, `elevator`, `escalator`, `entrance`, `bus stop`, `paint`, `track work`, `weekend service change`, etc.), AND
-2. Either `MAJOR_PATTERNS` match (`no train|rail|bus|service`, `not running`, `suspended`, `shuttle bus`, `major delays`, `single-track`, `between X and Y`, etc.) OR `severityScore ≥ MIN_SEVERITY = 3`.
+1. **Reroute admit overrides** — fires *only* when summary matches `reroute|detour`. Either path admits:
+   - **Multi-route**: ≥ `MULTI_ROUTE_THRESHOLD` (3) impacted routes (bus + train, summed). Structural events: CPD funeral, parade, marathon, large road closures.
+   - **High severity**: `severityScore ≥ HIGH_SEVERITY_THRESHOLD` (50). CTA's elevated score for acute incidents — police activity, crash, fire, hazmat. (See "CTA SeverityScore behavior" below for why 50.)
+2. **MINOR_PATTERNS** veto — if the headline+short summary matches any of `reroute`, `detour`, `elevator`, `escalator`, `entrance`, `bus stop`, `paint`, `track work`, `weekend service change`, etc., reject.
+3. **MAJOR_PATTERNS** admit — if the full text (headline + short + full description) matches `no train|rail|bus|service`, `not running`, `suspended`, `shuttle bus`, `major delays`, `single-track`, `between X and Y`, etc., admit.
+4. **Severity fallback** — `MajorAlert=1` AND `severityScore ≥ MIN_SEVERITY` (3) admits.
+5. Otherwise reject.
 
-The minor-wins ordering matters: an alert headlined "No trains stopping at Belmont (elevator construction)" looks major by keyword but should drop on the elevator gate. The bot errs on silence — a missed real outage is recoverable; spamming followers with stop closures is not. The canonical case the new gate fixes is a Yellow Line bus substitution that arrived as `MajorAlert=0, SeverityScore=25` — clearly significant, but the old `major`-required gate dropped it.
+The minor-wins ordering on steps 2/3 matters: an alert headlined "No trains stopping at Belmont (elevator construction)" looks major by keyword but should drop on the elevator gate. The bot errs on silence — a missed real outage is recoverable; spamming followers with stop closures is not.
+
+Step 1 was added 2026-05-08 after a CPD funeral generated multi-route reroute alerts that all got vetoed at step 2 (the underlying disruption fired pulse, ghost, and bunching detectors but the official CTA alerts explaining "why" never made it out). The Yellow Line bus substitution this gate originally fixed (arrived as `MajorAlert=0, SeverityScore=25`) is still caught by step 3 via the `shuttle bus` pattern.
+
+#### CTA SeverityScore behavior (calibration data, 2026-05-08)
+
+The thresholds in step 1 were calibrated against a snapshot of the live feed. Histogram of all 44 active alerts at the time:
+
+| Severity | Count | Typical content |
+|---|---|---|
+| 5–12 | 9 | Service-info posts (e.g. "Cubs night-game extra service") |
+| 19 | 11 | "Bus Stop Change" alerts |
+| 37 | 23 | The vast majority of reroutes — CTA's de facto default for any temporary reroute |
+| 55 | 1 | The single non-reroute outlier in the snapshot — `#84 Peterson police activity` |
+
+Two takeaways that inform the thresholds:
+
+- **Severity alone is unreliable.** Local block-party detours and 12-route processions both score 37. There's no severity-only threshold that separates them.
+- **Severity ≥ 50 is rare and meaningful.** When CTA does score above their default, it's because something acute is happening (police activity, fire, etc.). The 50 threshold catches that signal while staying below the observed 55.
+
+If the feed's severity defaults shift in the future (CTA changes scoring), revisit these thresholds. The constants live at the top of `src/shared/ctaAlerts.js`:
+
+```js
+const MULTI_ROUTE_THRESHOLD = 3;
+const HIGH_SEVERITY_THRESHOLD = 50;
+```
+
+To recalibrate: pull `lapi.transitchicago.com/api/1.0/alerts.aspx?outputType=JSON&activeonly=true`, histogram `SeverityScore`, and pick a threshold above the de facto reroute default that's still below outliers you'd want to admit.
 
 **Relevance** (per-bin): `bin/bus/alerts.js` requires at least one of the alert's bus routes to be in the union of `bunching`, `gaps`, `speedmap`, and `ghosts` route lists. Train alerts are kept if they touch any tracked line (all 8). Most bus-alert volume is for routes followers don't care about; this filter throws away ~80% of them.
 

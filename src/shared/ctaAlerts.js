@@ -226,6 +226,24 @@ function extractDirection(text, line = null) {
 // (miss a real outage) beat false positives (spam followers with stop closures).
 const MIN_SEVERITY = 3;
 
+// "Reroute"/"detour" alone is too noisy (most are local block-party detours,
+// hence the MINOR_PATTERNS veto), but two reroute shapes ARE worth posting:
+//
+//   1. **Multi-route reroutes** — when 3+ routes are diverted simultaneously,
+//      it's almost always a structural event (CPD funeral, parade, marathon,
+//      large road closure). Single- and two-route reroutes are usually local
+//      and noisy.
+//   2. **High-severity reroutes** — CTA's default SeverityScore for reroutes
+//      is 37; anything ≥50 is rare and only fires for things they consider
+//      acutely disruptive (police activity, crash, fire, hazmat). Catches
+//      single-route incidents that ARE worth posting.
+//
+// Both numbers are calibrated against the live feed (see docs/ALERTS.md);
+// adjust there if the feed's severity defaults shift.
+const REROUTE_RE = /\b(reroute[ds]?|detour)\b/i;
+const MULTI_ROUTE_THRESHOLD = 3;
+const HIGH_SEVERITY_THRESHOLD = 50;
+
 const MAJOR_PATTERNS = [
   /\bno\s+(train|rail|bus|service)\b/i,
   /\bnot\s+running\b/i,
@@ -287,6 +305,17 @@ function isSignificantAlert(alert) {
     .join(' \n ');
   if (!summary && !fullText) return false;
 
+  // Reroute admit-overrides — run BEFORE the MINOR veto so reroutes affecting
+  // many routes (structural) or flagged with elevated severity (acute
+  // incident) are admitted even though "reroute" alone normally vetoes.
+  if (REROUTE_RE.test(summary)) {
+    const routeCount = (alert.busRoutes?.length || 0) + (alert.trainLines?.length || 0);
+    if (routeCount >= MULTI_ROUTE_THRESHOLD) return true;
+    if (alert.severityScore != null && alert.severityScore >= HIGH_SEVERITY_THRESHOLD) {
+      return true;
+    }
+  }
+
   if (summary) {
     for (const re of MINOR_PATTERNS) if (re.test(summary)) return false;
   }
@@ -309,6 +338,8 @@ module.exports = {
   MAJOR_PATTERNS,
   MINOR_PATTERNS,
   MIN_SEVERITY,
+  MULTI_ROUTE_THRESHOLD,
+  HIGH_SEVERITY_THRESHOLD,
   RAIL_ROUTE_TO_LINE,
   LINE_TO_RAIL_ROUTE,
 };

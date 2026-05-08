@@ -219,6 +219,91 @@ test('not significant: reroute due to construction', () => {
   );
 });
 
+test('significant: multi-route reroute (CPD funeral, 3 routes) admits despite "reroute" wording', () => {
+  // Real alert from 2026-05-08: Devon/Foster CPD Funeral Service.
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        severityScore: 37, // CTA's default for reroutes
+        headline: 'Temporary Reroute',
+        shortDescription:
+          '#136, #147 and #151 buses are rerouted between Devon/Sheridan-Broadway and Foster/Sheridan due to a CPD Funeral Service.',
+        busRoutes: ['136', '147', '151'],
+      }),
+    ),
+    true,
+  );
+});
+
+test('significant: massive multi-route reroute (12 routes) admits', () => {
+  // Real alert from 2026-05-08: SB Michigan/Ida B. Wells closure.
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        severityScore: 37,
+        headline: 'Temporary Reroute',
+        shortDescription:
+          'SB buses via Michigan, Ida B. Wells, State, Balbo; 1, 3, 4, X4 resume rte on Michigan; 7, 126, 143, 147 end at Congress Plz; J14, 26, 28 continue on Balbo.',
+        busRoutes: ['1', '3', '4', '7', 'J14', '26', '28', '126', '143', '146', '147', 'X4'],
+      }),
+    ),
+    true,
+  );
+});
+
+test('significant: high-severity single-route reroute admits (police activity)', () => {
+  // Real alert from 2026-05-08: #84 Peterson police activity at sev 55.
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        severityScore: 55,
+        headline: '#84 Peterson Temporary Reroute near Bryn Mawr/Sheridan',
+        shortDescription:
+          '84 Peterson buses temp. rerouted: due to, police activity near Bryn Mawr/Sheridan.',
+        busRoutes: ['84'],
+      }),
+    ),
+    true,
+  );
+});
+
+test('not significant: single-route reroute at default severity (block-party detour)', () => {
+  // The dozens of sev=37 single-route reroutes on the live feed — local and
+  // noisy, must still be vetoed.
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        severityScore: 37,
+        headline: 'Temporary Reroute',
+        shortDescription:
+          '#94 buses will operate via California, Archer, and Pershing, then resume their normal route on California.',
+        busRoutes: ['94'],
+      }),
+    ),
+    false,
+  );
+});
+
+test('not significant: two-route reroute at default severity', () => {
+  // Right at the boundary — 2 routes is below MULTI_ROUTE_THRESHOLD=3.
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        severityScore: 37,
+        headline: 'Temporary Reroute',
+        shortDescription: '#N5 and #67 buses will operate via 67th, Cottage Grove, Marquette.',
+        busRoutes: ['N5', '67'],
+      }),
+    ),
+    false,
+  );
+});
+
 test('not significant: elevator outage', () => {
   assert.equal(
     isSignificantAlert(
