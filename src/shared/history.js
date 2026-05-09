@@ -646,14 +646,29 @@ function hasObservedClearForPulse({ kind, pulseUri }) {
 // Phase 4 helper — returns up to 10 most recent pulse posts on a line for
 // caller-side scoring (e.g. station-overlap matching).
 function getRecentPulsePostsAll({ kind, line, withinMs }, now = Date.now()) {
+  // Exclude pulses that already have a paired 'observed-clear' on the same
+  // line/direction/segment after them. Without this filter, a CTA alert can
+  // get threaded under a pulse whose Bluesky thread already has a resolution
+  // reply at the bottom — resolveReplyRef walks to the latest leaf and lands
+  // the alert as a reply to "service has been restored", which reads as
+  // contradictory. Mirrors the pairing logic export-web.js uses.
   return db()
     .prepare(`
-    SELECT id, ts, from_station, to_station, direction, post_uri
-    FROM disruption_events
-    WHERE kind = ? AND line = ? AND source = 'observed'
-      AND posted = 1 AND post_uri IS NOT NULL
-      AND ts >= ?
-    ORDER BY ts DESC LIMIT 10
+    SELECT d.id, d.ts, d.from_station, d.to_station, d.direction, d.post_uri
+    FROM disruption_events d
+    WHERE d.kind = ? AND d.line = ? AND d.source = 'observed'
+      AND d.posted = 1 AND d.post_uri IS NOT NULL
+      AND d.ts >= ?
+      AND NOT EXISTS (
+        SELECT 1 FROM disruption_events c
+        WHERE c.kind = d.kind AND c.source = 'observed-clear' AND c.posted = 1
+          AND c.ts >= d.ts
+          AND IFNULL(c.line, '')          = IFNULL(d.line, '')
+          AND IFNULL(c.direction, '')     = IFNULL(d.direction, '')
+          AND IFNULL(c.from_station, '')  = IFNULL(d.from_station, '')
+          AND IFNULL(c.to_station, '')    = IFNULL(d.to_station, '')
+      )
+    ORDER BY d.ts DESC LIMIT 10
   `)
     .all(kind, line, now - withinMs);
 }
