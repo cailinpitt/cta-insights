@@ -1,8 +1,10 @@
 const { getDb } = require('./history');
 
-// Detection only looks back ~1h, but 48h covers two service days for post-hoc
-// investigation of flagged events.
-const ROLLOFF_MS = 48 * 60 * 60 * 1000;
+// Detection only looks back ~1h. 7-day retention covers reply-with-evidence
+// over the visible Bluesky timeline window and lets bus-pulse / bus-alerts
+// PID discovery (KNOWN_PIDS_LOOKBACK_MS) cover low-frequency overnight and
+// weekend-only route variants without special-casing.
+const ROLLOFF_MS = 7 * 24 * 60 * 60 * 1000;
 
 function rolloffOldObservations(now = Date.now()) {
   getDb()

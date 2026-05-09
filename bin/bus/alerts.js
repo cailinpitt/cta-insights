@@ -45,7 +45,7 @@ const { renderBusDisruption, MAX_ROUTES } = require('../../src/map');
 const { loadPattern } = require('../../src/bus/patterns');
 const busRoutes = require('../../src/bus/routes');
 
-const KNOWN_PIDS_LOOKBACK_MS = 48 * 60 * 60 * 1000;
+const KNOWN_PIDS_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000; // matches obs rolloff
 
 const PULSE_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 

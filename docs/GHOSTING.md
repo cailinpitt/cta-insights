@@ -52,7 +52,7 @@ Two scripts feed a SQLite observations table:
 - `scripts/observeBuses.js` — runs every ten minutes, fetches every active vehicle on every active CTA bus route. Bunching, gaps, and pulse all read this snapshot via the cache layer, so this script is the only API call site for the all-routes workload.
 - The bunching/gap detectors also write every vehicle they see into the same table (so we get extra coverage for free).
 
-Each row records `(ts, route, direction, vehicle_id, ...)`. Observations older than 48 hours are rolled off; the live ghost detectors only look back one hour.
+Each row records `(ts, route, direction, vehicle_id, ...)`. Observations older than 7 days are rolled off; the live ghost detectors only look back one hour.
 
 ### Step 3 — detecting ghosts
 
@@ -72,7 +72,7 @@ False-positive ghost posts are a credibility risk; the gates exist to swallow am
 |---|---|---|
 | `MISSING_PCT_THRESHOLD` | ≥25% | The deficit must be a real share of expected service, not 1 of 8. |
 | `MISSING_ABS_THRESHOLD` | ≥3 vehicles | Avoids firing on routes with tiny absolute counts. |
-| `MIN_SNAPSHOTS` | ≥4 | At the 10-min observer cadence the hour-long window holds ~6 snapshots; 4 tolerates up to 2 dropped polls. |
+| `MIN_SNAPSHOTS` | ≥4 | At the 1-min observer cadence the hour-long window holds ~60 snapshots; 4 is a floor that tolerates a sustained outage and still requires real evidence before calling a ghost. |
 | `MIN_OBSERVED` | ≥2 | "Missing 7 of 9" with observed 0 or 1 is either a genuine outage (the gap detector handles those) or a feed bug. |
 | `active < 2` floor | skip | Routes with fewer than 2 expected vehicles are too sparse for a meaningful ghost call. |
 | `MAX_EXPECTED_ACTIVE` | ≤30 | Sanity ceiling. >30 has historically meant a bad GTFS bucket; we'd rather skip than post nonsense. |

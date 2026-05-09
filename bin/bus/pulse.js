@@ -61,7 +61,7 @@ const POST_COOLDOWN_MS = 90 * 60 * 1000;
 const MIN_HOUR = 5;
 const MAX_HOUR = 24;
 const POLL_LOOKBACK_MS = 60 * 60 * 1000; // upper bound for observation window
-const KNOWN_PIDS_LOOKBACK_MS = 48 * 60 * 60 * 1000; // matches obs rolloff
+const KNOWN_PIDS_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000; // matches obs rolloff
 
 function chicagoHourNow(now = new Date()) {
   const h = new Intl.DateTimeFormat('en-US', {

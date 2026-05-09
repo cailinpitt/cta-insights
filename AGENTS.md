@@ -43,9 +43,10 @@ Brief list; deeper rationale in the linked deep-dives.
   and analytics need the row.
 - **Bus reads MUST use `getVehiclesCachedOrFresh`** outside `observeBuses.js`
   and speedmap. Direct `getVehicles` blows the quota.
-- **Don't lower observe-buses below `*/10`** without dropping speedmap or
-  accepting the quota hit. `MIN_SNAPSHOTS` in `src/bus/ghosts.js` is coupled
-  to this cadence — move both together.
+- **Don't lower observe-buses below `*` (every minute)** without first
+  re-checking the 100k/day bus tracker cap. `MIN_SNAPSHOTS` in
+  `src/bus/ghosts.js` and `maxStaleMs` in `src/bus/api.js` are coupled to
+  this cadence — move them together if it changes.
 - **Stagger new `*-alerts` / `*-pulse` cron entries**. Same wall minute
   breaks threading (each sees no parent and posts top-level).
 - **GTFS index throws past 7 days old**. After laptop sleep / cron outage,
@@ -142,14 +143,14 @@ single-file constants — search the relevant `src/{bus,train}/<feature>.js`.
 
 | Lever | File | Note |
 |---|---|---|
-| Bus cache window | `src/bus/api.js` | `maxStaleMs = 11 min` — coupled to observe-buses cadence |
+| Bus cache window | `src/bus/api.js` | `maxStaleMs = 90s` — coupled to observe-buses cadence |
 | Ghost min snapshots | `src/bus/ghosts.js` | `MIN_SNAPSHOTS = 4` — coupled to observe-buses cadence |
 | Train pulse bin | `bin/train/pulse.js` | `MIN_HOUR = 5`, `POST_COOLDOWN_MS = 90 min` |
 | Train gap cap | `bin/train/gaps.js` | `TRAIN_GAP_DAILY_CAP = 2` per rush period; cap-exempt on recent pulse/ghost |
 | Roundup scoring | `bin/incident-roundup.js` | `WINDOW_MS = 30 min`, `SCORE_THRESHOLD = 1.75`, per-source persistence bonus capped at +0.5 |
 | Loop trunk override scope | `src/train/speedmap.js` | `LOOP_TRUNK_LINES = {brn, org, pink, p}` |
 | History rolloff | `src/shared/history.js` | `ROLLOFF_DAYS = 90` |
-| Observation rolloff | `src/shared/observations.js` | `ROLLOFF_MS = 48h` |
+| Observation rolloff | `src/shared/observations.js` | `ROLLOFF_MS = 7d` |
 | GTFS staleness | `src/shared/gtfs.js` | `STALE_FATAL_MS = 7d` |
 
 ## Dev commands

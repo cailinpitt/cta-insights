@@ -137,7 +137,7 @@ All bin scripts accept `--dry-run` (writes image under `assets/` instead of post
 ### Observers / maintenance
 | Command | Description |
 |---|---|
-| `npm run observe-buses` | Bus observer — fetches every active CTA route and records positions (no posting). Run every 10 min. |
+| `npm run observe-buses` | Bus observer — fetches every active CTA route and records positions (no posting). Run every minute. |
 | `npm run fetch-gtfs` | Rebuild `data/gtfs/index.json`. Run daily. |
 | `npm run fetch-signals` | Rebuild `data/signals/chicago.json` from OpenStreetMap. Run monthly. |
 
@@ -182,7 +182,7 @@ Each major feature has a deep-dive doc in [`docs/`](docs/):
 ### Observation flow
 Every call to `getVehicles` (bus) and `getAllTrainPositions` (train) writes a row to the `observations` table in `history.sqlite`. That means *every* job — bunching, gaps, speedmaps, snapshots — contributes data that ghost detection later consumes.
 
-Bus routes not touched by bunching or gaps need an explicit observer run to show up in the ghost rollups and bus pulse detection. `scripts/observeBuses.js` handles that, fetching every active CTA route on a fixed ~10-min cadence. Bunching, gaps, and pulse all read the resulting snapshot via `getVehiclesCachedOrFresh` (11-min cache window) so the observer is the only API call site for the all-routes workload — that keeps the bus tracker under its 100k-call/month quota. Trains don't need a dedicated observer — one API call returns all 8 lines and other jobs hit the API often enough.
+Bus routes not touched by bunching or gaps need an explicit observer run to show up in the ghost rollups and bus pulse detection. `scripts/observeBuses.js` handles that, fetching every active CTA route every minute. Bunching, gaps, and pulse all read the resulting snapshot via `getVehiclesCachedOrFresh` (90s cache window) so the observer is the only API call site for the all-routes workload — that keeps the bus tracker under its 100k-call/day quota (~18.7k/day at this cadence). Trains don't need a dedicated observer — one API call returns all 8 lines and other jobs hit the API often enough.
 
 ### History DB and callouts
 `state/history.sqlite` records every detection (posted or cooldown-suppressed) and every observation. Retention is 90 days. Two things feed off it:

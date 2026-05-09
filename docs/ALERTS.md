@@ -438,7 +438,7 @@ Rationale: a 16:08 ghost run that sees `red/5: 2.5 missing` after a 16:00 incide
 
 ## Observation cadence
 
-`scripts/observeTrains.js` polls Train Tracker every 2 min via cron, recording observations independent of the detector crons. This densifies the `observations` table so held-train detection has enough motion samples per train (typical 3–5 obs in 5 min vs 1–2 previously) to classify reliably. Train Tracker shares the 100k/month CTA budget with Bus Tracker but one batched call returns all 8 lines, leaving plenty of headroom (~22k calls/month at this cadence).
+`scripts/observeTrains.js` polls Train Tracker every 30s via cron, recording observations independent of the detector crons. Cron's minimum granularity is 1 minute, so the script itself runs two ticks 30s apart per cron firing. This densifies the `observations` table so held-train detection has plenty of motion samples per train to classify reliably, and snapshot timelapses (15-min window) get ~30 frames per train for visibly continuous motion. Train Tracker shares the 100k/day CTA budget with Bus Tracker but one batched call returns all 8 lines — at 30s cadence that's ~2.9k calls/day, well under the cap.
 
 ## Replay harness
 

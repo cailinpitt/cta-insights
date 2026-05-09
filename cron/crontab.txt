@@ -78,18 +78,18 @@ R=/path/to/cta-insights/bin/cron-run.sh
 6-59/15 *  *  *  *   $R bus-gaps         bin/bus/gaps.js
 0       */2 *  *  *  $R bus-speedmap     bin/bus/speedmap.js
 7       *  *  *  *   $R bus-ghosts       bin/bus/ghosts.js
-# observe-buses runs */10 (not */5) to keep monthly bus-tracker calls
-# under the 100k budget — 124 routes × 13 chunks × 144 ticks/day × 30 ≈ 56k.
-# bunching/gaps/pulse all read the cache (maxStaleMs=11min) so observe-buses
-# is effectively the only API call site for the all-routes workload.
-*/10    *  *  *  *   $R observe-buses    scripts/observeBuses.js
-# observe-trains polls Train Tracker every 2 min. Train Tracker shares the
-# same 100k/month CTA budget as Bus Tracker, but one batched call returns all
-# 8 lines and the scheduled detector crons consume far less than the bus side,
-# leaving room. 30 calls/h × 24 × 30 ≈ 22k — well under budget. Densifies the
-# observations table so held-train detection has enough motion samples per
-# train to classify reliably.
-*/2     *  *  *  *   $R observe-trains   scripts/observeTrains.js
+# observe-buses runs every minute. CTA refreshes every 30s, so 60s misses at
+# most one refresh cycle. 124 routes × 13 chunks × 1440 ticks/day ≈ 18.7k/day,
+# well under the 100k/day cap. bunching/gaps/pulse all read the cache
+# (maxStaleMs=90s) so observe-buses is the only API call site for the
+# all-routes workload.
+*       *  *  *  *   $R observe-buses    scripts/observeBuses.js
+# observe-trains polls Train Tracker every 30s. Cron's minimum granularity is
+# 1 min, so the script itself runs two ticks 30s apart per firing. One batched
+# call returns all 8 lines, so 2880 calls/day — well under the 100k/day cap.
+# At 30s cadence the snapshot timelapse gets ~30 frames per train per 15-min
+# window, vs ~7-8 at the prior 2-min cadence — visibly continuous motion.
+*       *  *  *  *   $R observe-trains   scripts/observeTrains.js
 
 # --- Recaps ---
 20      10 *  *  0   $R bus-recap        bin/bus/recap.js   --window=week
