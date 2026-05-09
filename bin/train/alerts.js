@@ -153,8 +153,15 @@ async function postNewAlert(alert, agentGetter) {
           return { ...p, score: fromHit + toHit };
         })
         .sort((a, b) => b.score - a.score || b.ts - a.ts);
+      // Require at least one station-name hit before threading. Without this,
+      // a CTA alert with no station mentions (e.g. "Brown Line Service
+      // Experiencing Significant Delays Due to Raised Bridge") falls back to
+      // most-recent-pulse-wins and ends up threaded under an unrelated pulse
+      // elsewhere on the same line. Score 0 = no textual link, no thread.
       const winner = scored[0];
-      if (winner) replyRef = await resolveReplyRef(agent, winner.post_uri);
+      if (winner && winner.score > 0) {
+        replyRef = await resolveReplyRef(agent, winner.post_uri);
+      }
     }
   }
 
