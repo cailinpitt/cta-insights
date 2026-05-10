@@ -29,6 +29,7 @@ const {
   postTextWithLinkCard,
   resolveReplyRef,
 } = require('../src/shared/bluesky');
+const { LINE_TO_RAIL_ROUTE } = require('../src/shared/ctaAlerts');
 
 const EVENT_BASE_URL = 'https://chicagotransitalerts.app/event';
 
@@ -210,8 +211,17 @@ async function processKind({ kind, identifiers, getName, agentGetter, now }) {
     }
     try {
       const a = await agentGetter();
-      const result = await postText(a, text, null);
-      console.log(`Posted roundup ${label}: ${result.url}`);
+      // Thread under an open CTA alert on the same route/line if one exists,
+      // mirroring how pulse threads. Roundups carry no segment info so the
+      // match is route-only — same conservative shape as bus pulse's
+      // findOpenAlertReplyRefBus. Without this, a roundup fires top-level
+      // even when an active CTA alert thread for the same route already
+      // exists, fragmenting the conversation across two posts.
+      const replyRef = await findOpenAlertReplyRefForRoundup(a, kind, id);
+      const result = await postText(a, text, replyRef);
+      console.log(
+        `Posted roundup ${label}: ${result.url}${replyRef ? ' (threaded under open CTA alert)' : ''}`,
+      );
       // Anchor the rollup so the related-quotes sweep can attach
       // subsequent on-route bunching/gap posts to this thread.
       recordRoundupAnchor({
@@ -233,6 +243,25 @@ async function processKind({ kind, identifiers, getName, agentGetter, now }) {
       console.error(`roundup post failed for ${label}: ${e.stack || e.message}`);
     }
   }
+}
+
+// Look up the most recent unresolved CTA alert touching this route/line and
+// return a reply ref pointing at it, or null. Route-match only — roundups
+// have no segment info to score station overlap with.
+async function findOpenAlertReplyRefForRoundup(agent, kind, line) {
+  const code = kind === 'bus' ? line : LINE_TO_RAIL_ROUTE[line];
+  if (!code) return null;
+  const row = getDb()
+    .prepare(`
+      SELECT post_uri FROM alert_posts
+      WHERE kind = ? AND resolved_ts IS NULL
+        AND post_uri IS NOT NULL
+        AND (',' || routes || ',') LIKE ?
+      ORDER BY first_seen_ts DESC LIMIT 1
+    `)
+    .get(kind, `%,${code},%`);
+  if (!row) return null;
+  return resolveReplyRef(agent, row.post_uri);
 }
 
 function buildResolutionText({ kind, line, name }) {
