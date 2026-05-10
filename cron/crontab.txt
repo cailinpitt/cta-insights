@@ -69,13 +69,13 @@ R=/path/to/cta-insights/bin/cron-run.sh
 4-59/5  *  *  *  *   $R incident-roundup bin/incident-roundup.js
 
 # --- Buses ---
-1-59/15 *  *  *  *   $R bus-bunching     bin/bus/bunching.js
+1-59/30 *  *  *  *   $R bus-bunching     bin/bus/bunching.js
 */10    *  *  *  *   $R bus-alerts       bin/bus/alerts.js
 # bus-pulse staggered :03 offset so it never collides with bus-alerts'
 # */10 schedule — same threading-safety reasoning as train-alerts vs
 # train-pulse.
 3-58/5  *  *  *  *   $R bus-pulse        bin/bus/pulse.js
-6-59/15 *  *  *  *   $R bus-gaps         bin/bus/gaps.js
+6-59/30 *  *  *  *   $R bus-gaps         bin/bus/gaps.js
 0       */2 *  *  *  $R bus-speedmap     bin/bus/speedmap.js
 7       *  *  *  *   $R bus-ghosts       bin/bus/ghosts.js
 # observe-buses runs every minute. CTA refreshes every 30s, so 60s misses at
