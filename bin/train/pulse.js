@@ -72,6 +72,12 @@ const LOOKBACK_MS = 20 * 60 * 1000;
 // Match the detector's 2.5× cold-threshold multiplier — keeps lookback wide
 // enough that any bin reading cold has actual observation evidence behind it.
 const COLD_HEADWAY_MULT_FOR_LOOKBACK = 2.5;
+// Synthetic full-line silence requirement, expressed as a multiple of
+// scheduled headway. Picked to clear Yellow's normal turnaround layover
+// (~17 min on a 15-min headway shuttle) by a comfortable margin while still
+// catching the multi-hour shutdown case the synthetic path was built for.
+// See maybeSyntheticFullLineCandidate.
+const SYNTHETIC_HEADWAY_MULT = 3;
 const MIN_CONSECUTIVE_TICKS = 2;
 const CLEAR_TICKS_TO_RESET = 3;
 const POST_COOLDOWN_MS = 90 * 60 * 1000;
@@ -848,8 +854,34 @@ async function maybeSyntheticFullLineCandidate(
     );
     return;
   }
+
+  // Headway-scaled silence gate. The base 20-min LOOKBACK_MS is too narrow on
+  // single-train shuttle topologies (Yellow): a normal turnaround layover at
+  // Dempster runs ~15–17 min, so a single missed/delayed turnaround drops the
+  // entire line to zero obs in the 20-min window even though only ~1 trip was
+  // missed. The Yellow shuttle-bus substitution case this path was built for
+  // empties the line for hours, so requiring silence ≥ 3× scheduled headway
+  // separates that from a single missed turnaround without losing the real
+  // shutdown case. Lines with headway ≤ ~6 min (Red/Blue peak) keep the 20-min
+  // floor; Yellow @ 15-min headway requires ≥ 45 min of silence.
+  const headwayMin = safeHeadway(line);
+  const requiredSilenceMs = Math.max(
+    LOOKBACK_MS,
+    SYNTHETIC_HEADWAY_MULT * (headwayMin || 0) * 60 * 1000,
+  );
+  if (requiredSilenceMs > LOOKBACK_MS) {
+    const longRecent = getRecentTrainPositions(now - requiredSilenceMs).filter(
+      (r) => r.line === line,
+    );
+    if (longRecent.length > 0) {
+      console.log(
+        `pulse: zero observations on line=${lineLabel(line)} in last ${LOOKBACK_MS / 60000} min but ${longRecent.length} obs in last ${Math.round(requiredSilenceMs / 60000)} min (≥ ${SYNTHETIC_HEADWAY_MULT}× headway ${headwayMin} min) — not synthesizing`,
+      );
+      return;
+    }
+  }
   console.log(
-    `pulse: zero observations on line=${lineLabel(line)} but ${expected} trips expected — synthesizing full-line candidate`,
+    `pulse: zero observations on line=${lineLabel(line)} for ≥ ${Math.round(requiredSilenceMs / 60000)} min but ${expected} trips expected — synthesizing full-line candidate`,
   );
   const branches = buildLineBranches(trainLines, line);
   // Lines like Yellow ship mirror-segment polylines (Howard→Dempster +
@@ -898,8 +930,8 @@ async function maybeSyntheticFullLineCandidate(
       totalBins: 0,
       observedTrainsInWindow: 0,
       lastSeenInRunMs: null,
-      coldThresholdMs: LOOKBACK_MS,
-      lookbackMs: LOOKBACK_MS,
+      coldThresholdMs: requiredSilenceMs,
+      lookbackMs: requiredSilenceMs,
       trainsOutsideRun: 0,
       coldStations: stationsOnBranch.length,
       coldStationNames: stationsOnBranch.map((s) => s.station.name),
