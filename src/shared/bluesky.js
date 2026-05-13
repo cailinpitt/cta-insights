@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { AtpAgent } = require('@atproto/api');
+const { markWebPushPending } = require('./webPushTrigger');
 
 // Bluesky enforces a per-account daily createSession cap (~300/day) plus a
 // sliding 30/5min limit. Each cron tick used to call agent.login() fresh,
@@ -81,6 +82,7 @@ async function postWithImage(agent, text, imageBuffer, altText, replyRef = null)
       images: [{ image: upload.data.blob, alt: altText }],
     },
   });
+  markWebPushPending();
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
@@ -165,6 +167,7 @@ async function postWithVideo(agent, text, videoBuffer, altText, replyRef = null)
       alt: altText,
     },
   });
+  markWebPushPending();
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
@@ -173,6 +176,7 @@ async function postText(agent, text, replyRef = null) {
     text,
     ...(replyRef && { reply: replyRef }),
   });
+  markWebPushPending();
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
@@ -224,6 +228,7 @@ async function postTextWithLinkCard(agent, text, replyRef, link) {
       },
     },
   });
+  markWebPushPending();
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 
@@ -311,6 +316,7 @@ async function postQuote(agent, text, quoted, replyRef = null) {
       record: { uri: quoted.uri, cid: quoted.cid },
     },
   });
+  markWebPushPending();
   return { url: postUrl(result), uri: result.uri, cid: result.cid };
 }
 

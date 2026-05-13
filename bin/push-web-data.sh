@@ -2,14 +2,29 @@
 # Push updated alert data to the GitHub Pages repo.
 # Only commits when the data actually changed.
 #
-# Required env or edit defaults below:
-#   PAGES_REPO  — path to the cta-alert-history clone (default: ~/cta-alert-history)
-#   CTA_INSIGHTS — path to this repo clone (default: ~/cta-insights)
+# Env (auto-detected when the two repos are siblings):
+#   CTA_INSIGHTS — path to this repo clone (default: the directory this
+#                  script lives in, walked up one level)
+#   PAGES_REPO   — path to the cta-alert-history clone (default: sibling
+#                  of CTA_INSIGHTS, falling back to ~/cta-alert-history)
+#
+# Auto-detection matters because src/shared/webPushTrigger.js spawns this
+# script from inside a Node bin run on detection — the cron line's
+# PAGES_REPO= prefix isn't inherited there, so a "must set env" default
+# would silently skip the manual trigger.
 
 set -e
 
-PAGES_REPO="${PAGES_REPO:-$HOME/cta-alert-history}"
-CTA_INSIGHTS="${CTA_INSIGHTS:-$HOME/cta-insights}"
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+CTA_INSIGHTS="${CTA_INSIGHTS:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+
+if [ -z "$PAGES_REPO" ]; then
+  if [ -d "$CTA_INSIGHTS/../cta-alert-history/.git" ]; then
+    PAGES_REPO=$(cd "$CTA_INSIGHTS/../cta-alert-history" && pwd)
+  else
+    PAGES_REPO="$HOME/cta-alert-history"
+  fi
+fi
 
 cd "$PAGES_REPO"
 git pull --quiet
