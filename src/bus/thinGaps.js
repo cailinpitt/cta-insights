@@ -26,6 +26,8 @@ function detectThinGaps({
   getObservations,
   getHeadway,
   getActiveTrips,
+  getPriorHourActiveTrips,
+  getNextHourActiveTrips,
   now = Date.now(),
   onDrop,
 }) {
@@ -39,6 +41,25 @@ function detectThinGaps({
     const active = getActiveTrips(route);
     if (active == null || active <= 0) {
       drop('not_scheduled', { ...ctx, active });
+      continue;
+    }
+    // Steady-state service gate: require expectedActive > 0 in BOTH the
+    // prior AND next hour, not just the current one. Without this, the
+    // detector false-fires at ramp-up (first scheduled hour: no service in
+    // the 60-min lookback because service hasn't started) and is shaky at
+    // wind-down (route's final trip completed mid-window). The cost is we
+    // can't catch outages during the very first or last service hour of
+    // the day — acceptable for a "catches disasters during normal service
+    // hours" floor; the bigger detectors take over for high-frequency
+    // ramp/wind-down anyway.
+    const priorActive = getPriorHourActiveTrips ? getPriorHourActiveTrips(route) : null;
+    if (priorActive == null || priorActive <= 0) {
+      drop('ramp_up', { ...ctx, active, priorActive });
+      continue;
+    }
+    const nextActive = getNextHourActiveTrips ? getNextHourActiveTrips(route) : null;
+    if (nextActive == null || nextActive <= 0) {
+      drop('wind_down', { ...ctx, active, nextActive });
       continue;
     }
     const headwayMin = getHeadway(route);

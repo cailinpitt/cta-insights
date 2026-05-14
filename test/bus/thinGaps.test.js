@@ -4,10 +4,12 @@ const { detectThinGaps } = require('../../src/bus/thinGaps');
 
 const NOW = 1_800_000_000_000;
 
-function mkSched({ headway, active = 1 }) {
+function mkSched({ headway, active = 1, priorActive = 1, nextActive = 1 }) {
   return {
     getHeadway: () => headway,
     getActiveTrips: () => active,
+    getPriorHourActiveTrips: () => priorActive,
+    getNextHourActiveTrips: () => nextActive,
   };
 }
 
@@ -97,6 +99,32 @@ test('window grows past 60 min when 2× headway exceeds the floor', () => {
   });
   assert.equal(events[0].windowMin, 90);
   assert.equal(events[0].missedTrips, 2);
+});
+
+test('skips at ramp-up (current hour active but prior hour was not)', () => {
+  const drops = [];
+  const events = detectThinGaps({
+    routes: ['100'],
+    getObservations: () => [],
+    now: NOW,
+    onDrop: (d) => drops.push(d),
+    ...mkSched({ headway: 20, active: 1, priorActive: 0 }),
+  });
+  assert.equal(events.length, 0);
+  assert.equal(drops[0].reason, 'ramp_up');
+});
+
+test('skips at wind-down (current hour active but next hour will not be)', () => {
+  const drops = [];
+  const events = detectThinGaps({
+    routes: ['100'],
+    getObservations: () => [],
+    now: NOW,
+    onDrop: (d) => drops.push(d),
+    ...mkSched({ headway: 20, active: 1, nextActive: 0 }),
+  });
+  assert.equal(events.length, 0);
+  assert.equal(drops[0].reason, 'wind_down');
 });
 
 test('getObservations is called with the window start derived from headway', () => {

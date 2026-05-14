@@ -5,7 +5,10 @@ const argv = require('minimist')(process.argv.slice(2));
 
 const { names: routeNames, lowFrequency } = require('../../src/bus/routes');
 const { detectThinGaps } = require('../../src/bus/thinGaps');
-const { getBusObservations } = require('../../src/shared/observations');
+const {
+  getBusObservations,
+  countDistinctTsInBusObservations,
+} = require('../../src/shared/observations');
 const {
   expectedBusRouteHeadwayMin,
   expectedBusRouteActiveTrips,
@@ -21,6 +24,14 @@ const { setup, runBin } = require('../../src/shared/runBin');
 // Daily cap mirrors the bus-gap channel — thin-gap posts share the same thread
 // space and a single chronically-down route shouldn't dominate the feed.
 const DAILY_CAP_KEY_TTL_MS = 24 * 60 * 60 * 1000;
+
+// Observation pipeline health check: observeBuses runs */10, so 30 min should
+// see ~3 distinct timestamps. Anything below MIN_HEALTHY_SNAPSHOTS means the
+// pipeline is broken — bailing out prevents a system-wide observation outage
+// from fanning out into 47 simultaneous false-positive posts.
+const HEALTH_CHECK_WINDOW_MS = 30 * 60 * 1000;
+const MIN_HEALTHY_SNAPSHOTS = 2;
+const HOUR_MS = 60 * 60 * 1000;
 
 function formatLine(event) {
   const name = routeNames[event.route];
@@ -46,12 +57,30 @@ async function main() {
   }
 
   const now = Date.now();
+
+  // System-wide health check: if observeBuses hasn't recorded distinct
+  // snapshots recently, the upstream pipeline is broken (CTA API outage,
+  // cron stall, DB issue). Firing under those conditions would fan a single
+  // upstream incident out into a flood of route posts — bail and let the
+  // existing detectors' own outage modes handle the alerting.
+  const recentSnapshots = countDistinctTsInBusObservations(now - HEALTH_CHECK_WINDOW_MS);
+  if (recentSnapshots < MIN_HEALTHY_SNAPSHOTS) {
+    console.warn(
+      `thin-gaps: only ${recentSnapshots} distinct observation snapshots in past ${HEALTH_CHECK_WINDOW_MS / 60000} min — observation pipeline looks unhealthy, skipping`,
+    );
+    return;
+  }
+
+  const priorHour = new Date(now - HOUR_MS);
+  const nextHour = new Date(now + HOUR_MS);
   const drops = [];
   const allEvents = detectThinGaps({
     routes: lowFrequency.filter((r) => index.routes[r]),
     getObservations: (route, since) => getBusObservations(route, since),
     getHeadway: (route) => expectedBusRouteHeadwayMin(route, new Date(now)),
     getActiveTrips: (route) => expectedBusRouteActiveTrips(route, new Date(now)),
+    getPriorHourActiveTrips: (route) => expectedBusRouteActiveTrips(route, priorHour),
+    getNextHourActiveTrips: (route) => expectedBusRouteActiveTrips(route, nextHour),
     now,
     onDrop: (d) => drops.push(d),
   });
