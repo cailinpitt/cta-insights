@@ -36,8 +36,10 @@ const {
   loginAlerts,
   postWithImage,
   postText,
+  postTextWithLinkCard,
   resolveReplyRef,
 } = require('../../src/shared/bluesky');
+const { resolvedEventLink } = require('../../src/shared/eventLink');
 const { renderDisruption } = require('../../src/map');
 const { buildPostText, buildAltText, buildClearPostText } = require('../../src/shared/disruption');
 const {
@@ -399,7 +401,10 @@ async function postClearReply(line, direction, prior, agentGetter) {
     console.warn(`[${lineLabel(line)}/${direction}] could not resolve reply ref for clear post`);
     return;
   }
-  const result = await postText(agent, text, replyRef);
+  const link = resolvedEventLink(prior.active_post_uri, text);
+  const result = link
+    ? await postTextWithLinkCard(agent, text, replyRef, link)
+    : await postText(agent, text, replyRef);
   console.log(`Posted pulse clear ${lineLabel(line)}/${direction}: ${result.url}`);
   recordDisruption({
     kind: 'train',

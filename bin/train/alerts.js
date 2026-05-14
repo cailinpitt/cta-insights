@@ -16,8 +16,10 @@ const {
   loginAlerts,
   postWithImage,
   postText,
+  postTextWithLinkCard,
   resolveReplyRef,
 } = require('../../src/shared/bluesky');
+const { resolvedEventLink } = require('../../src/shared/eventLink');
 const {
   buildAlertPostText,
   buildAlertAltText,
@@ -207,7 +209,10 @@ async function postResolution(alertRow, agentGetter) {
     // in the same thread instead of starting a sub-thread.
     const replyRef = await resolveReplyRef(agent, alertRow.post_uri);
     if (!replyRef) throw new Error('could not resolve reply ref for alert post');
-    const result = await postText(agent, text, replyRef);
+    const link = resolvedEventLink(alertRow.post_uri, text);
+    const result = link
+      ? await postTextWithLinkCard(agent, text, replyRef, link)
+      : await postText(agent, text, replyRef);
     console.log(`Posted resolution for alert ${alertRow.alert_id}: ${result.url}`);
     recordAlertResolved({ alertId: alertRow.alert_id, replyUri: result.uri });
   } catch (e) {
