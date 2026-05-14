@@ -168,6 +168,58 @@ test('significant: major keyword without major flag (e.g. "suspended")', () => {
   );
 });
 
+test('significant: Impact="Significant Delays" admits even when headline/major/css disagree', () => {
+  // Real-world regression — AlertId 114905 (2026-05-13 Red Line police
+  // hold at Sox-35th). CTA tagged Impact="Significant Delays" + sev=60
+  // but simultaneously MajorAlert=0 and severityCss="minor", with a
+  // headline that only said "Service Delayed" (no MAJOR_PATTERN hit).
+  // Every other admit path missed it; the Impact admit catches it.
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        severityScore: 60,
+        severityCss: 'minor',
+        impact: 'Significant Delays',
+        headline: 'Red Line Service Delayed at Sox-35th',
+        shortDescription:
+          'Red Line trains are standing at Sox-35th due to police activity. Crews working to restore service.',
+      }),
+    ),
+    true,
+  );
+});
+
+test('significant: Impact="Major Delays" admits', () => {
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        severityScore: 50,
+        impact: 'Major Delays',
+        headline: 'Blue Line Service Delayed near Forest Park',
+      }),
+    ),
+    true,
+  );
+});
+
+test('not significant: Impact="Minor Delays" does NOT auto-admit', () => {
+  // The Impact admit list is intentionally narrow — only the
+  // explicitly-significant buckets, not every delay variant.
+  assert.equal(
+    isSignificantAlert(
+      makeAlert({
+        major: false,
+        severityScore: 40,
+        impact: 'Minor Delays',
+        headline: 'Brown Line Delays',
+      }),
+    ),
+    false,
+  );
+});
+
 test('extractBetweenStations: capitalized "Between" in headline', () => {
   assert.deepEqual(
     extractBetweenStations('Bus Substitution Between Dempster-Skokie and Howard Stations'),

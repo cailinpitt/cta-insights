@@ -228,6 +228,18 @@ function extractDirection(text, line = null) {
 // (miss a real outage) beat false positives (spam followers with stop closures).
 const MIN_SEVERITY = 3;
 
+// CTA's own `Impact` classification is the most reliable categorization in
+// the feed payload — every alert is tagged with one of ~11 stable buckets
+// ("Bus Stop Note", "Planned Reroute", "Elevator Status", "Minor Delays",
+// "Significant Delays", "Major Delays", etc.). When the Impact bucket
+// explicitly classifies the alert as a significant or major service
+// disruption, trust that — even if the headline phrasing doesn't trigger a
+// MAJOR_PATTERN match and MajorAlert=0. This caught the 2026-05-13 Red Line
+// police-activity hold at Sox-35th (AlertId 114905, Impact="Significant
+// Delays", headline "Service Delayed", MajorAlert=0, severityCss=minor —
+// every other admit path missed it).
+const SIGNIFICANT_IMPACTS = new Set(['Significant Delays', 'Major Delays']);
+
 // "Reroute"/"detour" alone is too noisy (most are local block-party detours,
 // hence the MINOR_PATTERNS veto), but two reroute shapes ARE worth posting:
 //
@@ -345,6 +357,13 @@ function isSignificantAlert(alert) {
       if (duration == null || duration < LONG_PLANNED_DURATION_MS) return true;
     }
   }
+
+  // Trust CTA's Impact classification when it explicitly buckets the alert
+  // as a significant/major delay. Goes before the MINOR_PATTERNS veto so
+  // an admit-worthy alert whose body happens to mention "elevator" or
+  // "boarding change" still goes through — Impact is the most reliable
+  // semantic signal in the feed.
+  if (alert.impact && SIGNIFICANT_IMPACTS.has(alert.impact)) return true;
 
   if (summary) {
     for (const re of MINOR_PATTERNS) if (re.test(summary)) return false;
