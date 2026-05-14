@@ -217,6 +217,59 @@ const ghosts = [
   '151',
 ];
 
+// Routes eligible for the thin-gap detector — median weekday daytime (6 AM–10
+// PM) headway > 15 min, the seam where curated `gaps`/`ghosts` coverage ends.
+// Regenerate after GTFS refresh: `node scripts/compute-low-frequency-routes.js`.
+const lowFrequency = [
+  '1', // 15.5 min
+  '7', // 15.5 min
+  '8A', // 16.5 min
+  '11', // 19.5 min
+  '18', // 18.0 min
+  '24', // 19.2 min
+  '30', // 19.0 min
+  '31', // 28.0 min
+  '35', // 16.0 min
+  '37', // 19.0 min
+  '39', // 21.8 min
+  '43', // 18.5 min
+  '44', // 16.5 min
+  '48', // 17.0 min
+  '51', // 18.5 min
+  '52A', // 17.0 min
+  '54A', // 25.5 min
+  '54B', // 20.0 min
+  '55A', // 23.0 min
+  '55N', // 23.0 min
+  '57', // 16.0 min
+  '59', // 18.0 min
+  '62H', // 27.0 min
+  '63W', // 23.5 min
+  '65', // 17.0 min
+  '68', // 21.0 min
+  '73', // 16.0 min
+  '81W', // 25.0 min
+  '85A', // 20.0 min
+  '86', // 20.0 min
+  '88', // 24.5 min
+  '90', // 18.5 min
+  '93', // 20.3 min
+  '96', // 30.0 min
+  '97', // 19.0 min
+  '100', // 20.0 min
+  '103', // 17.0 min
+  '108', // 19.5 min
+  '111A', // 20.0 min
+  '112', // 17.0 min
+  '124', // 24.0 min
+  '125', // 20.0 min
+  '126', // 15.5 min
+  '156', // 18.5 min
+  '165', // 25.0 min
+  '192', // 25.0 min
+  '201', // 25.0 min
+];
+
 // Every active CTA bus route. Used by observeBuses (the single API call site
 // for the all-routes workload), bus pulse, bunching, and speedmap — all four
 // read the same snapshot or rotate across the full list, so this list also
@@ -232,4 +285,4 @@ const ghosts = [
 // alert-display lookups (CTA may still issue alerts tagged with N87, etc.).
 const allRoutes = Object.keys(names).filter((r) => !/^N\d/.test(r) || r === 'N5');
 
-module.exports = { names, gaps, ghosts, allRoutes };
+module.exports = { names, gaps, ghosts, lowFrequency, allRoutes };

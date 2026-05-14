@@ -216,6 +216,23 @@ function expectedBusRouteActiveTrips(route, now = new Date()) {
   return any ? sum : null;
 }
 
+// Route-level headway, no pattern required. Picks the LONGER scheduled headway
+// across directions so that a "no observations" window is sized conservatively
+// (longer window → fewer false fires when one direction is much sparser than
+// the other). Returns null when the route is unindexed or has no entry for the
+// current hour. Used by the thin-gap detector.
+function expectedBusRouteHeadwayMin(route, now = new Date()) {
+  const index = loadIndex();
+  const byDir = index.routes[route];
+  if (!byDir) return null;
+  let max = null;
+  for (const dirInfo of Object.values(byDir)) {
+    const v = hourlyLookup(dirInfo.headways, now);
+    if (v != null && (max == null || v > max)) max = v;
+  }
+  return max;
+}
+
 // Train Tracker line codes (lowercase) → GTFS route_id in the index. These
 // are the only eight rail "routes" CTA publishes and the mapping is static.
 const TRAIN_LINE_TO_GTFS = {
@@ -368,6 +385,7 @@ module.exports = {
   expectedTrainTripMinutes,
   expectedActiveTrips,
   expectedBusRouteActiveTrips,
+  expectedBusRouteHeadwayMin,
   expectedTrainActiveTrips,
   expectedTrainActiveTripsAnyDir,
   expectedTrainDispatchesInWindow,

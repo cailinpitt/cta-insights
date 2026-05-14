@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { loadIndex } = require('../../src/shared/gtfs');
-const { ghosts, gaps, allRoutes, names } = require('../../src/bus/routes');
+const { ghosts, gaps, lowFrequency, allRoutes, names } = require('../../src/bus/routes');
 
 // Gaps and ghosts both *require* GTFS lookups (headway/expected-active gates)
 // — a missing index entry there silently disables detection. allRoutes is
@@ -13,6 +13,27 @@ test('every gap/ghost-polled bus route is present in the GTFS index', () => {
   const polled = [...new Set([...ghosts, ...gaps])];
   const missing = polled.filter((r) => !idx.routes[r]);
   assert.deepEqual(missing, [], `re-run scripts/fetch-gtfs.js to index: ${missing.join(', ')}`);
+});
+
+// thin-gap detector needs headway + activeByHour from the index to fire, and
+// the eligibility list is precomputed against a specific GTFS snapshot — drift
+// (a route disappearing from CTA's feed) should be caught here, not silently.
+test('every lowFrequency route is present in the GTFS index', () => {
+  const idx = loadIndex();
+  const missing = lowFrequency.filter((r) => !idx.routes[r]);
+  assert.deepEqual(
+    missing,
+    [],
+    `re-run scripts/compute-low-frequency-routes.js: ${missing.join(', ')}`,
+  );
+});
+
+// The whole point of the thin-gap detector is to cover routes outside the
+// curated lists. Overlap means duplicate posts and confused readers.
+test('lowFrequency does not overlap with gaps or ghosts', () => {
+  const covered = new Set([...gaps, ...ghosts]);
+  const overlap = lowFrequency.filter((r) => covered.has(r));
+  assert.deepEqual(overlap, []);
 });
 
 // Night Owl routes that shadow a daytime number (N87 ↔ 87, N22 ↔ 22, …) are
