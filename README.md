@@ -143,7 +143,7 @@ All bin scripts accept `--dry-run` (writes image under `assets/` instead of post
 
 ### Web archive
 
-Two scripts publish a JSON snapshot of alerts and bot-detected disruptions to the [cta-alert-history](https://github.com/cailinpitt/cta-alert-history) repo, which renders them at [chicagotransitalerts.app](https://chicagotransitalerts.app).
+Two scripts publish a JSON snapshot of alerts and bot-detected disruptions to the [chicago-transit-alerts](https://github.com/cailinpitt/chicago-transit-alerts) repo, which renders them at [chicagotransitalerts.app](https://chicagotransitalerts.app).
 
 | Command | Description |
 |---|---|

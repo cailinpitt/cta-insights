@@ -21,7 +21,7 @@ test('resolvedEventLink builds /event/<rkey>/resolved with og thumb', () => {
   assert.equal(link.url, 'https://chicagotransitalerts.app/event/3xyz/resolved');
   assert.equal(link.title, 'some post text');
   assert.equal(link.thumbUrl, 'https://chicagotransitalerts.app/event/3xyz/resolved/og.png');
-  assert.equal(link.description, 'View this incident on the CTA Alert History archive.');
+  assert.equal(link.description, 'View this incident on the Chicago Transit Alerts archive.');
 });
 
 test('resolvedEventLink returns null when rkey cannot be extracted', () => {

@@ -25,8 +25,8 @@ function resolvedEventLink(postUri, title) {
   const url = `${EVENT_BASE_URL}/${rkey}/resolved`;
   return {
     url,
-    title: title || 'CTA Alert History',
-    description: 'View this incident on the CTA Alert History archive.',
+    title: title || 'Chicago Transit Alerts',
+    description: 'View this incident on the Chicago Transit Alerts archive.',
     thumbUrl: `${url}/og.png`,
   };
 }
