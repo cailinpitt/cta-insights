@@ -41,6 +41,7 @@ function main() {
         first_seen_ts, last_seen_ts, resolved_ts,
         post_uri, resolved_reply_uri,
         affected_from_station, affected_to_station, affected_direction,
+        mentioned_stations,
         cta_event_start_ts, cta_event_end_ts,
         cta_event_start_is_date_only, cta_event_end_is_date_only
        FROM alert_posts
@@ -93,6 +94,16 @@ function main() {
        ORDER BY ts DESC`,
     )
     .all();
+
+  function parseStationList(json) {
+    if (!json) return [];
+    try {
+      const v = JSON.parse(json);
+      return Array.isArray(v) ? v.filter((s) => typeof s === 'string' && s.length > 0) : [];
+    } catch (_e) {
+      return [];
+    }
+  }
 
   function parseEvidence(json) {
     if (!json) return null;
@@ -160,6 +171,11 @@ function main() {
       affected_from_station: row.affected_from_station ?? null,
       affected_to_station: row.affected_to_station ?? null,
       affected_direction: row.affected_direction ?? null,
+      // Station names mentioned anywhere in the alert text (impact-context
+      // matches like "delays at Monroe"). Stored as a JSON array column;
+      // omit the field when empty so the export stays lean and consumers
+      // can treat absent and empty identically.
+      mentioned_stations: parseStationList(row.mentioned_stations),
       // CTA's own claimed start/end for the alert. Populated when the alert
       // carried EventStart/EventEnd at fetch time. Survives even if the CTA
       // later scrubs the alert from their `?alertid=` lookup.

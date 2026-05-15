@@ -5,6 +5,7 @@ const { setup, writeDryRunAsset, runBin } = require('../../src/shared/runBin');
 const {
   fetchAlerts,
   extractBetweenStations,
+  extractMentionedStations,
   extractDirection,
   isSignificantAlert,
 } = require('../../src/shared/ctaAlerts');
@@ -114,6 +115,15 @@ async function postNewAlert(alert, agentGetter) {
           alert.trainLines[0],
         )
       : null;
+  // Single-line scope mirrors extractBetweenStations — line context is what
+  // disambiguates same-named stations across lines (Western Blue vs Brown).
+  const mentionedStations =
+    alert.trainLines.length === 1
+      ? extractMentionedStations(
+          [alert.headline, alert.shortDescription].filter(Boolean).join(' \n '),
+          alert.trainLines[0],
+        )
+      : [];
   recordAlertSeen({
     alertId: alert.id,
     kind: KIND,
@@ -124,6 +134,7 @@ async function postNewAlert(alert, agentGetter) {
     affectedFromStation: between?.from || null,
     affectedToStation: between?.to || null,
     affectedDirection: direction,
+    mentionedStations,
     ctaEventStartTs: alert.eventStart ?? null,
     ctaEventStartIsDateOnly: alert.eventStartIsDateOnly ?? false,
     ctaEventEndTs: alert.eventEnd ?? null,

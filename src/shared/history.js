@@ -86,7 +86,8 @@ function db() {
       clear_ticks INTEGER NOT NULL DEFAULT 0,
       affected_from_station TEXT,
       affected_to_station TEXT,
-      affected_direction TEXT
+      affected_direction TEXT,
+      mentioned_stations TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_alert_posts_kind
       ON alert_posts(kind);
@@ -291,6 +292,14 @@ function db() {
   if (!alertCols.includes('pending_resolved_ts')) {
     _db.exec('ALTER TABLE alert_posts ADD COLUMN pending_resolved_ts INTEGER');
   }
+  // Canonical station names mentioned in the alert text, resolved against the
+  // line's roster (line-scoped to disambiguate cross-line same-named stations).
+  // JSON-encoded array of strings. Drives station-page coverage and stats for
+  // CTA alerts the same way `from_station`/`to_station` does for bot
+  // observations. See extractMentionedStations in shared/ctaAlerts.
+  if (!alertCols.includes('mentioned_stations')) {
+    _db.exec('ALTER TABLE alert_posts ADD COLUMN mentioned_stations TEXT');
+  }
   const disruptionCols = _db
     .prepare('PRAGMA table_info(disruption_events)')
     .all()
@@ -419,6 +428,7 @@ function recordAlertSeen(
     affectedFromStation,
     affectedToStation,
     affectedDirection,
+    mentionedStations,
     ctaEventStartTs,
     ctaEventEndTs,
     ctaEventStartIsDateOnly,
@@ -429,6 +439,12 @@ function recordAlertSeen(
   const af = affectedFromStation == null ? null : affectedFromStation;
   const at = affectedToStation == null ? null : affectedToStation;
   const ad = affectedDirection == null ? null : affectedDirection;
+  // Empty array → null so downstream consumers and exports treat "no mentions"
+  // and "never extracted" the same. JSON-encoded so SQLite stays string-typed.
+  const ms =
+    Array.isArray(mentionedStations) && mentionedStations.length > 0
+      ? JSON.stringify(mentionedStations)
+      : null;
   const es = ctaEventStartTs == null ? null : ctaEventStartTs;
   const ee = ctaEventEndTs == null ? null : ctaEventEndTs;
   const esDate = ctaEventStartIsDateOnly ? 1 : 0;
@@ -454,6 +470,7 @@ function recordAlertSeen(
             affected_from_station = COALESCE(?, affected_from_station),
             affected_to_station = COALESCE(?, affected_to_station),
             affected_direction = COALESCE(?, affected_direction),
+            mentioned_stations = COALESCE(?, mentioned_stations),
             cta_event_start_ts = COALESCE(?, cta_event_start_ts),
             cta_event_start_is_date_only = CASE WHEN ? IS NULL THEN cta_event_start_is_date_only ELSE ? END,
             cta_event_end_ts = COALESCE(?, cta_event_end_ts),
@@ -470,6 +487,7 @@ function recordAlertSeen(
           af,
           at,
           ad,
+          ms,
           es,
           es,
           esDate,
@@ -488,6 +506,7 @@ function recordAlertSeen(
             affected_from_station = COALESCE(?, affected_from_station),
             affected_to_station = COALESCE(?, affected_to_station),
             affected_direction = COALESCE(?, affected_direction),
+            mentioned_stations = COALESCE(?, mentioned_stations),
             cta_event_start_ts = COALESCE(?, cta_event_start_ts),
             cta_event_start_is_date_only = CASE WHEN ? IS NULL THEN cta_event_start_is_date_only ELSE ? END,
             cta_event_end_ts = COALESCE(?, cta_event_end_ts),
@@ -503,6 +522,7 @@ function recordAlertSeen(
           af,
           at,
           ad,
+          ms,
           es,
           es,
           esDate,
@@ -520,9 +540,10 @@ function recordAlertSeen(
       (alert_id, kind, routes, headline, short_description,
        first_seen_ts, last_seen_ts, post_uri,
        affected_from_station, affected_to_station, affected_direction,
+       mentioned_stations,
        cta_event_start_ts, cta_event_start_is_date_only,
        cta_event_end_ts, cta_event_end_is_date_only)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
     .run(
       alertId,
@@ -536,6 +557,7 @@ function recordAlertSeen(
       af,
       at,
       ad,
+      ms,
       es,
       esDate,
       ee,

@@ -6,6 +6,7 @@
 
 const axios = require('axios');
 const { withRetry } = require('./retry');
+const trainStations = require('../train/data/trainStations.json');
 
 const BASE = 'http://lapi.transitchicago.com/api/1.0/alerts.aspx';
 
@@ -250,6 +251,76 @@ function extractDirection(text, line = null) {
   return null;
 }
 
+// Match station name candidates appearing in an *impact* context — verbs that
+// describe where service is degraded ("delays at Monroe", "standing at UIC
+// Halsted", "near Adams/Wabash"). Direction phrasing ("O'Hare-bound", "toward
+// 95th", "to Howard") never uses these anchors, so terminus mentions used
+// only to indicate train direction don't get captured. Capture group runs
+// until punctuation or a follow-on clause keyword (due, because, while, …).
+const IMPACT_CONTEXT_RE =
+  /\b(?:at|near)\s+([A-Z][A-Za-z0-9./&\-() ]+?)(?=\s*[.,;!]|\s+(?:due|because|while|after|following|crews|station|stations|stop|stops|toward|with)\b|$)/g;
+
+function normalizeStationKey(s) {
+  return (
+    String(s)
+      .toLowerCase()
+      // collapse whitespace around slashes ("Adams/ Wabash" → "adams/wabash")
+      .replace(/\s*\/\s*/g, '/')
+      // unify hyphens-as-separator with spaces ("UIC-Halsted" ↔ "UIC Halsted")
+      .replace(/[\s-]+/g, ' ')
+      .trim()
+  );
+}
+
+// Resolve a free-text station mention to a canonical name from the roster,
+// scoped to the alert's line so "Halsted" on Orange doesn't bleed into Blue.
+// Tiered: exact (normalized) → base name without parenthetical disambiguator.
+// Returns the canonical station name or null.
+function resolveStationOnLine(candidate, line, stations = trainStations) {
+  if (!candidate || !line) return null;
+  const target = normalizeStationKey(candidate);
+  if (!target) return null;
+  const onLine = stations.filter((s) => s.lines?.includes(line));
+  for (const s of onLine) {
+    if (normalizeStationKey(s.name) === target) return s.name;
+  }
+  for (const s of onLine) {
+    const base = s.name.split(' (')[0];
+    if (normalizeStationKey(base) === target) return s.name;
+  }
+  return null;
+}
+
+// Extract the canonical names of stations the alert text says are impacted.
+// Combines impact-context matches ("at X", "near X") with the existing
+// between/from-to segment endpoints. Caller passes the alert's single line so
+// resolution can disambiguate same-named stations (Western Blue vs Western
+// Brown). Returns a deduplicated array; empty when nothing resolves.
+function extractMentionedStations(text, line, stations = trainStations) {
+  if (!text || !line) return [];
+  const seen = new Set();
+  const out = [];
+  const add = (canonical) => {
+    if (!canonical || seen.has(canonical)) return;
+    seen.add(canonical);
+    out.push(canonical);
+  };
+
+  IMPACT_CONTEXT_RE.lastIndex = 0;
+  let m = IMPACT_CONTEXT_RE.exec(text);
+  while (m !== null) {
+    add(resolveStationOnLine(m[1], line, stations));
+    m = IMPACT_CONTEXT_RE.exec(text);
+  }
+
+  const between = extractBetweenStations(text);
+  if (between) {
+    add(resolveStationOnLine(between.from, line, stations));
+    add(resolveStationOnLine(between.to, line, stations));
+  }
+  return out;
+}
+
 // MajorAlert=1 alone is too noisy: CTA flags single-stop closures, block-party
 // reroutes, and elevator outages as Major. Errs on silence — false negatives
 // (miss a real outage) beat false positives (spam followers with stop closures).
@@ -414,6 +485,8 @@ module.exports = {
   parseAlerts,
   normalizeAlert,
   extractBetweenStations,
+  extractMentionedStations,
+  resolveStationOnLine,
   extractDirection,
   isSignificantAlert,
   parseCtaDate,

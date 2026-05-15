@@ -4,6 +4,7 @@ const {
   parseAlerts,
   normalizeAlert,
   extractBetweenStations,
+  extractMentionedStations,
   extractDirection,
   isSignificantAlert,
   cleanText,
@@ -656,4 +657,76 @@ test('extractDirection: no direction word → null', () => {
 test('extractDirection: empty/null text → null', () => {
   assert.equal(extractDirection(null), null);
   assert.equal(extractDirection(''), null);
+});
+
+test('extractMentionedStations: "delays at Monroe" on red → Monroe (Red)', () => {
+  assert.deepEqual(
+    extractMentionedStations(
+      '95th-bound Red Line trains are standing with significant delays at Monroe due to a sick customer.',
+      'red',
+    ),
+    ['Monroe (Red)'],
+  );
+});
+
+test('extractMentionedStations: "delays at UIC Halsted" on blue → UIC-Halsted', () => {
+  assert.deepEqual(
+    extractMentionedStations(
+      'Forest Park bound Blue Line trains are standing with significant delays at UIC Halsted due to a sick customer. Crews working to restore service.',
+      'blue',
+    ),
+    ['UIC-Halsted'],
+  );
+});
+
+test('extractMentionedStations: "delay at Adams/ Wabash" on brown → Adams/Wabash', () => {
+  assert.deepEqual(
+    extractMentionedStations(
+      'Brown Line trains are running with significant delays following an earlier delay at Adams/ Wabash.',
+      'brn',
+    ),
+    ['Adams/Wabash'],
+  );
+});
+
+test('extractMentionedStations: terminus in "X-bound" not captured', () => {
+  // Direction phrasing ("O'Hare-bound", "95th-bound") never sits in an
+  // impact-context anchor, so terminus stations used only for direction
+  // never resolve. The actually-impacted Western station does.
+  assert.deepEqual(
+    extractMentionedStations(
+      "O'Hare-bound Blue Line trains are running with significant delays following an earlier delay at Western (Blue - Forest Park Branch).",
+      'blue',
+    ),
+    ['Western (Blue - Forest Park Branch)'],
+  );
+});
+
+test('extractMentionedStations: "between X and Y" picks up both endpoints', () => {
+  assert.deepEqual(
+    extractMentionedStations('No trains between Belmont and Howard due to an incident.', 'red'),
+    ['Belmont (Red/Brown/Purple)', 'Howard'],
+  );
+});
+
+test('extractMentionedStations: line-scoped — Halsted resolves only on its line', () => {
+  // "Halsted" appears on Orange and Green; the line param disambiguates so
+  // an Orange Line alert never bleeds into a Green Line station record.
+  const out = extractMentionedStations(
+    'Orange Line trains are standing with delays at Halsted due to a signal problem.',
+    'org',
+  );
+  assert.deepEqual(out, ['Halsted (Orange)']);
+});
+
+test('extractMentionedStations: unresolved mention is dropped, not guessed', () => {
+  assert.deepEqual(
+    extractMentionedStations('Delays at Some Imaginary Stop due to weather.', 'red'),
+    [],
+  );
+});
+
+test('extractMentionedStations: empty/missing text/line → []', () => {
+  assert.deepEqual(extractMentionedStations(null, 'red'), []);
+  assert.deepEqual(extractMentionedStations('Delays at Monroe.', null), []);
 });
