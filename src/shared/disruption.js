@@ -193,12 +193,20 @@ function footerFor(source, { ctaAlertOpen = false } = {}) {
   return '';
 }
 
+// When a CTA alert is open in the thread, the clear reply is a sibling of
+// the alert post, which made the prior text ("🚇✅ … trains running again
+// … (CTA hasn't cleared their alert yet.)") read as the *alert* having
+// resolved. Reframe the open-alert variant so the headline is explicitly
+// about the bot's pulse observation clearing — and call out that the CTA
+// alert at the top of the thread is still active. The no-alert variant
+// keeps the original ✅ framing since there's nothing to confuse it with.
 function buildClearPostText(d, { ctaAlertOpen = false } = {}) {
   const lineName = LINE_NAMES[d.line] || d.line;
-  const tail = ctaAlertOpen
-    ? "(CTA hasn't cleared their alert yet.)"
-    : '(No relevant CTA alert was posted.)';
-  return `🚇✅ ${lineName} Line trains running through ${d.suspendedSegment.from} ↔ ${d.suspendedSegment.to} again. ${tail}`;
+  const segment = `${d.suspendedSegment.from} ↔ ${d.suspendedSegment.to}`;
+  if (ctaAlertOpen) {
+    return `🚇 ${lineName} Line: bot's earlier pulse observation cleared — trains running through ${segment} again. CTA's alert at the top of this thread is still active.`;
+  }
+  return `🚇✅ ${lineName} Line trains running through ${segment} again. (No relevant CTA alert was posted.)`;
 }
 
 function buildBusPostText(
@@ -225,11 +233,19 @@ function buildBusHeldPostText({ route, name, candidate }, { ctaAlertOpen = false
   return `${header}\n\n${evidence}\n\n${footer}`;
 }
 
+// Same reframe as buildClearPostText — when a CTA alert is still open in
+// the thread, a top-level "🚌✅ #60 ... buses observed again" reply reads
+// like the alert just resolved. The bus 60 / CTA-reroute thread on
+// 2026-05-16 was a real-world example: pulse fired, pulse cleared, and the
+// clear reply landed before the CTA alert itself resolved, leaving the
+// thread looking like the reroute had been called off. Make the open-
+// alert variant explicitly about the pulse observation and remind that
+// CTA's alert remains active.
 function buildBusClearPostText({ route, name }, { ctaAlertOpen = false } = {}) {
-  const tail = ctaAlertOpen
-    ? "(CTA hasn't cleared their alert yet.)"
-    : '(No relevant CTA alert was posted.)';
-  return `🚌✅ #${route} ${name} buses observed again. ${tail}`;
+  if (ctaAlertOpen) {
+    return `🚌 #${route} ${name}: bot's earlier pulse observation cleared — buses moving on the route again. CTA's alert at the top of this thread is still active.`;
+  }
+  return `🚌✅ #${route} ${name} buses observed again. (No relevant CTA alert was posted.)`;
 }
 
 module.exports = {

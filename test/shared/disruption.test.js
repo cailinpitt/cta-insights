@@ -145,12 +145,16 @@ test('buildClearPostText (no CTA alert) says CTA never issued one', () => {
   assert.match(text, /No relevant CTA alert was posted/);
 });
 
-test('buildClearPostText (CTA alert open) acknowledges the open alert', () => {
+test('buildClearPostText (CTA alert open) frames the clear as a pulse observation, not an alert resolution', () => {
   const text = buildClearPostText(
     { line: 'red', suspendedSegment: { from: 'Belmont', to: 'Howard' } },
     { ctaAlertOpen: true },
   );
-  assert.match(text, /CTA hasn't cleared their alert yet/);
+  // Headline must NOT start with the ✅ "everything resolved" framing —
+  // that's what made earlier replies read like the CTA alert had cleared.
+  assert.doesNotMatch(text, /^🚇✅/);
+  assert.match(text, /pulse observation cleared/i);
+  assert.match(text, /CTA's alert.*is still active/i);
   assert.doesNotMatch(text, /no relevant CTA alert/i);
 });
 
@@ -218,9 +222,14 @@ test('buildBusClearPostText (no CTA alert) calls out absence', () => {
   assert.match(text, /No relevant CTA alert was posted/);
 });
 
-test('buildBusClearPostText (CTA alert open) acknowledges the open alert', () => {
+test('buildBusClearPostText (CTA alert open) frames the clear as a pulse observation, not an alert resolution', () => {
   const text = buildBusClearPostText({ route: '66', name: 'Chicago' }, { ctaAlertOpen: true });
-  assert.match(text, /CTA hasn't cleared their alert yet/);
+  // Headline must NOT start with the ✅ "everything resolved" framing —
+  // that's what made the 2026-05-16 Route 60 thread read like CTA's
+  // reroute alert had been called off.
+  assert.doesNotMatch(text, /^🚌✅/);
+  assert.match(text, /pulse observation cleared/i);
+  assert.match(text, /CTA's alert.*is still active/i);
   assert.doesNotMatch(text, /no relevant CTA alert/i);
 });
 
