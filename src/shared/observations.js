@@ -83,6 +83,20 @@ function getBusObservations(route, sinceTs) {
     .all(String(route), sinceTs);
 }
 
+// Timestamp of the most recent bus observation on this route (any pid),
+// or null if the route has never been observed. Used by thin-gaps to
+// stamp the firing event with the actual moment the route went silent
+// rather than the 20-min cron tick that noticed.
+function getLastBusObservationTs(route) {
+  const row = getDb()
+    .prepare(`
+    SELECT MAX(ts) AS ts FROM observations
+    WHERE kind = 'bus' AND route = ?
+  `)
+    .get(String(route));
+  return row?.ts ?? null;
+}
+
 // Distinct pids (CTA `direction` field) seen for a route in the lookback.
 // Used by callers that need to resolve patterns for a route without
 // re-fetching the live API (alerts, pulse).
@@ -229,6 +243,7 @@ module.exports = {
   recordBusObservations,
   recordTrainObservations,
   getBusObservations,
+  getLastBusObservationTs,
   getKnownBusPidsForRoute,
   getTrainObservations,
   getLatestBusSnapshot,

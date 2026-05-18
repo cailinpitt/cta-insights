@@ -7,6 +7,7 @@ const { names: routeNames, lowFrequency } = require('../../src/bus/routes');
 const { detectThinGaps } = require('../../src/bus/thinGaps');
 const {
   getBusObservations,
+  getLastBusObservationTs,
   countDistinctTsInBusObservations,
 } = require('../../src/shared/observations');
 const {
@@ -244,18 +245,26 @@ async function main() {
     // only path from server-side detection to the public dashboard.
     const slice = committed.slice(eventCursor, eventCursor + finalPosts[i].lineCount);
     for (const e of slice) {
-      recordDisruption({
-        kind: 'bus',
-        line: e.route,
-        source: 'observed-thin',
-        posted: true,
-        postUri: result.uri,
-        evidence: {
-          headwayMin: e.headwayMin,
-          windowMin: e.windowMin,
-          missedTrips: e.missedTrips,
+      // Backdate ts to the last moment a bus was actually seen on this
+      // route, not the 20-min cron tick that noticed. Falls back to now if
+      // the route has no prior observations (shouldn't happen since the
+      // detector requires steady-state service in both adjacent hours).
+      const lastSeenTs = getLastBusObservationTs(e.route);
+      recordDisruption(
+        {
+          kind: 'bus',
+          line: e.route,
+          source: 'observed-thin',
+          posted: true,
+          postUri: result.uri,
+          evidence: {
+            headwayMin: e.headwayMin,
+            windowMin: e.windowMin,
+            missedTrips: e.missedTrips,
+          },
         },
-      });
+        lastSeenTs ?? now,
+      );
     }
     eventCursor += finalPosts[i].lineCount;
     if (i < finalPosts.length - 1) replyRef = await resolveReplyRef(agent, result.uri);

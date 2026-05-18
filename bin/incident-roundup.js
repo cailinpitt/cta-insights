@@ -232,13 +232,18 @@ async function processKind({ kind, identifiers, getName, agentGetter, now }) {
         `Posted roundup ${label}: ${result.url}${replyRef ? ' (threaded under open CTA alert)' : ''}`,
       );
       // Anchor the rollup so the related-quotes sweep can attach
-      // subsequent on-route bunching/gap posts to this thread.
+      // subsequent on-route bunching/gap posts to this thread. Backdate
+      // ts to the earliest contributing meta_signal — the cron's 5-min
+      // cadence otherwise lands every roundup duration on a 5-min
+      // boundary even when the underlying detectors saw the problem
+      // minutes earlier.
+      const earliestSignalTs = signals.reduce((m, s) => (s.ts < m ? s.ts : m), now);
       recordRoundupAnchor({
         kind,
         line: id,
         postUri: result.uri,
         postCid: result.cid,
-        ts: now,
+        ts: earliestSignalTs,
         signals: signals.map((s) => s.source),
       });
       const ids = signals.map((s) => s.id);
@@ -292,9 +297,16 @@ async function sweepResolutions({ kind, getName, agentGetter, now }) {
       continue;
     }
     const newClearTicks = (row.clear_ticks || 0) + 1;
+    // Refine the pending-clear stamp: when score has dropped quiet, the
+    // moment things actually went quiet is best approximated by the most
+    // recent meta_signal that contributed in the window. If no signals
+    // remain at all, fall back to now (cron tick).
+    const latestSignalTs = signals.reduce((m, s) => (m == null || s.ts > m ? s.ts : m), null);
+    const pendingClearTs = latestSignalTs ?? now;
     if (newClearTicks < RESOLVE_MIN_CLEAR_TICKS) {
-      // First-tick stamping happens inside the helper via COALESCE on now.
-      updateRoundupClearTicks(row.id, newClearTicks, now);
+      // First-tick stamping happens inside the helper via COALESCE on
+      // pendingClearTs.
+      updateRoundupClearTicks(row.id, newClearTicks, now, pendingClearTs);
       console.log(
         `roundup-resolve: ${label} clear tick ${newClearTicks}/${RESOLVE_MIN_CLEAR_TICKS} (score=${total.toFixed(2)})`,
       );

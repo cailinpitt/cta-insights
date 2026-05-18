@@ -763,9 +763,14 @@ function listUnresolvedRoundupAnchors(kind, now = Date.now()) {
     .all(kind, now);
 }
 
-function updateRoundupClearTicks(id, clearTicks, now = Date.now()) {
+function updateRoundupClearTicks(id, clearTicks, now = Date.now(), pendingClearTs = now) {
   // Reset → null the pending stamp. Advance to ≥1 → set pending if unset
   // (first tick of the clean run). markRoundupResolved promotes it.
+  //
+  // pendingClearTs lets the caller pass a refined moment for when the
+  // underlying signals actually went quiet (e.g. the last contributing
+  // meta_signal's ts) rather than the 5-min cron tick that noticed. The
+  // COALESCE means later ticks can't overwrite the first stamp.
   if (clearTicks === 0) {
     db()
       .prepare(
@@ -781,7 +786,7 @@ function updateRoundupClearTicks(id, clearTicks, now = Date.now()) {
           pending_resolved_ts = COALESCE(pending_resolved_ts, ?)
       WHERE id = ?
     `)
-    .run(clearTicks, now, id);
+    .run(clearTicks, pendingClearTs, id);
 }
 
 function markRoundupResolved(id, resolutionPostUri, ts = Date.now()) {
