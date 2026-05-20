@@ -285,7 +285,7 @@ function buildResolutionText({ kind, line, name }) {
 }
 
 async function sweepResolutions({ kind, getName, agentGetter, now }) {
-  for (const row of listUnresolvedRoundupAnchors(kind, now)) {
+  for (const row of listUnresolvedRoundupAnchors(kind)) {
     const signals = getRecentMetaSignals({ kind, line: row.line, withinMs: WINDOW_MS }, now);
     const { total } = scoreSignals(signals);
     const label = kind === 'bus' ? `bus/${row.line}` : lineLabel(row.line);

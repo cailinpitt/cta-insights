@@ -751,16 +751,22 @@ function listActiveRoundupAnchors(kind, now = Date.now()) {
     .all(kind, now);
 }
 
-// Roundups that have not yet posted a resolution and are still within the
-// freshness window. The resolution sweep iterates these each tick.
-function listUnresolvedRoundupAnchors(kind, now = Date.now()) {
+// Roundups that have not yet posted a resolution. The resolution sweep
+// iterates these each tick.
+//
+// No expires_ts filter: expires_ts gates whether new observations can attach
+// reply quotes to the thread (a freshness question), but resolution is a
+// separate concern — an incident that's still firing past the 2h TTL must
+// still be allowed to auto-resolve once signals quiet, otherwise the anchor
+// is orphaned forever.
+function listUnresolvedRoundupAnchors(kind) {
   return db()
     .prepare(`
       SELECT id, line, post_uri, post_cid, ts, clear_ticks
       FROM roundup_anchors
-      WHERE kind = ? AND resolved_ts IS NULL AND expires_ts > ?
+      WHERE kind = ? AND resolved_ts IS NULL
     `)
-    .all(kind, now);
+    .all(kind);
 }
 
 function updateRoundupClearTicks(id, clearTicks, now = Date.now(), pendingClearTs = now) {
