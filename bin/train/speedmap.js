@@ -4,6 +4,9 @@ require('../../src/shared/env');
 const _ = require('lodash');
 const argv = require('minimist')(process.argv.slice(2));
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const { LINE_NAMES, LINE_COLORS, ALL_LINES } = require('../../src/train/api');
 const {
   collectTrains,
@@ -11,6 +14,7 @@ const {
   buildLineBranches,
   snapToLine,
   truncateBranchToDistance,
+  LOOP_TRUNK_LINES,
 } = require('../../src/train/speedmap');
 const { binSegments, summarize, TRAIN_THRESHOLDS } = require('../../src/bus/speedmap');
 const { renderTrainSpeedmap } = require('../../src/map');
@@ -281,6 +285,26 @@ async function main() {
 
   const lineColor = LINE_COLORS[line];
   const image = await renderTrainSpeedmap(branchData, lineColor);
+
+  // TEMP debug: when a Loop trunk line runs, dump branch geometry + bin
+  // speeds so we can replay rendering offline and trace the green-Loop bug.
+  // Remove once the bug is understood.
+  if (LOOP_TRUNK_LINES.has(line)) {
+    const debugDir = '/tmp/loop-debug';
+    fs.mkdirSync(debugDir, { recursive: true });
+    const debugPayload = {
+      line,
+      capturedAt: Date.now(),
+      branches: branchData.map((b) => ({
+        points: b.points,
+        cumDist: b.cumDist,
+        binSpeedsByDir: b.binSpeedsByDir,
+      })),
+    };
+    const out = path.join(debugDir, `${line}-${Date.now()}.json`);
+    fs.writeFileSync(out, JSON.stringify(debugPayload));
+    console.log(`[debug] wrote ${out}`);
+  }
   const text = buildPostText(line, finalDirs, startTime, endTime, callouts);
   const alt = buildAltText(line, finalDirs, durationMin);
 
