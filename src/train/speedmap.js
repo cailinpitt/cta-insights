@@ -5,11 +5,16 @@ const FEET_PER_DEG_LAT = 364567;
 
 // 70 mph cap covers the 55–65 cruise speed on Red/Blue. >3 min dt usually
 // means the train vanished from the feed (tunnel / out of service).
+// maxAlongCrowRatio rejects snap artifacts on self-overlapping geometry: an
+// honest hop's along-track distance tracks the straight-line distance between
+// pings (ratio ≤ ~1.3 in captured Loop data), so anything well past that came
+// from the projector flipping between two colinear copies of the polyline.
 const DEFAULT_TRAIN_SAMPLE_OPTS = {
   maxDtMs: 3 * 60 * 1000,
   maxMph: 70,
   minAlongFt: 10,
   maxPerpFt: 1000,
+  maxAlongCrowRatio: 2,
 };
 
 function sleep(ms) {
@@ -290,10 +295,13 @@ function dedupeStationary(positions) {
 
 // `maxPerpFt` rejects off-branch projections (Green Ashland vs Cottage Grove).
 function computeTrainSamples(tracks, linePoints, cumDist, opts = {}) {
-  const { maxDtMs, maxMph, minAlongFt, maxPerpFt } = { ...DEFAULT_TRAIN_SAMPLE_OPTS, ...opts };
+  const { maxDtMs, maxMph, minAlongFt, maxPerpFt, maxAlongCrowRatio } = {
+    ...DEFAULT_TRAIN_SAMPLE_OPTS,
+    ...opts,
+  };
   const byDir = new Map();
   const rnsByDir = new Map();
-  const stats = { offLine: 0, stationary: 0, dropped: 0 };
+  const stats = { offLine: 0, stationary: 0, dropped: 0, snapJump: 0 };
 
   for (const [rn, byDirForTrain] of tracks) {
     for (const [trDr, rawPositions] of byDirForTrain) {
@@ -324,6 +332,19 @@ function computeTrainSamples(tracks, linePoints, cumDist, opts = {}) {
         const dft = Math.abs(s2.cumDist - s1.cumDist);
         if (dft < minAlongFt) {
           stats.stationary++;
+          continue;
+        }
+        // Snapping sanity guard. Where the polyline doubles back on itself —
+        // the elevated Loop trunk's north side is colinear with the Lake St
+        // approach, so one physical spot maps to two far-apart cumDist values —
+        // perpendicular projection can flip between the overlapping copies and
+        // report a multi-thousand-foot along-track jump for a train that barely
+        // moved. Those phantom jumps compute to 45–70 mph and painted the
+        // inbound Loop bins green. Reject when the along-track distance far
+        // outruns the straight-line distance between the two pings.
+        const crowFt = haversineFt({ lat: p1.lat, lon: p1.lon }, { lat: p2.lat, lon: p2.lon });
+        if (dft > crowFt * maxAlongCrowRatio) {
+          stats.snapJump++;
           continue;
         }
         const mph = (dft / (dt / 1000)) * (3600 / 5280);

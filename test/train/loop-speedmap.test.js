@@ -116,6 +116,46 @@ function renderedBins(branchData) {
   return out;
 }
 
+// Direct regression for the green-Loop snapping artifact. The Pink inbound
+// polyline's Loop north side (Lake St) is colinear with the Lake St approach,
+// so the same physical spot maps to two far-apart cumDist values. A train
+// rounding the Loop across that zone with a brief feed gap snaps to an
+// along-track jump of thousands of feet — a phantom 57 mph that paints the
+// inbound Loop bins green. The crow-flight guard in computeTrainSamples must
+// reject it. The captured fixtures above are clean runs that pass with or
+// without the guard; this test pins the actual defect.
+test('pink: colinear Loop-trunk snap jump is rejected, not binned green', () => {
+  const inbound = buildLineBranches(trainLines, 'pink').find((b) => b.directionHint === 'inbound');
+  const { points, cumDist } = inbound;
+  // Two pings ~830 ft apart physically, 90 s apart, that snap across the
+  // colinear approach/Loop overlap (along-track ≈ 7,000 ft → 57 mph).
+  const tracks = new Map([
+    [
+      '999',
+      new Map([
+        [
+          '1',
+          [
+            { t: 0, lat: 41.8857, lon: -87.628 },
+            { t: 90_000, lat: 41.882, lon: -87.6339 },
+          ],
+        ],
+      ]),
+    ],
+  ]);
+
+  // Without the guard the pair becomes a green (≥45 mph) sample in the Loop bins.
+  const unguarded = computeTrainSamples(tracks, points, cumDist, { maxAlongCrowRatio: Infinity });
+  const phantom = unguarded.byDir.get('1') || [];
+  assert.equal(phantom.length, 1);
+  assert.ok(phantom[0].mph >= 45, `expected a green phantom sample, got ${phantom[0].mph} mph`);
+
+  // With the guard (default) it is dropped as a snap jump, leaving no sample.
+  const guarded = computeTrainSamples(tracks, points, cumDist);
+  assert.equal((guarded.byDir.get('1') || []).length, 0);
+  assert.equal(guarded.stats.snapJump, 1);
+});
+
 for (const line of LINES) {
   test(`${line}: rendered Loop trunk bins are not majority green`, () => {
     const branchData = processBranches(line);
