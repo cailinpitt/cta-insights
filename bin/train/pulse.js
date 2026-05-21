@@ -204,6 +204,15 @@ async function handleCandidate(line, direction, candidate, agentGetter, now) {
         fromStation: candidate.fromStation.name,
         toStation: candidate.toStation.name,
         consecutiveTicks: consecutive,
+        // Cold-timing fields so when this signal gets bundled into a roundup,
+        // the persisted bullets carry enough to back-date duration on the web
+        // event page (see bin/export-web.js duration_ms logic).
+        minutesSinceLastTrain:
+          candidate.lastSeenInRunMs != null
+            ? Math.round((now - candidate.lastSeenInRunMs) / 60000)
+            : null,
+        coldThresholdMin:
+          candidate.coldThresholdMs != null ? Math.round(candidate.coldThresholdMs / 60000) : null,
       },
       posted: false,
     });

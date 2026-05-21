@@ -265,13 +265,31 @@ function main() {
         ts: row.ts,
         resolved_ts: row.resolved_ts ?? null,
         // For absence-style observations (pulse-cold, thin-gap), `ts` is when
-        // the bot *posted* — the corridor was already cold for ≥ coldThresholdMin
-        // before that. Back-date the start so the reported duration reflects
-        // the actual disruption length, not just the post-to-resolve window.
+        // the bot *posted* — the corridor was already cold before that.
+        // Back-date the start so the reported duration reflects the actual
+        // disruption length, not just the post-to-resolve window.
+        //
+        // Prefer `minutesSinceLastTrain` (what was actually observed at post
+        // time) over `coldThresholdMin` (the detector's minimum) — when the
+        // corridor has been cold longer than the threshold, the threshold
+        // would under-count. Roundups don't carry observation-level evidence,
+        // so dig into bullets for the constituent pulse-cold / thin-gap pick.
         duration_ms: (() => {
           if (row.resolved_ts == null) return null;
-          const coldThresholdMin = row._evidence?.coldThresholdMin;
-          const startTs = coldThresholdMin != null ? row.ts - coldThresholdMin * 60_000 : row.ts;
+          const coldSources = new Set(['pulse-cold', 'thin-gap']);
+          let backdateMin = null;
+          if (row._evidence && coldSources.has(detectionSource)) {
+            backdateMin =
+              row._evidence.minutesSinceLastTrain ?? row._evidence.coldThresholdMin ?? null;
+          } else if (Array.isArray(row._bullets)) {
+            for (const b of row._bullets) {
+              if (!coldSources.has(b?.source)) continue;
+              const d = b.detail || {};
+              const m = d.minutesSinceLastTrain ?? d.coldThresholdMin ?? null;
+              if (m != null && (backdateMin == null || m > backdateMin)) backdateMin = m;
+            }
+          }
+          const startTs = backdateMin != null ? row.ts - backdateMin * 60_000 : row.ts;
           return row.resolved_ts - startTs;
         })(),
         active: row.resolved_ts == null,
