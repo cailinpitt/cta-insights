@@ -235,7 +235,7 @@ function getLineCorridorBbox(line, sinceTs) {
         AND lat IS NOT NULL AND lon IS NOT NULL
     `)
     .get(line, sinceTs);
-  if (!row || !row.n) return null;
+  if (!row?.n) return null;
   return { minLat: row.minLat, maxLat: row.maxLat, minLon: row.minLon, maxLon: row.maxLon };
 }
 

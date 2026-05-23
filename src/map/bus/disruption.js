@@ -200,20 +200,6 @@ function splitPatternByPdist(pattern, focusLoFt, focusHiFt) {
   return { before, inside, after };
 }
 
-function nearestPointAtPdist(pattern, targetPdist) {
-  let best = null;
-  let bestDelta = Infinity;
-  for (const pt of pattern.points || []) {
-    if (pt.pdist == null || pt.lat == null || pt.lon == null) continue;
-    const delta = Math.abs(pt.pdist - targetPdist);
-    if (delta < bestDelta) {
-      bestDelta = delta;
-      best = pt;
-    }
-  }
-  return best;
-}
-
 function nearestStopOnPattern(pattern, targetPdist) {
   let best = null;
   let bestDelta = Infinity;
@@ -245,7 +231,7 @@ function terminalStops(pattern) {
 //
 // `mode`: 'held' | 'blackout' | 'segment'. Drives marker + framing only.
 async function renderBusDisruptionRich({ route, pattern, focusZone, title, mode = 'segment' }) {
-  if (!pattern || !pattern.points || pattern.points.length < 2) return null;
+  if (!pattern?.points || pattern.points.length < 2) return null;
 
   const allCoords = pattern.points
     .filter((pt) => pt.lat != null && pt.lon != null)
@@ -256,7 +242,6 @@ async function renderBusDisruptionRich({ route, pattern, focusZone, title, mode 
   // route as dimmed (blackout).
   let dim = [allCoords];
   let active = [];
-  let focusCenter = null;
   let focusBoundaryStops = [];
 
   if (focusZone && Number.isFinite(focusZone.centerPdist)) {
@@ -278,7 +263,6 @@ async function renderBusDisruptionRich({ route, pattern, focusZone, title, mode 
       if (split.after.length >= 2) dim.push(split.after);
       active = [split.inside];
     }
-    focusCenter = nearestPointAtPdist(pattern, focusZone.centerPdist);
     if (fromStop) focusBoundaryStops.push(fromStop);
     if (toStop && (!fromStop || toStop.stopName !== fromStop.stopName)) {
       focusBoundaryStops.push(toStop);

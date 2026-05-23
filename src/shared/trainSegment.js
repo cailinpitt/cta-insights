@@ -143,7 +143,7 @@ function isStationOnSegment({
 
   const branches = buildLineBranches(trainLines, line);
   const branch = pickBranch(branches, line, direction);
-  if (!branch || !branch.points?.length) return false;
+  if (!branch?.points?.length) return false;
 
   // If a direction was requested but the line has direction-distinct branches
   // and no branch matches the requested direction, fail closed.

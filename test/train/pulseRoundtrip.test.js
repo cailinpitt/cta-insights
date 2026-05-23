@@ -186,8 +186,6 @@ test('Ramp-up veto: outbound — early-morning train short of cold run suppresse
   const now = 1_700_000_000_000;
   const lookbackMs = 20 * 60 * 1000;
   const points = outbound.points;
-  const cumDist = outbound.cumDist;
-  const totalFt = outbound.totalFt;
 
   // Need enough coverage on the Loop-end half of the branch for the
   // coverage gate (≥50% of corridor bins covered) to pass. Drop dir=1

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-const Fs = require('fs');
-const Path = require('path');
+const Fs = require('node:fs');
+const Path = require('node:path');
 const Database = require('better-sqlite3');
 
 const DB = process.env.HISTORY_DB || '/home/cailin/Development/cta-insights/state/history.sqlite';

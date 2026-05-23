@@ -124,7 +124,6 @@ function detectDeadSegments({ line, trainLines, stations, headwayMin, now, opts 
     // ~80 rows in a 20 min lookback — counting rows produced absurd numbers
     // like "171 trains active elsewhere on the line" for a 5-train line).
     const runsOnBranch = new Set();
-    const runsInRunBins = [];
     const binIdxOfRun = [];
 
     for (const p of branchObs) {

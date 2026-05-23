@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const trainLines = require('../../src/train/data/trainLines.json');
 const { buildLineBranches, computeTrainSamples, inLoopTrunk } = require('../../src/train/speedmap');
-const { binSegments, colorForTrainSpeed } = require('../../src/bus/speedmap');
+const { binSegments } = require('../../src/bus/speedmap');
 
 // Captured AVL pings from a 10-min collectTrains run on cailin-server,
 // one fixture per Loop trunk line. See bugs.md for context — the renderer
@@ -45,22 +45,6 @@ function processBranches(line) {
     }
     return { branch, binSpeedsByDir, numBins };
   });
-}
-
-// The renderer paints branches in order with later branches' nulls
-// overlapping prior branches' colors. Reproduce that here so the
-// assertion targets what's actually visible in the posted image.
-function combinedBins(branchData) {
-  const numBins = branchData[0].numBins;
-  const combined = new Array(numBins).fill(null);
-  for (const { binSpeedsByDir } of branchData) {
-    for (const speeds of Object.values(binSpeedsByDir)) {
-      for (let i = 0; i < speeds.length; i++) {
-        combined[i] = speeds[i] ?? combined[i];
-      }
-    }
-  }
-  return combined;
 }
 
 function loopBinIndices(branch, numBins) {

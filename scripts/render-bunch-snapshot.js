@@ -284,8 +284,7 @@ async function main() {
   const overlays = [];
   for (const [pid, pat] of patternCache.entries()) {
     if (!pat) continue;
-    const route = String(pat.points?.[0] && pat.rt) || null; // pattern files don't store rt
-    // Find route via any bus that uses this pid
+    // Find route via any bus that uses this pid (pattern files don't store rt).
     const owner = snapped.find((b) => b.pid === pid)?.route;
     if (!owner) continue;
     const color = routeColor[owner];

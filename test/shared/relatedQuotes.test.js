@@ -672,10 +672,9 @@ test('train: pulse anchor branch-N-outbound carries through normalization', asyn
 });
 
 test('bus held→blackout transition: blackout no longer anchors as held cluster', async () => {
-  const { history, sweepMod, cleanup } = loadWithFreshDb();
+  const { history, cleanup } = loadWithFreshDb();
   try {
     const PULSE_URI = 'at://did:plc:test/app.bsky.feed.post/bus-pulse-1';
-    const PULSE_CID = 'cid-bus-pulse';
     // Tick 1: held cluster persisted with pid + segment.
     history.upsertBusPulseState({
       route: '62',

@@ -1598,7 +1598,7 @@ function getLatestThreadQuote(threadRootUri) {
       ORDER BY ts DESC LIMIT 1
     `)
     .get(threadRootUri);
-  if (!row || !row.quote_post_cid) return null;
+  if (!row?.quote_post_cid) return null;
   return { uri: row.quote_post_uri, cid: row.quote_post_cid };
 }
 

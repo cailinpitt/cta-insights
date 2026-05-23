@@ -259,11 +259,6 @@ function splitSegments(segments, fromLoc, toLoc) {
   return { active, suspended };
 }
 
-function nearestVertexIdx(seg, loc) {
-  const info = nearestVertexInfo(seg, loc);
-  return info ? info.idx : null;
-}
-
 function nearestVertexInfo(seg, loc) {
   let bestIdx = -1;
   let bestD = Infinity;
