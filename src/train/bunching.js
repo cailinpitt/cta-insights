@@ -161,10 +161,20 @@ function computeTrainGapBehind({
   return { distFt, minutes, followerRn: follower.rn };
 }
 
+// Stable per-train identity: number the bunch in track order (the cluster is
+// already sorted by trackDist) so each rn keeps its number across every frame,
+// the static map, and the post text. Returns Map rn → number.
+function assignTrainNumbers(trains) {
+  const labels = new Map();
+  for (let i = 0; i < trains.length; i++) labels.set(trains[i].rn, i + 1);
+  return labels;
+}
+
 module.exports = {
   detectTrainBunching,
   detectAllTrainBunching,
   computeTrainGapBehind,
+  assignTrainNumbers,
   TRAIN_BUNCHING_FT,
   MIN_DISTANCE_FT,
 };

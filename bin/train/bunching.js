@@ -4,11 +4,15 @@ require('../../src/shared/env');
 const argv = require('minimist')(process.argv.slice(2));
 
 const { getAllTrainPositions, LINE_COLORS, LINE_NAMES } = require('../../src/train/api');
-const { detectAllTrainBunching, computeTrainGapBehind } = require('../../src/train/bunching');
+const {
+  detectAllTrainBunching,
+  computeTrainGapBehind,
+  assignTrainNumbers,
+} = require('../../src/train/bunching');
 const { buildLinePolyline } = require('../../src/train/speedmap');
 const { expectedTrainTripMinutes } = require('../../src/shared/gtfs');
 const { renderTrainBunching } = require('../../src/map');
-const { captureTrainBunchingVideo, assignTrainNumbers } = require('../../src/train/bunchingVideo');
+const { captureTrainBunchingVideo } = require('../../src/train/bunchingVideo');
 const { loginTrain, postWithImage, postWithVideo, postText } = require('../../src/train/bluesky');
 const { isOnCooldown } = require('../../src/shared/state');
 const { commitAndPost } = require('../../src/shared/postDetection');

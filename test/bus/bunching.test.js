@@ -134,3 +134,17 @@ test('findParkedBusVids: a crawling-but-moving bus stays live', () => {
   ];
   assert.equal(findParkedBusVids(rows).size, 0);
 });
+
+const { assignBusNumbers } = require('../../src/bus/bunching');
+
+test('assignBusNumbers: numbers by road position, 1 = lead (highest pdist)', () => {
+  const vehicles = [
+    { vid: 'back', pdist: 1000 },
+    { vid: 'lead', pdist: 5000 },
+    { vid: 'mid', pdist: 3000 },
+  ];
+  const labels = assignBusNumbers(vehicles);
+  assert.equal(labels.get('lead'), 1);
+  assert.equal(labels.get('mid'), 2);
+  assert.equal(labels.get('back'), 3);
+});

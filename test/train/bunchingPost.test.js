@@ -50,3 +50,16 @@ test('buildVideoAltText describes timelapse', () => {
   assert.ok(alt.includes('Timelapse map of the Red Line'));
   assert.ok(alt.includes('5m 0s'));
 });
+
+test('buildPostText lists runs with their map number in increasing order', () => {
+  const numbered = {
+    line: 'red',
+    spanFt: 0,
+    trains: [
+      { rn: '406', destination: 'Howard', nextStation: 'Fullerton' },
+      { rn: '413', destination: 'Howard', nextStation: 'Fullerton' },
+    ],
+  };
+  const text = buildPostText(numbered);
+  assert.ok(text.includes('Runs: #406 (1), #413 (2)'));
+});

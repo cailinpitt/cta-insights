@@ -8,6 +8,7 @@ const { allRoutes: bunchingRoutes } = require('../../src/bus/routes');
 const {
   detectAllBunching,
   computeGapBehind,
+  assignBusNumbers,
   findParkedBusVids,
   PARKED_WINDOW_MS,
 } = require('../../src/bus/bunching');
@@ -22,7 +23,7 @@ const {
   annotateSignalOrientations,
 } = require('../../src/bus/trafficSignals');
 const { getPatternStops } = require('../../src/bus/stops');
-const { captureBunchingVideo, assignBusNumbers } = require('../../src/bus/bunchingVideo');
+const { captureBunchingVideo } = require('../../src/bus/bunchingVideo');
 const { loginBus, postWithImage, postWithVideo, postText } = require('../../src/bus/bluesky');
 const { isOnCooldown } = require('../../src/shared/state');
 const { commitAndPost } = require('../../src/shared/postDetection');

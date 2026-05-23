@@ -5,6 +5,7 @@ const { exec } = require('node:child_process');
 const { promisify } = require('node:util');
 
 const { getAllTrainPositions } = require('./api');
+const { assignTrainNumbers } = require('./bunching');
 const {
   computeTrainBunchingView,
   fetchTrainBunchingBaseMap,
@@ -99,15 +100,6 @@ function trainsSpanFt(trains, linePts, lineCum) {
 // Real-time window covered by a comet trail; converted to a frame count via the
 // per-frame real-time spacing (tickMs / interpolate).
 const TRAIL_MS = 75_000;
-
-// Stable per-train identity: number the bunch in track order (the cluster is
-// already sorted by trackDist) so each rn keeps its number across every frame.
-// Returns Map rn → number.
-function assignTrainNumbers(trains) {
-  const labels = new Map();
-  for (let i = 0; i < trains.length; i++) labels.set(trains[i].rn, i + 1);
-  return labels;
-}
 
 // Attach a comet trail (recent positions, oldest → newest) to each non-parked
 // train in every frame, spanning up to `trailFrames` of prior frames. Pure;
@@ -469,6 +461,5 @@ module.exports = {
   renderTrainBunchingClip,
   clampTrackSeries,
   MAX_TRACK_STEP_FT,
-  assignTrainNumbers,
   attachTrails,
 };

@@ -157,3 +157,12 @@ test('computeTrainGapBehind: null when no destination point (Loop-bound)', () =>
   });
   assert.equal(gap, null);
 });
+
+const { assignTrainNumbers } = require('../../src/train/bunching');
+
+test('assignTrainNumbers: numbers by cluster (track) order, keyed on rn', () => {
+  const labels = assignTrainNumbers([{ rn: '406' }, { rn: '413' }, { rn: '420' }]);
+  assert.equal(labels.get('406'), 1);
+  assert.equal(labels.get('413'), 2);
+  assert.equal(labels.get('420'), 3);
+});

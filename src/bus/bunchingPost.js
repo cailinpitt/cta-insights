@@ -1,4 +1,5 @@
 const { names: routeNames } = require('./routes');
+const { assignBusNumbers } = require('./bunching');
 const { formatCallouts } = require('../shared/history');
 const { formatDistance, formatMinSec, elapsedMinutesLabel } = require('../shared/format');
 
@@ -9,9 +10,15 @@ function routeTitle(route) {
 
 function buildPostText(bunch, pattern, stop, callouts = [], opts = {}) {
   const title = routeTitle(bunch.route);
+  // Tag each run with the identity number it carries on the map/video so a
+  // reader can tie a numbered disc back to its bus. Listed in number order
+  // (1 = lead bus) so the parenthetical reads 1, 2, 3… down the line.
+  const labels = assignBusNumbers(bunch.vehicles);
   const vids = bunch.vehicles
-    .map((v) => `#${v.vid}`)
-    .filter((s) => s !== '#undefined')
+    .filter((v) => v.vid != null)
+    .map((v) => ({ label: `#${v.vid}`, n: labels.get(v.vid) }))
+    .sort((a, b) => a.n - b.n)
+    .map((x) => `${x.label} (${x.n})`)
     .join(', ');
   const busesLine = vids ? `\n\nBuses: ${vids}` : '';
   // 🥇 medal line when this bunch sets a new record for most buses ever seen

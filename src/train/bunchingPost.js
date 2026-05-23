@@ -1,4 +1,5 @@
 const { LINE_NAMES, shortStationName } = require('./api');
+const { assignTrainNumbers } = require('./bunching');
 const { formatCallouts } = require('../shared/history');
 const { formatDistance, formatMinSec, elapsedMinutesLabel } = require('../shared/format');
 
@@ -7,9 +8,15 @@ function buildPostText(bunch, callouts = [], opts = {}) {
   const dest = bunch.trains[0].destination;
   const station = shortStationName(bunch.trains[0].nextStation);
   const count = bunch.trains.length;
+  // Tag each run with the identity number it carries on the map/video so a
+  // reader can tie a numbered disc back to its train. Listed in number order
+  // (matches track order) so the parenthetical reads 1, 2, 3… down the line.
+  const labels = assignTrainNumbers(bunch.trains);
   const runs = bunch.trains
-    .map((t) => `#${t.rn}`)
-    .filter((s) => s !== '#undefined')
+    .filter((t) => t.rn != null)
+    .map((t) => ({ label: `#${t.rn}`, n: labels.get(t.rn) }))
+    .sort((a, b) => a.n - b.n)
+    .map((x) => `${x.label} (${x.n})`)
     .join(', ');
   const runsLine = runs ? `\n\nRuns: ${runs}` : '';
   // The gap the bunch leaves behind it is the rider-facing cost — the wait the

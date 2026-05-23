@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { fillInteriorGaps, assignBusNumbers, attachTrails } = require('../../src/bus/bunchingVideo');
+const { fillInteriorGaps, attachTrails } = require('../../src/bus/bunchingVideo');
 
 // Cartesian mode (hasPolyline: false) keeps the math simple: positions
 // interpolate linearly in lat/lon by timestamp fraction.
@@ -80,18 +80,6 @@ test('fillInteriorGaps: independent gaps across multiple vehicles', () => {
   assert.equal(filled, 1, 'only A had an interior gap');
   const a = snapshots[1].vehicles.find((v) => v.vid === 'A');
   assert.ok(a && a.lon === 1);
-});
-
-test('assignBusNumbers: numbers by road position, 1 = lead (highest pdist)', () => {
-  const vehicles = [
-    { vid: 'back', pdist: 1000 },
-    { vid: 'lead', pdist: 5000 },
-    { vid: 'mid', pdist: 3000 },
-  ];
-  const labels = assignBusNumbers(vehicles);
-  assert.equal(labels.get('lead'), 1);
-  assert.equal(labels.get('mid'), 2);
-  assert.equal(labels.get('back'), 3);
 });
 
 test('attachTrails: builds oldest->newest trail spanning the window', () => {

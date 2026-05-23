@@ -139,10 +139,21 @@ function computeGapBehind({ vehicles, pid, bunchVehicles, lengthFt, tripMinutes 
   return { distFt, minutes, followerVid: follower.vid };
 }
 
+// Stable per-bus identity: number the bunch by road position (1 = lead bus,
+// furthest along the pattern) so each vid keeps its number across every frame,
+// the static map, and the post text. Returns Map vid → number.
+function assignBusNumbers(vehicles) {
+  const ordered = [...vehicles].sort((a, b) => (b.pdist ?? 0) - (a.pdist ?? 0));
+  const labels = new Map();
+  for (let i = 0; i < ordered.length; i++) labels.set(ordered[i].vid, i + 1);
+  return labels;
+}
+
 module.exports = {
   detectAllBunching,
   detectBunching,
   computeGapBehind,
+  assignBusNumbers,
   findParkedBusVids,
   BUNCHING_THRESHOLD_FT,
   PARKED_WINDOW_MS,

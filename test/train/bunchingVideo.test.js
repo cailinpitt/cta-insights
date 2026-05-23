@@ -70,14 +70,7 @@ test('clampTrackSeries: regression — Red Line 902 GPS glitch parks train south
   );
 });
 
-const { assignTrainNumbers, attachTrails } = require('../../src/train/bunchingVideo');
-
-test('assignTrainNumbers: numbers by cluster (track) order, keyed on rn', () => {
-  const labels = assignTrainNumbers([{ rn: '406' }, { rn: '413' }, { rn: '420' }]);
-  assert.equal(labels.get('406'), 1);
-  assert.equal(labels.get('413'), 2);
-  assert.equal(labels.get('420'), 3);
-});
+const { attachTrails } = require('../../src/train/bunchingVideo');
 
 test('attachTrails: builds rn-keyed trail and skips parked turnarounds', () => {
   const frames = [

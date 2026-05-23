@@ -73,3 +73,18 @@ test('buildVideoAltText describes the timelapse', () => {
   assert.ok(alt.includes('Timelapse map of Route 151'));
   assert.ok(alt.includes('10m 0s'));
 });
+
+test('buildPostText lists buses with their map number in increasing order', () => {
+  // Out of road order on purpose: numbering is by pdist (1 = lead), and the
+  // listing should sort by that number, not by input order.
+  const numbered = {
+    route: '9',
+    spanFt: 0,
+    vehicles: [
+      { vid: '8057', pdist: 1000 },
+      { vid: '8015', pdist: 5000 },
+    ],
+  };
+  const text = buildPostText(numbered, { direction: 'Southbound' }, { stopName: 'Ashland' });
+  assert.ok(text.includes('Buses: #8015 (1), #8057 (2)'));
+});
