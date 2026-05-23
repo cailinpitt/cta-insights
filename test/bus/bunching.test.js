@@ -102,3 +102,35 @@ test('returns null/empty when nothing qualifies', () => {
   assert.equal(detectBunching([bus({ vid: 'a', pdist: 5000 })], FRESH), null);
   assert.deepEqual(detectAllBunching([], FRESH), []);
 });
+
+const { findParkedBusVids } = require('../../src/bus/bunching');
+
+test('findParkedBusVids: flags a near-stationary bus (tiny ticks under the drift cap)', () => {
+  const rows = [];
+  // FROZEN: parked with the occasional few-foot GPS tick (the real Route 9 pattern).
+  for (const p of [60668, 60668, 60668, 60733, 60733]) rows.push({ vid: 'FROZEN', pdist: p });
+  // MOVING: pdist climbs ~1000 ft/snapshot.
+  for (let i = 0; i < 5; i++) rows.push({ vid: 'MOVING', pdist: 60000 + i * 1000 });
+  const stale = findParkedBusVids(rows);
+  assert.ok(stale.has('FROZEN'));
+  assert.ok(!stale.has('MOVING'));
+});
+
+test('findParkedBusVids: too few snapshots is not enough evidence', () => {
+  const rows = [
+    { vid: 'A', pdist: 100 },
+    { vid: 'A', pdist: 100 },
+  ];
+  assert.equal(findParkedBusVids(rows).size, 0);
+});
+
+test('findParkedBusVids: a crawling-but-moving bus stays live', () => {
+  // ~300 ft of drift over the window — above the cap, so not flagged.
+  const rows = [
+    { vid: 'A', pdist: 100 },
+    { vid: 'A', pdist: 180 },
+    { vid: 'A', pdist: 260 },
+    { vid: 'A', pdist: 410 },
+  ];
+  assert.equal(findParkedBusVids(rows).size, 0);
+});

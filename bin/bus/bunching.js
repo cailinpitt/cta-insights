@@ -5,8 +5,14 @@ const argv = require('minimist')(process.argv.slice(2));
 
 const { getVehiclesCachedOrFresh } = require('../../src/bus/api');
 const { allRoutes: bunchingRoutes } = require('../../src/bus/routes');
-const { detectAllBunching, computeGapBehind } = require('../../src/bus/bunching');
+const {
+  detectAllBunching,
+  computeGapBehind,
+  findParkedBusVids,
+  PARKED_WINDOW_MS,
+} = require('../../src/bus/bunching');
 const { expectedTripMinutes } = require('../../src/shared/gtfs');
+const { getRecentBusObservationsByRoute } = require('../../src/shared/observations');
 const { loadPattern, findNearestStop } = require('../../src/bus/patterns');
 const { renderBunchingMap } = require('../../src/map');
 const {
@@ -40,6 +46,18 @@ async function main() {
     `Got ${vehicles.length} vehicles (${source}, snapshot ${new Date(now).toISOString()})`,
   );
 
+  // "Confirmed parked" buses (barely moved over the last 5 min, with enough
+  // history to be sure). Used as a cluster gate in the candidate loop below: a
+  // candidate is dropped only if it lacks ≥2 non-parked members, so a cluster
+  // of stopped buses (the Route 9 phantom: 4 parked + 1 moving) is suppressed
+  // while a real moving bunch — even creeping through traffic — still posts.
+  const nowMs = now instanceof Date ? now.getTime() : now;
+  const recentByRoute = getRecentBusObservationsByRoute(routes, nowMs - PARKED_WINDOW_MS);
+  const parkedVids = new Set();
+  for (const rows of recentByRoute.values()) {
+    for (const vid of findParkedBusVids(rows)) parkedVids.add(vid);
+  }
+
   const bunches = detectAllBunching(vehicles, now);
   if (bunches.length === 0) {
     console.log('No bunching detected');
@@ -61,6 +79,18 @@ async function main() {
   let pattern = null;
   let chosenStop = null;
   for (const candidate of bunches) {
+    // A real bunch is moving vehicles that caught up to each other. If fewer
+    // than 2 of the clustered buses are actually moving (the rest confirmed
+    // parked), it's a knot of stopped buses, not a pileup — skip without
+    // recording, so stale clusters don't pollute analytics or the feed.
+    const movingCount = candidate.vehicles.filter((v) => !parkedVids.has(v.vid)).length;
+    if (movingCount < 2) {
+      console.log(
+        `  skip pid ${candidate.pid}: only ${movingCount} moving member(s) of ${candidate.vehicles.length} (rest parked)`,
+      );
+      continue;
+    }
+
     // Terminal layovers aren't real bunches — filter before recording, so
     // they don't pollute analytics. Cooldown skips DO record (posted=0).
     const candidatePattern = await loadPattern(candidate.pid);

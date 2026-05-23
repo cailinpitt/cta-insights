@@ -82,6 +82,41 @@ function detectBunching(vehicles, now = new Date()) {
   return all[0] || null;
 }
 
+const PARKED_WINDOW_MS = 5 * 60 * 1000;
+const PARKED_MIN_SNAPSHOTS = 4;
+const PARKED_MAX_DRIFT_FT = 250; // ~half a block — below this over 5 min isn't progressing
+
+// "Confirmed parked" buses: those with enough recent history to be sure they've
+// barely moved across the window. Used as a CLUSTER gate, not a per-bus filter
+// — a candidate bunch is only suppressed when it lacks two members that are NOT
+// confirmed parked (see bin/bus/bunching.js). That framing is deliberately
+// conservative: a real bunch creeping through traffic still has ≥2 members
+// clearing half a block, so it posts; only an almost-entirely-stopped cluster
+// (e.g. the Route 9 case — 4 of 5 buses sat frozen 11–15 min at Ashland & Lake)
+// is dropped. Buses with too little history are NOT marked parked, so a
+// just-appeared bus is never mistaken for stationary. `rows` are observation
+// records already filtered to the window. Returns a Set of vids.
+function findParkedBusVids(
+  rows,
+  { minSnapshots = PARKED_MIN_SNAPSHOTS, maxDriftFt = PARKED_MAX_DRIFT_FT } = {},
+) {
+  const pdistsByVid = new Map();
+  for (const o of rows) {
+    const vid = o.vid ?? o.vehicle_id;
+    const pdist = parseFloat(o.pdist);
+    if (!Number.isFinite(pdist)) continue;
+    if (!pdistsByVid.has(vid)) pdistsByVid.set(vid, []);
+    pdistsByVid.get(vid).push(pdist);
+  }
+  const parked = new Set();
+  for (const [vid, pdists] of pdistsByVid) {
+    if (pdists.length < minSnapshots) continue;
+    const drift = Math.max(...pdists) - Math.min(...pdists);
+    if (drift <= maxDriftFt) parked.add(vid);
+  }
+  return parked;
+}
+
 // The rider-facing cost of a bunch is the gap it leaves behind it. Find the
 // nearest bus following the bunch on the same pattern and report how far back
 // it is (and, if a scheduled trip time is known, roughly how long until it
@@ -104,4 +139,11 @@ function computeGapBehind({ vehicles, pid, bunchVehicles, lengthFt, tripMinutes 
   return { distFt, minutes, followerVid: follower.vid };
 }
 
-module.exports = { detectAllBunching, detectBunching, computeGapBehind, BUNCHING_THRESHOLD_FT };
+module.exports = {
+  detectAllBunching,
+  detectBunching,
+  computeGapBehind,
+  findParkedBusVids,
+  BUNCHING_THRESHOLD_FT,
+  PARKED_WINDOW_MS,
+};
