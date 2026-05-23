@@ -9,9 +9,11 @@ const { computeBunchingView, fetchBunchingBaseMap, renderBunchingFrame } = requi
 const { cumulativeDistances, haversineFt } = require('../shared/geo');
 
 const TURNAROUND_NEAR_TERMINAL_FT = 1320; // ~0.25 mi
-const TURNAROUND_GLIDE_MS = 2_500;
-const TURNAROUND_HOLD_MS = 3_000;
-const TURNAROUND_FADE_MS = 2_000;
+// Glide a turned-around bus to the terminus over this many frames, then park
+// the U-turn glyph there for the rest of the clip. Frames-based (not a fixed
+// real-time window) because frames are ~tickMs/interpolate of real time apart,
+// so a fixed-ms window compresses to ~1 frame at playback speed.
+const TURNAROUND_GLIDE_FRAMES = 2;
 const { smoothSeries } = require('../shared/stats');
 const { snapToLine, pointAlongLine } = require('../train/speedmap');
 
@@ -250,6 +252,7 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
   // extrapolation runs past the terminal, so a ghost just parks at the end
   // of the line rather than disappearing or jumping.
   const videoEndTs = snapshots[lastSnapIdx].ts;
+  const turnaroundGlideMs = TURNAROUND_GLIDE_FRAMES * (tickMs / interpolate);
   function ghostsAt(frameTs) {
     const out = [];
     for (const [vid, drop] of tailDrops) {
@@ -259,11 +262,12 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
       // from normal rendering starting at this snapshot.
       if (ageMs < 0) continue;
       if (drop.turnaroundEnd) {
-        // Glide-then-glyph: lerp from last-seen position to the terminal so
-        // the marker arrives gracefully, then transform into the turnaround
-        // glyph for the hold + fade.
-        if (ageMs < TURNAROUND_GLIDE_MS) {
-          const t = ageMs / TURNAROUND_GLIDE_MS;
+        // Glide-then-park: lerp from last-seen position to the terminus so the
+        // marker arrives gracefully, then hold the U-turn glyph parked at the
+        // terminus for the rest of the clip. No fade-out — the bus has reached
+        // the end and reversed, and that final state should stay readable.
+        if (ageMs < turnaroundGlideMs) {
+          const t = ageMs / turnaroundGlideMs;
           out.push({
             vid,
             lat: drop.lastV.lat + (drop.turnaroundEnd.lat - drop.lastV.lat) * t,
@@ -273,12 +277,6 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
           });
           continue;
         }
-        const postGlideMs = ageMs - TURNAROUND_GLIDE_MS;
-        if (postGlideMs > TURNAROUND_HOLD_MS + TURNAROUND_FADE_MS) continue;
-        const opacity =
-          postGlideMs <= TURNAROUND_HOLD_MS
-            ? 1
-            : Math.max(0, 1 - (postGlideMs - TURNAROUND_HOLD_MS) / TURNAROUND_FADE_MS);
         out.push({
           vid,
           lat: drop.turnaroundEnd.lat,
@@ -286,7 +284,6 @@ async function captureBunchingVideo(bunch, pattern, opts = {}) {
           heading: drop.lastV.heading,
           pdist: drop.lastV.pdist,
           turnaround: true,
-          opacity,
         });
         continue;
       }
