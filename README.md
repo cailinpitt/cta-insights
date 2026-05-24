@@ -147,7 +147,7 @@ Two scripts publish a JSON snapshot of alerts and bot-detected disruptions to th
 
 | Command | Description |
 |---|---|
-| `node bin/export-web.js [output-path]` | Read `state/history.sqlite` (readonly) and emit a JSON document containing every official CTA alert (`alert_posts`), bot-detected disruption (`disruption_events`), and roundup signal (`roundup_anchors`), plus the earliest record timestamp. Writes to `output-path` if given, otherwise stdout. Safe to run alongside live cron jobs. |
+| `node bin/export-web.js [output-path]` | Read `state/history.sqlite` (readonly) and emit a JSON document of unified **`incidents[]`** — each pairing an official CTA alert (`alert_posts`) with the bot-detected disruptions (`disruption_events`) and roundup signals (`roundup_anchors`) describing the same event. `buildIncidents` runs the alert↔observation merge here (so the web frontend doesn't have to), and normalizes train line keys to full names. Writes to `output-path` if given, otherwise stdout. Safe to run alongside live cron jobs. Format changes are recorded in the web repo's [data changelog](https://chicagotransitalerts.app/data/CHANGELOG.md). |
 | `bin/push-web-data.sh` | Wrapper for the cron-driven publish loop. `cd`s into the cta-alert-history clone, pulls latest, runs `export-web.js` against `public/data/alerts.json`, and commits + pushes only if the file changed. Set `PAGES_REPO` and `CTA_INSIGHTS` env vars when the repo paths aren't `~/cta-alert-history` and `~/cta-insights`. Run every 7 minutes by cron. |
 
 The split keeps `export-web.js` reusable (e.g. dump-to-stdout for ad-hoc inspection) while the wrapper carries all the git plumbing for the production pipeline.
