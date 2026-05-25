@@ -33,8 +33,21 @@ const DEFAULT_DURATION_MIN = 60;
 // produce 1–2 bins of coverage and should not post.
 const MIN_COVERAGE = 0.3;
 
+// Lines whose GTFS shape duplicates the corridor as two exact-reverse segments
+// AND for which Train Tracker reports a single trDr for the whole line. The two
+// physical travel directions are indistinguishable in the feed, so we render
+// one combined ribbon and a single line average instead of the dual-direction
+// layout. Yellow (Skokie Swift) is currently the only such line — a week of
+// observations shows only trDr=1 / dest "Skokie", never a Howard-bound code.
+const SINGLE_DIRECTION_LINES = new Set(['y']);
+
 function formatAvg(summary) {
   return summary.avg == null ? 'n/a' : `${summary.avg.toFixed(1)} mph`;
+}
+
+function meanAvgMph(dirSummaries) {
+  const vals = dirSummaries.map((d) => d.summary.avg).filter((v) => v != null);
+  return vals.length ? vals.reduce((a, v) => a + v, 0) / vals.length : null;
 }
 
 // Branched lines (Green) have ambiguous trDr — pick the dominant destination
@@ -92,27 +105,43 @@ function dirLabel(dest) {
   return dest ? `Toward ${dest}` : 'Unknown direction';
 }
 
-function buildPostText(line, dirSummaries, startTime, endTime, callouts = []) {
+function buildPostText(line, dirSummaries, startTime, endTime, callouts = [], isSingleDir = false) {
   const lineName = LINE_NAMES[line];
   const window = `${formatTimeCT(startTime)}–${formatTimeCT(endTime)} CT`;
-  const dirLines = dirSummaries
-    .map(({ dest, summary }) => `${dirLabel(dest)}: ${formatAvg(summary)}`)
-    .join(' · ');
-  const head = `🚦 ${lineName} Line speedmap\n${window}\n${dirLines}`;
+  let body;
+  let caption;
+  if (isSingleDir) {
+    const avg = meanAvgMph(dirSummaries);
+    body = `Average: ${avg == null ? 'n/a' : `${avg.toFixed(1)} mph`}`;
+    caption = `One ribbon — the CTA feed reports a single direction for the ${lineName} Line.`;
+  } else {
+    body = dirSummaries
+      .map(({ dest, summary }) => `${dirLabel(dest)}: ${formatAvg(summary)}`)
+      .join(' · ');
+    caption = `Two parallel ribbons = the two travel directions.`;
+  }
+  const head = `🚦 ${lineName} Line speedmap\n${window}\n${body}`;
   const tail = history.formatCallouts(callouts);
   return (
     (tail ? `${head}\n${tail}\n\n` : `${head}\n\n`) +
-    `Two parallel ribbons = the two travel directions.\n` +
+    `${caption}\n` +
     `🟥 under 15 mph · 🟧 15–25 · 🟨 25–35 · 🟪 35–45 · 🟩 45+ · ⬜ no data`
   );
 }
 
-function buildAltText(line, dirSummaries, durationMin) {
+function buildAltText(line, dirSummaries, durationMin, isSingleDir = false) {
   const lineName = LINE_NAMES[line];
+  const colorKey =
+    'Red indicates under 15 mph, orange 15–25, yellow 25–35, purple 35–45, green 45 and above, gray no data.';
+  if (isSingleDir) {
+    const avg = meanAvgMph(dirSummaries);
+    const avgStr = avg == null ? 'n/a' : `${avg.toFixed(1)} mph`;
+    return `Speedmap of the CTA ${lineName} Line over a ${durationMin}-minute window, rendered as a single ribbon colored by average train speed (the CTA feed reports one direction for this line, so both travel directions are combined). Average ${avgStr}. ${colorKey}`;
+  }
   const dirLines = dirSummaries
     .map(({ dest, summary }) => `${dirLabel(dest)} average ${formatAvg(summary)}`)
     .join('; ');
-  return `Speedmap of the CTA ${lineName} Line over a ${durationMin}-minute window, rendered as two parallel ribbons (one per travel direction) colored by average train speed. ${dirLines}. Red indicates under 15 mph, orange 15–25, yellow 25–35, purple 35–45, green 45 and above, gray no data.`;
+  return `Speedmap of the CTA ${lineName} Line over a ${durationMin}-minute window, rendered as two parallel ribbons (one per travel direction) colored by average train speed. ${dirLines}. ${colorKey}`;
 }
 
 async function main() {
@@ -131,6 +160,12 @@ async function main() {
     console.error(`No polyline data for ${LINE_NAMES[line]} line`);
     process.exit(1);
   }
+
+  // Yellow's two segments are exact reverses of one corridor and the feed gives
+  // a single trDr, so the second branch is a redundant copy. Drop it and render
+  // one combined ribbon (see SINGLE_DIRECTION_LINES / buildPostText).
+  const isSingleDir = SINGLE_DIRECTION_LINES.has(line);
+  if (isSingleDir && branches.length > 1) branches = branches.slice(0, 1);
 
   // Purple shuttle (Linden↔Howard) hours: GTFS trip duration (~14 min vs ~95
   // express) tells us to truncate the express portion of the polyline.
@@ -187,17 +222,20 @@ async function main() {
     // by trDrFilter. Without this scope, each branch would process both
     // directions and dedupe would leave duplicate entries.
     const trDrFilter = branches[i].trDrFilter || null;
-    for (const [trDr, samples] of byDir) {
+    // Single-direction lines (Yellow): the feed can't tell the two travel
+    // directions apart, so merge every sample into one ribbon keyed 'all'
+    // rather than emitting a per-trDr entry.
+    const dirGroups = isSingleDir
+      ? [['all', Array.from(byDir.values()).flat()]]
+      : Array.from(byDir);
+    for (const [trDr, samples] of dirGroups) {
       if (trDrFilter && trDr !== trDrFilter) continue;
       binSpeedsByDir[trDr] = binSegments(samples, totalFt, numBins);
       const s = summarize(binSpeedsByDir[trDr], TRAIN_THRESHOLDS);
-      const dest = destForBranchDir(
-        rnsByDir.get(trDr) || new Set(),
-        trDr,
-        destByRnDir,
-        allowedDests,
-      );
-      const label = dirLabel(dest);
+      const dest = isSingleDir
+        ? null
+        : destForBranchDir(rnsByDir.get(trDr) || new Set(), trDr, destByRnDir, allowedDests);
+      const label = isSingleDir ? 'combined' : dirLabel(dest);
       console.log(
         `Branch ${i} / ${label} (dir ${trDr}): ${samples.length} samples · avg ${s.avg?.toFixed(1)} mph · red=${s.red} orange=${s.orange} yellow=${s.yellow} purple=${s.purple} green=${s.green}`,
       );
@@ -281,8 +319,8 @@ async function main() {
 
   const lineColor = LINE_COLORS[line];
   const image = await renderTrainSpeedmap(branchData, lineColor);
-  const text = buildPostText(line, finalDirs, startTime, endTime, callouts);
-  const alt = buildAltText(line, finalDirs, durationMin);
+  const text = buildPostText(line, finalDirs, startTime, endTime, callouts, isSingleDir);
+  const alt = buildAltText(line, finalDirs, durationMin, isSingleDir);
 
   if (argv['dry-run']) {
     const outPath = writeDryRunAsset(
@@ -325,4 +363,8 @@ async function main() {
   console.log(`Posted: ${result.url}`);
 }
 
-runBin(main);
+// Guard so tests can require the post/alt-text builders without invoking main
+// (which polls the live CTA feed). Running the file directly still executes.
+if (require.main === module) runBin(main);
+
+module.exports = { buildPostText, buildAltText, SINGLE_DIRECTION_LINES };
