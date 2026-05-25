@@ -294,7 +294,7 @@ async function main() {
           video.buffer,
           `gap-${gap.route}-${pattern.direction.toLowerCase()}-${gap.pid}-${Date.now()}.mp4`,
         );
-        console.log(`Video: ${videoPath}\n${buildGapVideoPostText(video)}`);
+        console.log(`Video: ${videoPath}\n${buildGapVideoPostText(gap, video)}`);
       }
     }
     return;
@@ -355,7 +355,7 @@ async function main() {
     };
     const reply = await postWithVideo(
       agent,
-      buildGapVideoPostText(video),
+      buildGapVideoPostText(gap, video),
       video.buffer,
       buildGapVideoAltText(gap, pattern, video),
       replyRef,

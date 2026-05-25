@@ -22,7 +22,7 @@ A train post looks like this:
 
 > 🕳️ Red Line — to Howard
 >
-> ~24 min gap near Wilson — currently scheduled every 7 min
+> No train near Wilson for ~24 min — currently scheduled every 7 min
 >
 > Last seen: #711 · Next up: #718
 
@@ -82,17 +82,17 @@ The terminal-zone exclusion and the absolute-minute floor are the two filters th
 
 After the still gap post goes out, the bot captures a ~10-minute timelapse and threads it as a reply — but framed around the rider's real question, *"is my train coming?"*, not the inter-vehicle span a bunching clip reports.
 
-The clip **follows only the trailing ("Next up") vehicle approaching the wait stop.** The leading vehicle is dropped entirely — it already left, and on bad gaps it sits near a terminal, which would force the bbox miles wide and shrink the markers to specks. By framing `[trailing vehicle path → wait stop]`, the camera holds still while the next vehicle advances across it, and the motion *is* the story.
+The clip **follows only the trailing ("Next up") vehicle approaching the wait stop** — which is the **gap midpoint**, not the leading-end stop the post names. The leading vehicle is dropped entirely: it already left, and on bad gaps it sits near a terminal, which would force the bbox miles wide and shrink the markers to specks. Anchoring at the midpoint also halves the distance the next vehicle must cover, so it's actually reachable in a 10-minute clip (a full 15+ min gap never is). By framing `[trailing vehicle path → midpoint stop]`, the camera holds still while the next vehicle advances across it, and the motion *is* the story.
 
-On-frame:
+**Wording leads with the full gap, not just the ETA.** Because the wait stop is the midpoint, "next vehicle ~N min away" is only the *remaining* half — it silently drops the time the rider already waited since the last vehicle passed. So both the HUD and the reply lead with the total gap:
 
-- A live **HUD readout** top-left that ticks down — `Next train ~5 min to Wilson` → `~2 min`.
-- An **amber target ring + amber label** on the wait stop (same amber as the gap strip) so the eye lands on where the vehicle is heading.
+- A live **HUD readout** top-left: `~24-min gap · next train ~5 min` (the gap is fixed; the ETA ticks down). The wait stop is named by the amber label on the map, so it's omitted here.
+- An **amber target ring + amber label** on the midpoint wait stop (same amber as the gap strip) so the eye lands on where the vehicle is heading.
 - The trailing vehicle's **N** chip + comet trail, the direction arrow, and the clip clock.
 
-The reply headline reports progress toward the platform: *"4 minutes later, the next train had closed to 0.87 mi from Wilson"* — or, on arrival, *"…the next train reached Wilson. 🎬 the wait is over"*.
+The reply leads with the service hole, then the progress: *"The Red Line hasn't had a train in ~24 min. 4 minutes later, the next one had closed to 0.87 mi from Wilson."* — or, on arrival, *"…the next one reached Wilson."*
 
-**Deep gaps fall back to the still map** (no reply). Two guards enforce this: skip before capturing if the trailing vehicle starts too far from the stop to close in 10 minutes (>4 mi train / >2 mi bus — the readable-frame ceiling), and skip after capturing if it never meaningfully closed (<0.25 mi train / <0.125 mi bus) and didn't arrive. The worst gaps stay newsworthy as a still.
+**Deep gaps fall back to the still map** (no reply). Two guards enforce this: skip before capturing if the trailing vehicle's distance to the *midpoint* is too far to close in 10 minutes (>5 mi train / >3 mi bus — the readable-frame ceiling), and skip after capturing if it never meaningfully closed (<0.25 mi train / <0.125 mi bus) and didn't arrive. The worst gaps stay newsworthy as a still.
 
 ## Files
 

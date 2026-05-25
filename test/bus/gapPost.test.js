@@ -11,7 +11,8 @@ test('buildPostText includes gap duration, stop, and scheduled headway', () => {
   assert.ok(text.includes('🕳️'));
   assert.ok(text.includes('Route 147'));
   assert.ok(text.includes('Southbound'));
-  assert.ok(text.includes('35 min gap'));
+  assert.ok(text.includes('No bus'));
+  assert.ok(text.includes('~35 min'));
   assert.ok(text.includes('Foster & Marine Drive'));
   assert.ok(text.includes('every 9 min'));
 });
@@ -25,7 +26,7 @@ test('buildPostText spells out rider roles with Last seen / Next up', () => {
 });
 
 test('buildPostText marks the modeled gap as approximate with a tilde', () => {
-  assert.ok(buildPostText(gap, pattern, stop).includes('~35 min gap'));
+  assert.ok(buildPostText(gap, pattern, stop).includes('~35 min'));
 });
 
 test('buildAltText describes the gap for screen readers', () => {

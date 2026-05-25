@@ -15,7 +15,8 @@ test('buildPostText renders line, destination, gap duration, station, and schedu
   assert.ok(text.includes('🕳️'));
   assert.ok(text.includes('Brown Line'));
   assert.ok(text.includes('to Kimball'));
-  assert.ok(text.includes('22 min gap'));
+  assert.ok(text.includes('No train'));
+  assert.ok(text.includes('~22 min'));
   assert.ok(text.includes('Belmont'));
   assert.ok(text.includes('every 7 min'));
 });
@@ -36,7 +37,7 @@ test('buildPostText spells out rider roles with Last seen / Next up', () => {
 });
 
 test('buildPostText marks the modeled gap as approximate with a tilde', () => {
-  assert.ok(buildPostText(gap).includes('~22 min gap'));
+  assert.ok(buildPostText(gap).includes('~22 min'));
 });
 
 test('buildAltText describes the gap', () => {

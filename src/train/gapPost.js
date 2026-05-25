@@ -17,9 +17,11 @@ function buildPostText(gap, callouts = []) {
     lastSeen || nextUp
       ? `\n\n${[lastSeen && `Last seen: ${lastSeen}`, nextUp && `Next up: ${nextUp}`].filter(Boolean).join(' · ')}`
       : '';
-  // Tilde on the modeled gap: it's a distance/speed estimate, not a measured
-  // ETA (see docs/GAPS.md). The schedule headway stays bare — it's a lookup.
-  const base = `🕳️ ${lineName} Line — to ${dest}\n\n~${formatMinutes(gap.gapMin)} gap${whereClause} — currently scheduled every ${formatMinutes(gap.expectedMin)}${runsLine}`;
+  // Lead with the lived effect — "No train for ~24 min" reads as the service
+  // hole a rider is sitting in, not an abstract "gap." Tilde on the modeled
+  // span: it's a distance/speed estimate, not a measured ETA (see docs/GAPS.md).
+  // The schedule headway stays bare — it's a lookup.
+  const base = `🕳️ ${lineName} Line — to ${dest}\n\nNo train${whereClause} for ~${formatMinutes(gap.gapMin)} — currently scheduled every ${formatMinutes(gap.expectedMin)}${runsLine}`;
   const tail = formatCallouts(callouts);
   return tail ? `${base}\n\n${tail}` : base;
 }
@@ -32,16 +34,18 @@ function buildAltText(gap) {
   return `Map of the ${lineName} Line toward ${dest} showing a ${formatMinutes(gap.gapMin)} gap between trains${whereClause}.`;
 }
 
-// Timelapse reply text. The clip follows the next train approaching the wait
-// stop, so the headline is its progress toward the platform — the rider's real
-// question — not the inter-train span a bunching clip reports.
-function buildGapVideoPostText(result) {
+// Timelapse reply text. Leads with the full effect — how long the line has gone
+// without a train — then the next train's progress toward the platform, so the
+// "next train ~N min" half doesn't undersell a gap whose first half already
+// elapsed.
+function buildGapVideoPostText(gap, result) {
   const stop = shortStationName(result.stopName) || 'the stop';
   const elapsed = elapsedMinutesLabel(result.elapsedSec);
+  const lead = `The ${LINE_NAMES[gap.line]} Line hasn't had a train in ~${result.gapMin} min.`;
   if (result.reached) {
-    return `${elapsed} later, the next train reached ${stop}.\n🎬 the wait is over`;
+    return `${lead} ${elapsed} later, the next one reached ${stop}.`;
   }
-  return `${elapsed} later, the next train had closed to ${formatDistance(result.endDistFt)} from ${stop}.\n🎬 ${formatDistance(result.startDistFt)} → ${formatDistance(result.endDistFt)}`;
+  return `${lead} ${elapsed} later, the next one had closed to ${formatDistance(result.endDistFt)} from ${stop}.`;
 }
 
 function buildGapVideoAltText(gap, result) {

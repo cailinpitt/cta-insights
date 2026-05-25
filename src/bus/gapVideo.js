@@ -118,11 +118,15 @@ async function renderBusGapClip(snapshots, gap, pattern, stop, opts = {}) {
   if (gap.trailing.vid != null) labels.set(gap.trailing.vid, 'N');
   const stopName = stop.stopName || 'the stop';
 
+  // Lead the HUD with the full gap so "next bus ~N min" (which is only the
+  // remaining half — the wait stop is the midpoint) doesn't undersell it. The
+  // wait stop is named by the amber label on the map, so it's dropped here.
+  const gapMin = Math.round(gap.gapMin);
   function readoutFor(track) {
     const remaining = Math.max(0, stopTrack - track);
-    if (remaining <= ARRIVED_FT) return `Next bus at ${stopName}`;
+    if (remaining <= ARRIVED_FT) return `~${gapMin}-min gap · next bus arriving`;
     const min = Math.max(1, Math.round(remaining / TYPICAL_SPEED_FT_PER_MIN));
-    return `Next bus ~${min} min to ${stopName}`;
+    return `~${gapMin}-min gap · next bus ~${min} min`;
   }
 
   const vehicleFrames = [];
@@ -197,6 +201,7 @@ async function renderBusGapClip(snapshots, gap, pattern, stop, opts = {}) {
       startDistFt: Math.round(startRemaining),
       endDistFt: Math.round(endRemaining),
       reached,
+      gapMin: Math.round(gap.gapMin),
       stopName: stop.stopName || null,
     };
   } finally {

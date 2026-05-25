@@ -4,7 +4,7 @@ const Path = require('node:path');
 const { exec } = require('node:child_process');
 const { promisify } = require('node:util');
 
-const { getAllTrainPositions, shortStationName } = require('./api');
+const { getAllTrainPositions } = require('./api');
 const { TYPICAL_TRAIN_SPEED_FT_PER_MIN } = require('./gaps');
 const { computeTrainGapVideoView } = require('../map');
 const { fetchTrainBunchingBaseMap, renderTrainBunchingFrame } = require('../map/train/bunching');
@@ -118,13 +118,16 @@ async function renderTrainGapClip(snapshots, gap, lineColors, trainLines, statio
   // The trailing train keeps the "N" (Next up) chip it carries on the still map.
   const labels = new Map();
   if (gap.trailing.rn != null) labels.set(gap.trailing.rn, 'N');
-  const stopLabel = shortStationName(gap.nearStation?.name) || 'the stop';
 
+  // Lead the HUD with the full gap so "next train ~N min" (which is only the
+  // remaining half — the wait stop is the midpoint) doesn't undersell it. The
+  // wait stop is named by the amber label on the map, so it's dropped here.
+  const gapMin = Math.round(gap.gapMin);
   function readoutFor(track) {
     const remaining = Math.max(0, stopTrack - track);
-    if (remaining <= ARRIVED_FT) return `Next train at ${stopLabel}`;
+    if (remaining <= ARRIVED_FT) return `~${gapMin}-min gap · next train arriving`;
     const min = Math.max(1, Math.round(remaining / TYPICAL_TRAIN_SPEED_FT_PER_MIN));
-    return `Next train ~${min} min to ${stopLabel}`;
+    return `~${gapMin}-min gap · next train ~${min} min`;
   }
 
   const trainFrames = [];
@@ -210,6 +213,7 @@ async function renderTrainGapClip(snapshots, gap, lineColors, trainLines, statio
       startDistFt: Math.round(startRemaining),
       endDistFt: Math.round(endRemaining),
       reached,
+      gapMin: Math.round(gap.gapMin),
       stopName: gap.nearStation?.name || null,
     };
   } finally {

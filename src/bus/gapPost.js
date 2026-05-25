@@ -17,8 +17,10 @@ function buildPostText(gap, pattern, stop, callouts = []) {
     lastSeen || nextUp
       ? `\n\n${[lastSeen && `Last seen: ${lastSeen}`, nextUp && `Next up: ${nextUp}`].filter(Boolean).join(' · ')}`
       : '';
-  // Tilde on the modeled gap: it's a distance/speed estimate, not a measured ETA.
-  const base = `🕳️ ${routeTitle(gap.route)} — ${pattern.direction}\n\n~${formatMinutes(gap.gapMin)} gap near ${stop.stopName} — scheduled around every ${formatMinutes(gap.expectedMin)} this hour${busesLine}`;
+  // Lead with the lived effect — "No bus for ~24 min" reads as the service hole
+  // a rider is sitting in, not an abstract "gap." Tilde: it's a distance/speed
+  // estimate, not a measured ETA.
+  const base = `🕳️ ${routeTitle(gap.route)} — ${pattern.direction}\n\nNo bus near ${stop.stopName} for ~${formatMinutes(gap.gapMin)} — scheduled around every ${formatMinutes(gap.expectedMin)} this hour${busesLine}`;
   const tail = formatCallouts(callouts);
   return tail ? `${base}\n\n${tail}` : base;
 }
@@ -27,15 +29,18 @@ function buildAltText(gap, pattern, stop) {
   return `Map of ${routeTitle(gap.route)} ${pattern.direction.toLowerCase()} showing a ${formatMinutes(gap.gapMin)} gap between buses near ${stop.stopName}.`;
 }
 
-// Timelapse reply text — the next bus closing in on the wait stop, the rider's
-// real question, not the inter-bus span a bunching clip reports.
-function buildGapVideoPostText(result) {
+// Timelapse reply text. Leads with the full effect — how long the route has
+// gone without a bus — then the next bus's progress toward the stop, so the
+// "next bus ~N min" half doesn't undersell a gap whose first half already
+// elapsed.
+function buildGapVideoPostText(gap, result) {
   const stop = result.stopName || 'the stop';
   const elapsed = elapsedMinutesLabel(result.elapsedSec);
+  const lead = `${routeTitle(gap.route)} hasn't had a bus in ~${result.gapMin} min.`;
   if (result.reached) {
-    return `${elapsed} later, the next bus reached ${stop}.\n🎬 the wait is over`;
+    return `${lead} ${elapsed} later, the next one reached ${stop}.`;
   }
-  return `${elapsed} later, the next bus had closed to ${formatDistance(result.endDistFt)} from ${stop}.\n🎬 ${formatDistance(result.startDistFt)} → ${formatDistance(result.endDistFt)}`;
+  return `${lead} ${elapsed} later, the next one had closed to ${formatDistance(result.endDistFt)} from ${stop}.`;
 }
 
 function buildGapVideoAltText(gap, pattern, result) {

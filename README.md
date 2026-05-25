@@ -237,7 +237,7 @@ Reply: ~10-minute timelapse video of the cluster, with intersection traffic sign
 
 ### Bus gap
 > 🕳️ Route 76 (Diversey) — Westbound
-> ~20 min gap near Diversey & Oak Park — scheduled around every 6 min this hour
+> No bus near Diversey & Oak Park for ~20 min — scheduled around every 6 min this hour
 >
 > Last seen: #1934 · Next up: #8021
 
