@@ -22,11 +22,13 @@ A train post looks like this:
 
 > 🕳️ Red Line — to Howard
 >
-> No train near Wilson for ~24 min — currently scheduled every 7 min
+> No trains between Lawrence and Bryn Mawr — a ~24 min gap, scheduled every 7 min
 >
 > Last seen: #711 · Next up: #718
 
-The map highlights the empty stretch, tags the two trains **L** (last seen, the one that just passed) and **N** (next up, the one riders are waiting on), and labels the stations flanking the gap so riders know where the wait is happening. The post spells the two roles out instead of `(last)`/`(next)` — "the last train" reads as the final train of the night, which is the opposite of what we mean.
+The post **names the empty stretch as a range** between the two stations flanking it, rather than collapsing it onto a single midpoint stop — a long gap can span several stations, so "near Wilson" both under-states the hole and disagrees with the map. It also frames the number as a **gap between trains**, not "no train for ~24 min": the older phrasing read as "24 minutes since a train was here," but the span measures the distance between the two trains bracketing the stretch (at the midpoint, a rider has waited only about half that).
+
+The map highlights the empty stretch, tags the two trains **L** (last seen, the one that just passed) and **N** (next up, the one riders are waiting on), and labels the same flanking stations the post names. The post spells the two roles out instead of `(last)`/`(next)` — "the last train" reads as the final train of the night, which is the opposite of what we mean.
 
 ## The technical version
 
@@ -64,7 +66,7 @@ Same idea, but track distance comes from snapping lat/lon onto a polyline (same 
 2. Look up the scheduled headway for that line + destination via the GTFS index.
 3. Skip pairs in the terminal zone.
 4. Apply the same ratio + floor gates (10-min floor for trains, since rail headways are tighter).
-5. For each surviving gap, compute the **midpoint** in track-distance and find the nearest station to label "near X" — pointing at the empty stretch itself, not at either train's next stop.
+5. For each surviving gap, find the stations **flanking** it — the nearest stop just outside each train — to name the stretch as a range ("between A and B") in the post and on the map. A **midpoint** station is still computed as a fallback (used as "near X" when one flank is missing, e.g. a gap reaching toward a terminal) and as the timelapse's wait stop.
 
 ### Why a ratio, not a literal ETA
 
@@ -84,13 +86,13 @@ After the still gap post goes out, the bot captures a ~10-minute timelapse and t
 
 The clip **follows only the trailing ("Next up") vehicle approaching the wait stop** — which is the **gap midpoint**, not the leading-end stop the post names. The leading vehicle is dropped entirely: it already left, and on bad gaps it sits near a terminal, which would force the bbox miles wide and shrink the markers to specks. Anchoring at the midpoint also halves the distance the next vehicle must cover, so it's actually reachable in a 10-minute clip (a full 15+ min gap never is). By framing `[trailing vehicle path → midpoint stop]`, the camera holds still while the next vehicle advances across it, and the motion *is* the story.
 
-**Wording leads with the full gap, not just the ETA.** Because the wait stop is the midpoint, "next vehicle ~N min away" is only the *remaining* half — it silently drops the time the rider already waited since the last vehicle passed. So both the HUD and the reply lead with the total gap:
+**Wording leads with the full gap, not just the ETA, and names the midpoint stop.** Because the wait stop is the midpoint, the ticking ETA is only the time to cover the *remaining* (back) half — it drops the time the rider already waited since the last vehicle passed. So the HUD leads with the total gap and labels the ETA's destination, and the reply flags the stop as "the middle of the gap" so a reader understands why the train still has ground to cover:
 
-- A live **HUD readout** top-left: `~24-min gap · next train ~5 min` (the gap is fixed; the ETA ticks down). The wait stop is named by the amber label on the map, so it's omitted here.
+- A live **HUD readout** top-left: `~24-min gap · next train ~5 min to Wilson` (the gap is fixed; the ETA ticks down). It tracks the train through the stop across three states keyed on the signed distance to the midpoint: `~N min to Wilson` while approaching → `reaching Wilson` within the arrival window → `has left Wilson` once it passes (clips sometimes run on past the midpoint). Naming the stop matches the amber label on the map.
 - An **amber target ring + amber label** on the midpoint wait stop (same amber as the gap strip) so the eye lands on where the vehicle is heading.
 - The trailing vehicle's **N** chip + comet trail, the direction arrow, and the clip clock.
 
-The reply leads with the service hole, then the progress: *"The Red Line hasn't had a train in ~24 min. 4 minutes later, the next one had closed to 0.87 mi from Wilson."* — or, on arrival, *"…the next one reached Wilson."*
+The reply leads with the gap, then reports the concrete progress against the midpoint stop, tying in the "Next up" run number: *"~24 min Red Line gap. 4 minutes later, the next train (#718) had closed to within ~0.87 mi of Wilson — the middle of the gap."* — or, on arrival, *"The next train (#718) reached Wilson — the middle of the gap — 4 minutes later."*
 
 **Deep gaps fall back to the still map** (no reply). Two guards enforce this: skip before capturing if the trailing vehicle's distance to the *midpoint* is too far to close in 10 minutes (>5 mi train / >3 mi bus — the readable-frame ceiling), and skip after capturing if it never meaningfully closed (<0.25 mi train / <0.125 mi bus) and didn't arrive. The worst gaps stay newsworthy as a still.
 

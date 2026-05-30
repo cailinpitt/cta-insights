@@ -79,11 +79,24 @@ function detectAllTrainGaps(
       const onLine = getStationsOnLine(line);
       let nearStation = null;
       let bestDelta = Infinity;
+      // Flanking stations: the station just *outside* each end of the gap. These
+      // name the empty stretch as a range ("between A and B") in the post and on
+      // the map, instead of collapsing a multi-mile hole onto one midpoint stop.
+      // flankBefore sits behind the trailing train (a, lower trackDist);
+      // flankAfter sits ahead of the leading train (b, higher trackDist).
+      let flankBefore = null;
+      let flankAfter = null;
       for (const { station, trackDist } of onLine) {
         const delta = Math.abs(trackDist - midTrack);
         if (delta < bestDelta) {
           bestDelta = delta;
           nearStation = station;
+        }
+        if (trackDist < a.trackDist) {
+          if (!flankBefore || trackDist > flankBefore.trackDist)
+            flankBefore = { station, trackDist };
+        } else if (trackDist > b.trackDist) {
+          if (!flankAfter || trackDist < flankAfter.trackDist) flankAfter = { station, trackDist };
         }
       }
 
@@ -96,6 +109,8 @@ function detectAllTrainGaps(
         leadingTrackDist: b.trackDist,
         trailingTrackDist: a.trackDist,
         nearStation,
+        flankBefore: flankBefore?.station || null,
+        flankAfter: flankAfter?.station || null,
         gapFt,
         gapMin,
         expectedMin,

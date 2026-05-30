@@ -4,7 +4,7 @@ const Path = require('node:path');
 const { exec } = require('node:child_process');
 const { promisify } = require('node:util');
 
-const { getAllTrainPositions } = require('./api');
+const { getAllTrainPositions, shortStationName } = require('./api');
 const { TYPICAL_TRAIN_SPEED_FT_PER_MIN } = require('./gaps');
 const { computeTrainGapVideoView } = require('../map');
 const { fetchTrainBunchingBaseMap, renderTrainBunchingFrame } = require('../map/train/bunching');
@@ -33,6 +33,19 @@ const ARRIVED_FT = 500;
 const TRAIL_MS = 75_000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// One frame's HUD readout. `deltaFt` is the *signed* distance from the trailing
+// ("Next up") train to the midpoint wait stop (stopTrack - track): positive
+// while still approaching, ~0 at the stop, and negative once the train has
+// passed and pulled away. Three states so the label tracks the train past the
+// stop instead of getting stuck on "reaching" forever once it clamps to 0.
+function gapReadout(gapMin, stopName, deltaFt) {
+  const head = `~${gapMin}-min gap · next train`;
+  if (deltaFt < -ARRIVED_FT) return stopName ? `${head} has left ${stopName}` : `${head} has left`;
+  if (deltaFt <= ARRIVED_FT) return stopName ? `${head} reaching ${stopName}` : `${head} arriving`;
+  const min = Math.max(1, Math.round(deltaFt / TYPICAL_TRAIN_SPEED_FT_PER_MIN));
+  return stopName ? `${head} ~${min} min to ${stopName}` : `${head} ~${min} min`;
+}
 
 function stopTrackDist(gap, linePts, lineCum) {
   const s = gap.nearStation;
@@ -119,16 +132,13 @@ async function renderTrainGapClip(snapshots, gap, lineColors, trainLines, statio
   const labels = new Map();
   if (gap.trailing.rn != null) labels.set(gap.trailing.rn, 'N');
 
-  // Lead the HUD with the full gap so "next train ~N min" (which is only the
-  // remaining half — the wait stop is the midpoint) doesn't undersell it. The
-  // wait stop is named by the amber label on the map, so it's dropped here.
+  // Lead the HUD with the full gap so the ticking ETA (which is only the time
+  // to the *midpoint* — the back half of the gap) doesn't undersell it. Name
+  // that midpoint stop in the ETA ("~N min to Pulaski") so it's clear what the
+  // countdown measures; it matches the amber wait-stop label on the map.
   const gapMin = Math.round(gap.gapMin);
-  function readoutFor(track) {
-    const remaining = Math.max(0, stopTrack - track);
-    if (remaining <= ARRIVED_FT) return `~${gapMin}-min gap · next train arriving`;
-    const min = Math.max(1, Math.round(remaining / TYPICAL_TRAIN_SPEED_FT_PER_MIN));
-    return `~${gapMin}-min gap · next train ~${min} min`;
-  }
+  const stopName = shortStationName(gap.nearStation?.name);
+  const readoutFor = (track) => gapReadout(gapMin, stopName, stopTrack - track);
 
   const trainFrames = [];
   const frameTimes = [];
@@ -224,6 +234,7 @@ async function renderTrainGapClip(snapshots, gap, lineColors, trainLines, statio
 module.exports = {
   captureTrainGapVideo,
   renderTrainGapClip,
+  gapReadout,
   MAX_APPROACH_FT,
   MIN_APPROACH_FT,
   ARRIVED_FT,

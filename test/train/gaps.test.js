@@ -78,6 +78,20 @@ test('attaches the station nearest the gap midpoint', () => {
   assert.equal(gap.nearStation.name, 'Mid');
 });
 
+test('attaches the stations flanking each end of the gap', () => {
+  const mk = (name, ft) => {
+    const { lat, lon } = pointAtFt(LINE_FT, ft);
+    return { name, lat, lon, lines: ['red'] };
+  };
+  // Trailing train at 10000, leading at 67000 (QUALIFYING_FT + 2000 beyond).
+  const stations = [mk('Before', 5000), mk('Mid', 38500), mk('After', 80000)];
+  const trains = [trainAt(10000, { rn: 'A' }), trainAt(10000 + QUALIFYING_FT + 2000, { rn: 'B' })];
+  const [gap] = detectAllTrainGaps(trains, trainLines, stations, stationsByName, expected10);
+  assert.equal(gap.flankBefore.name, 'Before');
+  assert.equal(gap.flankAfter.name, 'After');
+  assert.equal(gap.nearStation.name, 'Mid');
+});
+
 test('sorts gaps worst-first by ratio', () => {
   // Both gaps must fit inside the usable line (terminal zones trimmed).
   const trains = [
