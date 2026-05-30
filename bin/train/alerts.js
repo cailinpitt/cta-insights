@@ -46,7 +46,14 @@ function tryBuildDisruption(alert) {
   // Multi-line alerts can't render to a single Disruption — skip the rich path.
   if (alert.trainLines.length !== 1) return null;
   const line = alert.trainLines[0];
-  const text = alert.fullDescription || alert.shortDescription || alert.headline;
+  // Extract the disruption segment from the clean summary (headline +
+  // shortDescription), NOT fullDescription. The full HTML body carries shuttle
+  // walking directions ("From North/Clybourn ... to Armitage", "Clark/Lake")
+  // that pollute extractBetweenStations and win over the real segment — e.g.
+  // 114934 resolved to "Fullerton → Clark/Lake" (Clark/Lake isn't even on the
+  // Red Line) off the full text, so the map silently fell back to text-only.
+  // This mirrors the summary-scoped extraction recordAlertSeen already uses.
+  const text = [alert.headline, alert.shortDescription].filter(Boolean).join(' \n ');
   const between = extractBetweenStations(text);
   if (!between) return null;
   const from = findStationByDestination(line, between.from);
