@@ -165,9 +165,14 @@ function matchesChicagoWallTime(ms, y, mo, d, h) {
 // second endpoint resolves to "Fullerton", not "Fullerton in both directions".
 // No CTA station name contains a space-delimited "in", so this can't truncate
 // a real name mid-string.
+// The capture groups start with [A-Z0-9] (not just [A-Z]): many CTA stations
+// lead with a digit — 54th/Cermak, 95th/Dan Ryan, 63rd, 35th/Archer, 18th —
+// so "between Pulaski and 54th/Cermak" must let the second endpoint begin with
+// a number. Without the digit, every digit-initial endpoint silently failed to
+// match and the alert carried no structured station fields at all.
 const BETWEEN_PATTERNS = [
-  /\bbetween\s+([A-Z][A-Za-z0-9./&\- ]+?)\s+and\s+([A-Z][A-Za-z0-9./&\- ]+?)(?:[.,;]| stations?\b| in\b| on\b| due\b| while\b)/i,
-  /\bfrom\s+([A-Z][A-Za-z0-9./&\- ]+?)\s+to\s+([A-Z][A-Za-z0-9./&\- ]+?)(?:[.,;]| stations?\b| in\b| on\b| due\b| while\b)/i,
+  /\bbetween\s+([A-Z0-9][A-Za-z0-9./&\- ]+?)\s+and\s+([A-Z0-9][A-Za-z0-9./&\- ]+?)(?:[.,;]| stations?\b| in\b| on\b| due\b| while\b)/i,
+  /\bfrom\s+([A-Z0-9][A-Za-z0-9./&\- ]+?)\s+to\s+([A-Z0-9][A-Za-z0-9./&\- ]+?)(?:[.,;]| stations?\b| in\b| on\b| due\b| while\b)/i,
 ];
 
 // Trailing word boundary deliberately omitted on the verb stems so "suspended",
@@ -263,8 +268,12 @@ function extractDirection(text, line = null) {
 // 95th", "to Howard") never uses these anchors, so terminus mentions used
 // only to indicate train direction don't get captured. Capture group runs
 // until punctuation or a follow-on clause keyword (due, because, while, …).
+// Leading [A-Z0-9] (not just [A-Z]): digit-initial stations like 54th/Cermak
+// or 95th/Dan Ryan appear in impact phrasing too ("standing at 54th/Cermak").
+// Junk captures ("at 5 PM") are harmless — resolveStationOnLine drops anything
+// that isn't a real station on the line.
 const IMPACT_CONTEXT_RE =
-  /\b(?:at|near)\s+([A-Z][A-Za-z0-9./&\-()' ]+?)(?=\s*[.,;!]|\s+(?:due|because|while|after|following|crews|station|stations|stop|stops|toward|with)\b|$)/g;
+  /\b(?:at|near)\s+([A-Z0-9][A-Za-z0-9./&\-()' ]+?)(?=\s*[.,;!]|\s+(?:due|because|while|after|following|crews|station|stations|stop|stops|toward|with)\b|$)/g;
 
 function normalizeStationKey(s) {
   return (

@@ -94,6 +94,29 @@ test('extractBetweenStations does not truncate a multi-word terminus on "in"', (
   assert.deepEqual(s, { from: 'Belmont', to: 'Irving Park' });
 });
 
+test('extractBetweenStations handles a digit-initial endpoint (54th/Cermak)', () => {
+  // Real alert 3mn22tm7zmy2e: the second endpoint starts with a digit, which
+  // the old [A-Z]-only capture rejected — so the alert carried no structured
+  // station fields and its station pages dropped the event entirely.
+  const s = extractBetweenStations('Bus Substitution Between Pulaski and 54th/Cermak Stations');
+  assert.deepEqual(s, { from: 'Pulaski', to: '54th/Cermak' });
+});
+
+test('extractBetweenStations handles a digit-initial first endpoint', () => {
+  const s = extractBetweenStations(
+    'Service Between 54th/Cermak and Polk, then Racine Stations, Only',
+  );
+  assert.deepEqual(s, { from: '54th/Cermak', to: 'Polk' });
+});
+
+test('extractMentionedStations resolves a digit-initial endpoint to the roster', () => {
+  const s = extractMentionedStations(
+    'Shuttle buses will replace Pink Line service between Pulaski and 54th/Cermak.',
+    'pink',
+  );
+  assert.deepEqual(s, ['Pulaski (Pink)', '54th/Cermak']);
+});
+
 test('extractBetweenStations returns null when no match', () => {
   assert.equal(extractBetweenStations('Elevator out of service at the station.'), null);
 });
