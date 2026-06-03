@@ -24,6 +24,18 @@ const {
 
 const BUS_GAP_DAILY_CAP = 3;
 
+// Flank-stop endpoints for a gap, so a roundup bullet can read "between A and B"
+// without re-deriving the segment (meta_signals roll off at 48h, so it's stored
+// at detection time). Stored on the meta_signal detail only — deliberately NOT
+// as observation from/to_station (which feeds the station index; bus cross-
+// street labels aren't rail stations anyway). A gap names a stretch, not a stop.
+function gapSegmentDetail(g) {
+  return {
+    fromStation: g.flankBefore?.stopName || null,
+    toStation: g.flankAfter?.stopName || null,
+  };
+}
+
 async function main() {
   setup();
 
@@ -132,7 +144,11 @@ async function main() {
           direction: candidate.pid,
           source: 'gap',
           severity: Math.min(1, candidate.ratio / 4),
-          detail: { ratio: candidate.ratio, suppressed: 'cooldown' },
+          detail: {
+            ratio: candidate.ratio,
+            suppressed: 'cooldown',
+            ...gapSegmentDetail(candidate),
+          },
           posted: false,
         });
         continue;
@@ -171,7 +187,7 @@ async function main() {
           direction: candidate.pid,
           source: 'gap',
           severity: Math.min(1, candidate.ratio / 4),
-          detail: { ratio: candidate.ratio, suppressed: 'cap' },
+          detail: { ratio: candidate.ratio, suppressed: 'cap', ...gapSegmentDetail(candidate) },
           posted: false,
         });
         continue;
@@ -329,7 +345,12 @@ async function main() {
         direction: gap.pid,
         source: 'gap',
         severity: Math.min(1, gap.ratio / 4),
-        detail: { ratio: gap.ratio, gapMin: gap.gapMin, nearStop: baseEvent.nearStop },
+        detail: {
+          ratio: gap.ratio,
+          gapMin: gap.gapMin,
+          nearStop: baseEvent.nearStop,
+          ...gapSegmentDetail(gap),
+        },
         posted: true,
       });
     },

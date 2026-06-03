@@ -239,6 +239,28 @@ test('describeSignal: gap ratio rounds to one decimal and names vehicle', () => 
   assert.ok(trainText.includes('one gap between trains is 3.2x the scheduled wait'));
 });
 
+test('describeSignal: gap names the flanking stretch when detail carries it', () => {
+  const text = describeSignal(
+    {
+      source: 'gap',
+      severity: 0.6,
+      detail: JSON.stringify({ ratio: 3.1, fromStation: 'Howard', toStation: 'Jarvis' }),
+    },
+    'train',
+  );
+  assert.ok(
+    text.includes('one gap between trains is 3.1x the scheduled wait, between Howard and Jarvis'),
+  );
+  // A detail missing one endpoint omits the stretch clause rather than printing
+  // a dangling "between Howard and".
+  const partial = describeSignal(
+    { source: 'gap', severity: 0.6, detail: JSON.stringify({ ratio: 3.1, fromStation: 'Howard' }) },
+    'train',
+  );
+  assert.ok(partial.endsWith('the scheduled wait'));
+  assert.ok(!partial.includes('between Howard and'));
+});
+
 test('describeSignal: ghost missing/expected round to whole vehicles', () => {
   const text = describeSignal(
     { source: 'ghost', severity: 0.7, detail: JSON.stringify({ missing: 7.3, expected: 18.3 }) },

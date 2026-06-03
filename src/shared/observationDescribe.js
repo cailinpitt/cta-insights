@@ -200,7 +200,14 @@ function describeSignal(s, kind) {
   if (s.source === 'gap') {
     const ratio = Number.isFinite(detail.ratio) ? `${detail.ratio.toFixed(1)}` : '?';
     const noun = kind === 'bus' ? 'buses' : 'trains';
-    return `· one gap between ${noun} is ${ratio}x the scheduled wait`;
+    // Name the empty stretch as a range when the detail carries the flanking
+    // stops (forward-only — older anchors stored ratio alone). Mirrors the
+    // standalone gap post's "between A and B" phrasing.
+    const seg =
+      detail.fromStation && detail.toStation
+        ? `, between ${detail.fromStation} and ${detail.toStation}`
+        : '';
+    return `· one gap between ${noun} is ${ratio}x the scheduled wait${seg}`;
   }
   if (s.source === 'ghost') {
     const noun = kind === 'bus' ? 'buses' : 'trains';
