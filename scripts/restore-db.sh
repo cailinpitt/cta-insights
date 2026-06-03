@@ -15,12 +15,12 @@
 # operation you do by hand.
 #
 # Env overrides:
-#   RCLONE_REMOTE   rclone "remote:bucket"   (default: r2:cta-db-backups)
+#   RCLONE_REMOTE   rclone "remote:bucket"   (default: r2:cta-insights-db-backups)
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKDIR="$REPO_DIR/tmp/db-backups"
-REMOTE="${RCLONE_REMOTE:-r2:cta-db-backups}"
+REMOTE="${RCLONE_REMOTE:-r2:cta-insights-db-backups}"
 
 if [ "${1:-}" = "--list" ]; then
   rclone lsf "${REMOTE}/" | sort

@@ -23,10 +23,10 @@ sudo apt update && sudo apt install -y rclone
 
 ### 2. Create the R2 bucket + API token (Cloudflare dashboard)
 
-1. **R2 → Create bucket** → name it `cta-db-backups`.
+1. **R2 → Create bucket** → name it `cta-insights-db-backups`.
 2. **R2 → Manage R2 API Tokens → Create API Token**:
    - Permission: **Object Read & Write**
-   - Scope it to the `cta-db-backups` bucket.
+   - Scope it to the `cta-insights-db-backups` bucket.
    - Save the **Access Key ID**, **Secret Access Key**, and the
      **S3 endpoint** (`https://<account-id>.r2.cloudflarestorage.com`).
 
@@ -47,7 +47,7 @@ rclone config create r2 s3 \
 Verify:
 
 ```sh
-rclone lsd r2:                       # should list cta-db-backups
+rclone lsd r2:                       # should list cta-insights-db-backups
 scripts/backup-db.sh                 # first real backup
 scripts/restore-db.sh --list         # should show the file you just uploaded
 ```
@@ -56,7 +56,7 @@ scripts/restore-db.sh --list         # should show the file you just uploaded
 
 The backup script keeps only 2 local copies; remote retention is handled by an
 R2 lifecycle rule rather than scripted deletes (safer — the server can't
-accidentally wipe history). In the dashboard: **R2 → cta-db-backups →
+accidentally wipe history). In the dashboard: **R2 → cta-insights-db-backups →
 Settings → Object lifecycle rules → Add rule → delete objects N days after
 creation** (30 days is a reasonable default at this size/cost).
 

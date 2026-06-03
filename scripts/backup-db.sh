@@ -12,14 +12,14 @@
 #   scripts/backup-db.sh
 #
 # Env overrides:
-#   RCLONE_REMOTE   rclone "remote:bucket" target   (default: r2:cta-db-backups)
+#   RCLONE_REMOTE   rclone "remote:bucket" target   (default: r2:cta-insights-db-backups)
 #   KEEP_LOCAL      local snapshots to retain        (default: 2)
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DB="$REPO_DIR/state/history.sqlite"
 WORKDIR="$REPO_DIR/tmp/db-backups"
-REMOTE="${RCLONE_REMOTE:-r2:cta-db-backups}"
+REMOTE="${RCLONE_REMOTE:-r2:cta-insights-db-backups}"
 KEEP_LOCAL="${KEEP_LOCAL:-2}"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
