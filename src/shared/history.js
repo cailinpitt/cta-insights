@@ -523,17 +523,35 @@ function recordAlertSeen(
       );
   }
   if (existing) {
-    // Re-engage tracking when (a) post finally lands after a premature
-    // resolution sweep wiped resolved_ts before any post existed, or (b) the
-    // alert was previously resolved and CTA re-published the same id after a
-    // gap. Both end up with resolved_ts non-null and need clearing here, or
-    // listUnresolvedAlerts will never pick the row up again.
-    const reEngage =
-      existing.resolved_ts != null &&
+    const wasResolved = existing.resolved_ts != null;
+    // A genuinely new chapter under the same alert id: the post finally landed
+    // after a premature resolution sweep wiped resolved_ts before any post
+    // existed, or CTA re-published the same id after a long enough gap to count
+    // as a fresh incident. New chapters start clean — clear resolved_ts AND the
+    // prior chapter's resolution reply, and log a version unconditionally so
+    // the timeline shows the gap even if the text is unchanged.
+    const newChapter =
+      wasResolved &&
       ((postUri && !existing.post_uri) || now - existing.last_seen_ts > ALERT_FLICKER_RESET_MS);
-    if (reEngage) {
-      db()
-        .prepare(`
+    // A short flicker: CTA dropped the alert long enough for us to resolve it
+    // (≥ ALERT_CLEAR_TICKS absent) but re-listed it within the flicker window.
+    // It's the SAME incident, not a new one — clear resolved_ts so tracking
+    // resumes and the duration reflects the real end, but KEEP
+    // resolved_reply_uri so postResolution skips a duplicate "CTA cleared"
+    // reply when it re-resolves. Without this, an alert that flickers out for
+    // 6–30 min stays frozen at the premature resolved_ts while versions and
+    // last_seen_ts keep advancing (duration < time of the last version).
+    const flickerReopen = wasResolved && !newChapter;
+    // SQL fragment that clears the resolution columns for this sighting. No
+    // bound params — the values are constant — so it embeds directly.
+    const resolutionReset = newChapter
+      ? ', resolved_ts = NULL, resolved_reply_uri = NULL, clear_ticks = 0'
+      : flickerReopen
+        ? ', resolved_ts = NULL, clear_ticks = 0'
+        : '';
+    if (newChapter || isVersionChange) insertVersion();
+    db()
+      .prepare(`
         UPDATE alert_posts
         SET last_seen_ts = ?, post_uri = COALESCE(?, post_uri),
             headline = COALESCE(?, headline), routes = COALESCE(?, routes),
@@ -545,69 +563,27 @@ function recordAlertSeen(
             cta_event_start_ts = COALESCE(?, cta_event_start_ts),
             cta_event_start_is_date_only = CASE WHEN ? IS NULL THEN cta_event_start_is_date_only ELSE ? END,
             cta_event_end_ts = COALESCE(?, cta_event_end_ts),
-            cta_event_end_is_date_only = CASE WHEN ? IS NULL THEN cta_event_end_is_date_only ELSE ? END,
-            resolved_ts = NULL, resolved_reply_uri = NULL, clear_ticks = 0
+            cta_event_end_is_date_only = CASE WHEN ? IS NULL THEN cta_event_end_is_date_only ELSE ? END${resolutionReset}
         WHERE alert_id = ?
       `)
-        .run(
-          now,
-          postUri || null,
-          headline || null,
-          routes || null,
-          sd,
-          af,
-          at,
-          ad,
-          ms,
-          es,
-          es,
-          esDate,
-          ee,
-          ee,
-          eeDate,
-          alertId,
-        );
-      // Re-engagement after a resolution gap is always a new chapter — log
-      // the message state at re-publication time even if the text matches
-      // the prior chapter, so the timeline shows the gap.
-      insertVersion();
-    } else {
-      if (isVersionChange) insertVersion();
-      db()
-        .prepare(`
-        UPDATE alert_posts
-        SET last_seen_ts = ?, post_uri = COALESCE(?, post_uri),
-            headline = COALESCE(?, headline), routes = COALESCE(?, routes),
-            short_description = COALESCE(?, short_description),
-            affected_from_station = COALESCE(?, affected_from_station),
-            affected_to_station = COALESCE(?, affected_to_station),
-            affected_direction = COALESCE(?, affected_direction),
-            mentioned_stations = COALESCE(?, mentioned_stations),
-            cta_event_start_ts = COALESCE(?, cta_event_start_ts),
-            cta_event_start_is_date_only = CASE WHEN ? IS NULL THEN cta_event_start_is_date_only ELSE ? END,
-            cta_event_end_ts = COALESCE(?, cta_event_end_ts),
-            cta_event_end_is_date_only = CASE WHEN ? IS NULL THEN cta_event_end_is_date_only ELSE ? END
-        WHERE alert_id = ?
-      `)
-        .run(
-          now,
-          postUri || null,
-          headline || null,
-          routes || null,
-          sd,
-          af,
-          at,
-          ad,
-          ms,
-          es,
-          es,
-          esDate,
-          ee,
-          ee,
-          eeDate,
-          alertId,
-        );
-    }
+      .run(
+        now,
+        postUri || null,
+        headline || null,
+        routes || null,
+        sd,
+        af,
+        at,
+        ad,
+        ms,
+        es,
+        es,
+        esDate,
+        ee,
+        ee,
+        eeDate,
+        alertId,
+      );
     return;
   }
   insertVersion();

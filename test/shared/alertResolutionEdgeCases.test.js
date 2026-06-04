@@ -89,6 +89,40 @@ test('Bug 22: resolved alert re-published after flicker gap re-engages', () => {
   }
 });
 
+test('Bug 23: resolved alert re-listed inside flicker window reopens but keeps reply uri', () => {
+  // Real case (alert 115308, 2026-06-04): CTA dropped the alert long enough to
+  // resolve it (≥ ALERT_CLEAR_TICKS), then re-listed it ~6 min later and kept
+  // posting updates. Pre-fix, resolved_ts froze at the premature clear while
+  // versions/last_seen advanced, so duration read 4 min for a ~50 min event.
+  const { history, cleanup } = loadHistoryWithDb();
+  try {
+    const t0 = Date.now() - 10 * 60 * 1000; // 10 min ago (inside 30-min window)
+    history.recordAlertSeen(
+      { alertId: 'F', kind: 'train', routes: 'y', headline: 'h', postUri: 'at://orig' },
+      t0,
+    );
+    history.recordAlertResolved({ alertId: 'F', replyUri: 'at://reply' }, t0 + 1000);
+
+    // Same id re-listed a few minutes later (short flicker, no new post uri).
+    history.recordAlertSeen({
+      alertId: 'F',
+      kind: 'train',
+      routes: 'y',
+      headline: 'h2',
+      postUri: null,
+    });
+    const row = history.getAlertPost('F');
+    // Reopened so listUnresolvedAlerts tracks it again and duration extends...
+    assert.equal(row.resolved_ts, null);
+    assert.equal(row.clear_ticks, 0);
+    // ...but the original clear reply is preserved, so postResolution won't
+    // post a duplicate "CTA cleared" reply when it re-resolves.
+    assert.equal(row.resolved_reply_uri, 'at://reply');
+  } finally {
+    cleanup();
+  }
+});
+
 test('recordAlertSeen does not touch resolved_ts on normal subsequent ticks', () => {
   const { history, cleanup } = loadHistoryWithDb();
   try {

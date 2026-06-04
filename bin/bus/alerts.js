@@ -169,6 +169,23 @@ async function postNewAlert(alert, agentGetter) {
 }
 
 async function postResolution(alertRow, agentGetter) {
+  // Already carries a resolution reply from an earlier chapter: the alert
+  // flickered out, we posted "CTA cleared", then CTA re-listed it within the
+  // flicker window and recordAlertSeen reopened it (keeping resolved_reply_uri).
+  // Re-stamp resolved_ts to this clear without posting a duplicate reply.
+  if (alertRow.resolved_reply_uri) {
+    if (DRY_RUN) {
+      console.log(
+        `--- DRY RUN alert ${alertRow.alert_id} re-resolved after flicker; would keep existing reply, no duplicate (DB write skipped) ---`,
+      );
+      return;
+    }
+    console.log(
+      `Alert ${alertRow.alert_id} re-resolved after flicker — keeping existing reply, no duplicate posted`,
+    );
+    recordAlertResolved({ alertId: alertRow.alert_id, replyUri: alertRow.resolved_reply_uri });
+    return;
+  }
   const pseudoAlert = { headline: alertRow.headline };
   const text = buildResolutionReplyText({ alert: pseudoAlert, kind: KIND });
 
