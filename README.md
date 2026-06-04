@@ -110,6 +110,12 @@ sudo scripts/install-logrotate.sh
 
 The installer detects the owner of the local `cron/` directory and substitutes `CRON_LOG_DIR` / `SU_USER` / `SU_GROUP` placeholders before writing to `/etc/logrotate.d/cta-insights`, then validates the result with `logrotate -d`. The system's daily logrotate timer picks it up overnight; the `su` directive is required because the cron log directory isn't root-owned.
 
+### Monitoring
+
+Liveness is delegated to [healthchecks.io](https://healthchecks.io). After each run, `cron-run.sh` (and `push-web-data.sh`, via its EXIT trap) pings `https://hc-ping.com/<ping-key>/<slug>/<exit-code>?create=1`, where `<slug>` is the job's log-name and the exit code lets healthchecks alert on both silence (the box/network/CTA API died) and a job that ran but crashed. The `?create=1` ([auto-provisioning](https://healthchecks.io/docs/autoprovisioning/)) means the first ping for a slug creates its check automatically — no pre-registration. Its dashboard is the at-a-glance "what ran recently / what's overdue" view, and notification routing (email, ntfy, …) is configured in its UI — nothing to self-host.
+
+Only a curated subset pings, via the `HC_MONITORED` allowlist in [`bin/cron-run.sh`](bin/cron-run.sh): the full roster is 23 jobs but the free tier caps at 20 checks, so the committed allowlist watches the ~18 that matter (canaries, posting bots, real-time detectors, GTFS freshness) and skips the low-stakes ones (recaps, snapshot, `fetch-signals`, `incident-roundup`). Widen/narrow by editing that list. Pinging is a no-op unless `cron/healthchecks.env` exists on the server; copy [`cron/healthchecks.env.example`](cron/healthchecks.env.example) and follow its setup notes (paste the project ping key; tune each auto-created check's period + grace, since they default to a loose 1d/1h).
+
 ## Scripts reference
 
 All bin scripts accept `--dry-run` (writes image under `assets/` instead of posting). Recap scripts additionally accept `--window week|month` (default `month`).

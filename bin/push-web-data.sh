@@ -39,19 +39,19 @@ WORK="$CTA_INSIGHTS/tmp/web-data"
 LAST="$WORK/.last"
 mkdir -p "$WORK" "$LAST"
 
-# Heartbeat ping (optional; mirrors bin/cron-run.sh). Fired from an EXIT trap so
-# it covers every exit — the no-op "no change" exit, the normal end, and any
-# set -e failure — meaning a quiet (unchanged) tick still counts as alive rather
-# than looking silent. No-op unless cron/heartbeat.env exists.
-[ -f "$CTA_INSIGHTS/cron/heartbeat.env" ] && . "$CTA_INSIGHTS/cron/heartbeat.env"
-hb_ping() {
-  [ -n "${HB_PING_URL:-}" ] || return 0
-  _st=$([ "$1" -eq 0 ] && echo ok || echo fail)
+# healthchecks.io ping (optional; mirrors bin/cron-run.sh). Fired from an EXIT
+# trap so it covers every exit — the no-op "no change" exit, the normal end, and
+# any set -e failure — meaning a quiet (unchanged) tick still counts as alive
+# rather than looking silent. The exit code is sent straight to healthchecks
+# (0 = success, non-zero = failure). No-op unless cron/healthchecks.env exists.
+[ -f "$CTA_INSIGHTS/cron/healthchecks.env" ] && . "$CTA_INSIGHTS/cron/healthchecks.env"
+hc_ping() {
+  [ -n "${HC_PING_KEY:-}" ] || return 0
+  # ?create=1 auto-creates the check on its first ping (no-op once it exists).
   curl -fsS -m 10 --retry 2 -X POST \
-    -H "Authorization: Bearer $HB_PING_TOKEN" \
-    "$HB_PING_URL/ping/push-web-data?status=$_st" >/dev/null 2>&1 || true
+    "${HC_PING_URL:-https://hc-ping.com}/$HC_PING_KEY/push-web-data/$1?create=1" >/dev/null 2>&1 || true
 }
-trap 'hb_ping $?' EXIT
+trap 'hc_ping $?' EXIT
 
 # 1. Export current data into the working dir (readonly DB read, cron-safe).
 node "$CTA_INSIGHTS/bin/export-web.js" "$WORK/alerts.json"

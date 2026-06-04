@@ -115,8 +115,8 @@ R=/path/to/cta-insights/bin/cron-run.sh
 # (data.chicagotransitalerts.app) and fires a GitHub repository_dispatch rebuild
 # when the data changed. Standalone /bin/sh script (not via cron-run.sh, which is
 # node-only); also invoked event-driven by src/shared/webPushTrigger.js ~30s
-# after a new post. No-ops on byte-identical data. Pings the heartbeat monitor
-# via its own EXIT trap (covers the no-op exit too). Logs into the
+# after a new post. No-ops on byte-identical data. Pings healthchecks.io via its
+# own EXIT trap (covers the no-op exit too). Logs into the
 # cta-alert-history checkout. NOTE: the live crontab also sets a vestigial
 # PAGES_REPO= — unused since the R2 migration replaced the git-commit-to-Pages
 # flow; omitted here.
