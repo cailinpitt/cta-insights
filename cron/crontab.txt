@@ -78,6 +78,10 @@ R=/path/to/cta-insights/bin/cron-run.sh
 0-58/2  *  *  *  *   $R bus-alerts       bin/bus/alerts.js
 1-59/2  *  *  *  *   $R bus-pulse        bin/bus/pulse.js
 6-59/20 *  *  *  *   $R bus-gaps         bin/bus/gaps.js
+# bus-thin-gaps: gap detection for low-frequency routes, every 15 min on a :13
+# offset so it doesn't share a wall minute with bus-gaps (:06/26/46) or the
+# pulse/alerts cadence.
+13-58/15 *  *  *  *  $R bus-thin-gaps    bin/bus/thin-gaps.js
 0       */2 *  *  *  $R bus-speedmap     bin/bus/speedmap.js
 7       *  *  *  *   $R bus-ghosts       bin/bus/ghosts.js
 # observe-buses runs every minute. CTA refreshes every 30s, so 60s misses at
@@ -105,6 +109,18 @@ R=/path/to/cta-insights/bin/cron-run.sh
 # --- Reference data refresh ---
 15      3  *  *  *   $R fetch-gtfs       scripts/fetch-gtfs.js
 0       4  1  *  *   $R fetch-signals    scripts/fetch-signals.js
+
+# --- Web data publish ---
+# Publishes alerts.json + daily-counts.json to the R2 data origin
+# (data.chicagotransitalerts.app) and fires a GitHub repository_dispatch rebuild
+# when the data changed. Standalone /bin/sh script (not via cron-run.sh, which is
+# node-only); also invoked event-driven by src/shared/webPushTrigger.js ~30s
+# after a new post. No-ops on byte-identical data. Pings the heartbeat monitor
+# via its own EXIT trap (covers the no-op exit too). Logs into the
+# cta-alert-history checkout. NOTE: the live crontab also sets a vestigial
+# PAGES_REPO= — unused since the R2 migration replaced the git-commit-to-Pages
+# flow; omitted here.
+*/15    *  *  *  *   CTA_INSIGHTS=/path/to/cta-insights /bin/sh /path/to/cta-insights/bin/push-web-data.sh >> $HOME/Development/cta-alert-history/cron/push-web-data-cron.log 2>&1
 
 # --- Backups ---
 # Off-box backup of state/history.sqlite to Cloudflare R2. Standalone shell
