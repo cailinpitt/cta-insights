@@ -43,9 +43,11 @@ const CHECKS = {
   'train-ghosts': { period: 60 * M, grace: 20 * M },
   // Health audit, every 30 min.
   'audit-alerts': { period: 30 * M, grace: 20 * M },
-  // Speedmaps, every 2 hours.
-  'bus-speedmap': { period: 120 * M, grace: 30 * M },
-  'train-speedmap': { period: 120 * M, grace: 30 * M },
+  // Speedmaps, every 2 hours. Each run takes ~1h, so grace MUST exceed the
+  // runtime: with /start pings, healthchecks marks a check down if the finish
+  // ping doesn't arrive within grace of the start. 90m covers a ~1h run + buffer.
+  'bus-speedmap': { period: 120 * M, grace: 90 * M },
+  'train-speedmap': { period: 120 * M, grace: 90 * M },
   // GTFS refresh, daily at 03:15.
   'fetch-gtfs': { period: 24 * 60 * M, grace: 2 * 60 * M },
 };
