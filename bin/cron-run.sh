@@ -23,7 +23,7 @@ rc=$?
 [ -f cron/heartbeat.env ] && . cron/heartbeat.env
 if [ -n "$HB_PING_URL" ]; then
   st=$([ "$rc" -eq 0 ] && echo ok || echo fail)
-  curl -fsS -m 10 --retry 2 \
+  curl -fsS -m 10 --retry 2 -X POST \
     -H "Authorization: Bearer $HB_PING_TOKEN" \
     "$HB_PING_URL/ping/$NAME?status=$st" >/dev/null 2>&1 || true
 fi
