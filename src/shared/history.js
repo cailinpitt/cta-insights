@@ -976,6 +976,23 @@ function recordDisruption(
     );
 }
 
+// Metra cancellation trip_ids already recorded for a service date, so the hourly
+// detector doesn't re-insert a cancellation it logged on an earlier run. Keyed on
+// the trip_id + serviceDate stored in the evidence JSON (the same trip_id repeats
+// every weekday, so dedup MUST be scoped to the service date). Returns a Set.
+function getMetraCancelledTripIds(serviceDate) {
+  const rows = db()
+    .prepare(`
+    SELECT DISTINCT json_extract(evidence, '$.tripId') AS tripId
+    FROM disruption_events
+    WHERE kind = 'metra'
+      AND source IN ('cancellation', 'cancellation-inferred')
+      AND json_extract(evidence, '$.serviceDate') = ?
+  `)
+    .all(serviceDate);
+  return new Set(rows.map((r) => r.tripId).filter(Boolean));
+}
+
 function getPulseState(line, direction) {
   return (
     db()
@@ -1732,6 +1749,7 @@ module.exports = {
   recordGhostEvent,
   ALERT_CLEAR_TICKS,
   recordDisruption,
+  getMetraCancelledTripIds,
   getRecentPulsePost,
   getRecentPulsePostsAll,
   hasObservedClearForPulse,

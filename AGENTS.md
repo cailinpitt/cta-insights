@@ -109,6 +109,16 @@ Brief list; deeper rationale in the linked deep-dives.
 - **Service-corridor clip** — `detectDeadSegments` excludes bins outside
   the past-6h obs bbox; synthesized candidates clip from/to to in-corridor
   stations. Stops weekend Purple Express track from reading cold.
+- **Metra cancellations: feed-health guard + hourly rollup ≠ threaded
+  incident.** The inferred-cancellation layer (`src/metra/cancellations.js`) is
+  suppressed when `isFeedHealthy` fails — a fleet-wide feed stall makes every
+  trip look unobserved. Cancellations are recorded to `disruption_events`
+  (`posted=0`, website-data-first) and posted only as an hourly per-line rollup
+  (`bin/metra/cancellations.js`), with NO per-incident thread/clear machinery —
+  don't add one. Dedup is keyed on `trip_id` + `serviceDate`
+  (`getMetraCancelledTripIds`); the same `trip_id` repeats every weekday, so
+  dropping the date scope would suppress today's cancellation because last
+  week's was recorded.
 
 ### Held-train + multi-signal correlation (post-2026-05-03)
 
@@ -151,6 +161,8 @@ Four cases (pulse-first/CTA-first/pulse-only/CTA-only) detailed in
 | Metra API / feed decode | `src/metra/api.js` (GTFS-rt protobuf), `scripts/observeMetra.js` |
 | Metra schedule index + line/station geometry | `scripts/fetch-metra-gtfs.js`, `src/metra/data/*` |
 | Metra line metadata | `src/metra/lines.js` |
+| Metra cancellations (confirmed + inferred) | `src/metra/cancellations.js`, `bin/metra/cancellations.js`, `src/metra/schedule.js` |
+| Metra alerts / speedmap | `src/metra/{metraAlerts,speedmap}.js`, `bin/metra/{alerts,speedmap}.js` |
 | Bunching / Gap / Ghost detection | `src/{bus,train}/{bunching,gaps,ghosts}.js` |
 | Pulse | `src/{bus,train}/pulse.js` + `bin/{bus,train}/pulse.js` |
 | Speedmap | `src/{bus,train}/speedmap.js` |

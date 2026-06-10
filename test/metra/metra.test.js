@@ -20,6 +20,9 @@ const {
   computeMetraSamples,
   directionLabel,
 } = require('../../src/metra/speedmap');
+const { detectCancellations, isFeedHealthy } = require('../../src/metra/cancellations');
+const { activeServiceIds, scheduledDeparturesInWindow } = require('../../src/metra/schedule');
+const { tally, buildRollupText } = require('../../bin/metra/cancellations');
 
 // --- lines.js ---
 
@@ -306,4 +309,168 @@ test('directionLabel maps GTFS direction_id to rider labels', () => {
   assert.strictEqual(directionLabel('1'), 'Inbound');
   assert.strictEqual(directionLabel('0'), 'Outbound');
   assert.strictEqual(directionLabel('unknown'), 'Unknown direction');
+});
+
+// --- cancellation detector ---
+
+const T = (id, route, depMs, extra = {}) => ({
+  tripId: id,
+  route,
+  scheduledDepMs: depMs,
+  serviceDate: '20260609',
+  headsign: 'Chicago',
+  ...extra,
+});
+
+test('detectCancellations passes confirmed through and tags source', () => {
+  const { confirmed, inferred } = detectCancellations({
+    canceledTrips: [T('A', 'BNSF', 0)],
+    candidateTrips: [],
+    now: 1000,
+  });
+  assert.strictEqual(confirmed.length, 1);
+  assert.strictEqual(confirmed[0].source, 'cancellation');
+  assert.strictEqual(inferred.length, 0);
+});
+
+test('detectCancellations infers a departed, never-seen trip', () => {
+  const now = 100 * 60000;
+  const { inferred } = detectCancellations({
+    candidateTrips: [T('A', 'BNSF', now - 30 * 60000)], // departed 30 min ago
+    observedTripIds: new Set(),
+    livePredictionTripIds: new Set(),
+    now,
+    feedHealthy: true,
+  });
+  assert.strictEqual(inferred.length, 1);
+  assert.strictEqual(inferred[0].source, 'cancellation-inferred');
+});
+
+test('detectCancellations does NOT infer when the trip was observed, predicted, canceled, or alerted', () => {
+  const now = 100 * 60000;
+  const dep = now - 30 * 60000;
+  const base = { candidateTrips: [T('A', 'BNSF', dep)], now, feedHealthy: true };
+  assert.strictEqual(
+    detectCancellations({ ...base, observedTripIds: new Set(['A']) }).inferred.length,
+    0,
+  );
+  assert.strictEqual(
+    detectCancellations({ ...base, livePredictionTripIds: new Set(['A']) }).inferred.length,
+    0,
+  );
+  assert.strictEqual(
+    detectCancellations({ ...base, alertCoveredTripIds: new Set(['A']) }).inferred.length,
+    0,
+  );
+  assert.strictEqual(
+    detectCancellations({ ...base, canceledTrips: [T('A', 'BNSF', dep)] }).inferred.length,
+    0,
+  );
+});
+
+test('detectCancellations respects the grace window (recent departure is not yet a ghost)', () => {
+  const now = 100 * 60000;
+  const { inferred } = detectCancellations({
+    candidateTrips: [T('A', 'BNSF', now - 5 * 60000)], // only 5 min ago < 15 min grace
+    now,
+    feedHealthy: true,
+  });
+  assert.strictEqual(inferred.length, 0);
+});
+
+test('detectCancellations suppresses the inferred layer when the feed is unhealthy', () => {
+  const now = 100 * 60000;
+  const out = detectCancellations({
+    canceledTrips: [T('A', 'BNSF', 0)],
+    candidateTrips: [T('B', 'UP-N', now - 30 * 60000)],
+    now,
+    feedHealthy: false,
+  });
+  assert.strictEqual(out.confirmed.length, 1, 'confirmed still reported');
+  assert.strictEqual(out.inferred.length, 0, 'inferred suppressed');
+});
+
+test('isFeedHealthy: fresh + continuous is healthy, stale or gappy is not', () => {
+  const now = 100 * 60000;
+  const cont = [];
+  for (let t = now - 28 * 60000; t <= now; t += 60000) cont.push(t); // every minute
+  assert.ok(isFeedHealthy(cont, now));
+  assert.ok(!isFeedHealthy([now - 20 * 60000], now), 'stale newest'); // nothing fresh
+  assert.ok(!isFeedHealthy([], now), 'empty');
+  const gappy = [now - 28 * 60000, now]; // 28-min gap
+  assert.ok(!isFeedHealthy(gappy, now), 'internal gap');
+});
+
+// --- rollup text + schedule helpers ---
+
+test('tally formats per-line counts sorted by count desc', () => {
+  const events = [{ route: 'BNSF' }, { route: 'BNSF' }, { route: 'UP-N' }];
+  assert.strictEqual(tally(events), 'BNSF 2 · Union Pacific North 1');
+});
+
+test('buildRollupText shows confirmed counts and a hedged inferred line', () => {
+  const text = buildRollupText([{ route: 'BNSF' }], [{ route: 'UP-W' }]);
+  assert.match(text, /Metra cancellations/);
+  assert.match(text, /BNSF 1/);
+  assert.match(text, /unconfirmed/);
+});
+
+test('activeServiceIds applies day-of-week + calendar_dates exceptions', () => {
+  const index = {
+    calendar: {
+      WK: {
+        days: [true, true, true, true, true, false, false],
+        start_date: '20260101',
+        end_date: '20261231',
+      },
+      SAT: {
+        days: [false, false, false, false, false, true, false],
+        start_date: '20260101',
+        end_date: '20261231',
+      },
+    },
+    calendarDates: [
+      // On this one Tuesday, remove the weekday service and add Saturday service.
+      { service_id: 'WK', date: '20260609', exception_type: 2 },
+      { service_id: 'SAT', date: '20260609', exception_type: 1 },
+    ],
+  };
+  // 20260616 is a plain Tuesday (no exceptions) → WK active.
+  assert.deepStrictEqual([...activeServiceIds(index, '20260616')], ['WK']);
+  // 20260609 (Tuesday) base is WK, but the exceptions remove WK and add SAT.
+  assert.deepStrictEqual([...activeServiceIds(index, '20260609')], ['SAT']);
+});
+
+test('scheduledDeparturesInWindow resolves a trip to a concrete departure', () => {
+  const index = {
+    calendar: {
+      WK: {
+        days: [true, true, true, true, true, false, false],
+        start_date: '20260101',
+        end_date: '20261231',
+      },
+    },
+    calendarDates: [],
+    trips: {
+      T1: {
+        route_id: 'BNSF',
+        service_id: 'WK',
+        headsign: 'Chicago Union Station',
+        direction_id: 1,
+        stop_times: [
+          { stop_id: 'AURORA', stop_sequence: 1, departure: 16 * 3600 + 10 * 60 }, // 16:10
+          { stop_id: 'CUS', stop_sequence: 28, arrival: 17 * 3600 + 15 * 60 },
+        ],
+      },
+    },
+  };
+  // Tuesday 20260609, wide window covering all day.
+  const now = Date.UTC(2026, 5, 9, 23, 0, 0); // ~6pm CT
+  const deps = scheduledDeparturesInWindow(index, now - 20 * 3600e3, now, now);
+  const t1 = deps.find((d) => d.tripId === 'T1');
+  assert.ok(t1, 'resolved T1');
+  assert.strictEqual(t1.route, 'BNSF');
+  assert.strictEqual(t1.originStopId, 'AURORA');
+  assert.strictEqual(t1.destStopId, 'CUS');
+  assert.strictEqual(t1.directionId, 1);
 });

@@ -159,6 +159,60 @@ function recordMetraTripUpdates(tripUpdates, now = Date.now()) {
   }
 }
 
+// --- Metra cancellation-detection reads (Phase 2). Built from the data
+// observeMetra continuously records, so the hourly detector reflects everything
+// the feed showed in the window, not just a single tick. ---
+
+// Distinct (trip_id, route) flagged CANCELED in the trip-updates feed since
+// `sinceTs` — the CONFIRMED cancellations Metra reported in the window.
+function getMetraCanceledTrips(sinceTs) {
+  return getDb()
+    .prepare(`
+    SELECT DISTINCT trip_id AS tripId, route
+    FROM metra_trip_updates
+    WHERE schedule_relationship = 'CANCELED' AND ts >= ? AND trip_id IS NOT NULL
+  `)
+    .all(sinceTs);
+}
+
+// Set of trip_ids that had at least one real vehicle position since `sinceTs` —
+// "this train actually ran" (used to clear inferred-cancellation candidates).
+function getMetraObservedTripIds(sinceTs) {
+  const rows = getDb()
+    .prepare(`
+    SELECT DISTINCT trip_id FROM observations
+    WHERE kind = 'metra' AND trip_id IS NOT NULL AND ts >= ?
+  `)
+    .all(sinceTs);
+  return new Set(rows.map((r) => r.trip_id));
+}
+
+// Set of trip_ids producing real (non-NO_DATA) live predictions since `sinceTs` —
+// a trip with a concrete predicted arrival/departure is running, so it's not a
+// ghost even if no position row landed under its trip_id.
+function getMetraLivePredictionTripIds(sinceTs) {
+  const rows = getDb()
+    .prepare(`
+    SELECT DISTINCT trip_id FROM metra_trip_updates
+    WHERE trip_id IS NOT NULL AND ts >= ?
+      AND (predicted_arr IS NOT NULL OR predicted_dep IS NOT NULL)
+  `)
+    .all(sinceTs);
+  return new Set(rows.map((r) => r.trip_id));
+}
+
+// Distinct Metra snapshot timestamps since `sinceTs` (from positions), for the
+// feed-health guard — gaps here mean the feed/ingestion stalled.
+function getMetraSnapshotTimestamps(sinceTs) {
+  const rows = getDb()
+    .prepare(`
+    SELECT DISTINCT ts FROM observations
+    WHERE kind = 'metra' AND ts >= ?
+  `)
+    .all(sinceTs);
+  return rows.map((r) => r.ts);
+}
+
 // Recent Metra positions for corridor/speed reads, mirroring
 // getRecentTrainPositions. `direction`/`destination` are null until a detector
 // resolves them from the schedule index, so callers join on trip_id.
@@ -354,6 +408,10 @@ module.exports = {
   recordMetraObservations,
   recordMetraTripUpdates,
   getRecentMetraPositions,
+  getMetraCanceledTrips,
+  getMetraObservedTripIds,
+  getMetraLivePredictionTripIds,
+  getMetraSnapshotTimestamps,
   getBusObservations,
   getLastBusObservationTs,
   getKnownBusPidsForRoute,

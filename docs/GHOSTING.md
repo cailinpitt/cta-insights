@@ -8,6 +8,8 @@ A **ghost** is the difference between the service the CTA promises and what's ac
 
 The bot only posts when the gap is large enough and consistent enough that it almost certainly reflects a real service problem — not a momentary blip in the data feed.
 
+> **Metra's analog of a ghost is a cancellation.** Because Metra is timetabled and its GTFS-realtime feed binds each scheduled `trip_id` to live status, the bot doesn't reconstruct "how many should be running" statistically — it knows exactly which scheduled train is missing. A trip flagged `CANCELED` (confirmed) or one that departed with no train ever seen (inferred) is the Metra ghost. See `docs/METRA.md` (Phase 2 — cancellations); the posting model is an hourly per-line rollup, like the CTA ghost rollups.
+
 ## The plain-English version
 
 Once an hour, for each route or train line, the bot asks two questions:

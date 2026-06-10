@@ -6,9 +6,9 @@ posts we publish for the CTA (cancellations, delays), plus a public dashboard on
 chicagotransitalerts.app.
 
 > **Status:** Phase 0 (ingestion + schedule index + geometry) is built and documented
-> below, along with Phase 1 (alert republish + speedmap). Cancellations, delays, and
-> the frontend are still to come — see `plan-6-9-26.md` for the phased plan and
-> `research_6_9_2026_metra.md` (repo root) for the design rationale.
+> below, along with Phase 1 (alert republish + speedmap) and Phase 2 (cancellations).
+> Delays and the frontend are still to come — see `plan-6-9-26.md` for the phased plan
+> and `research_6_9_2026_metra.md` (repo root) for the design rationale.
 
 ## Why Metra is different from the CTA side
 
@@ -192,10 +192,48 @@ project off-line and are dropped by `maxPerpFt` — full branch coverage is a la
 refinement. Sparse/empty windows record a non-posting row so the round-robin line picker
 (`leastRecentlyPostedSpeedmapRoute`) rotates past them.
 
+## Phase 2 — cancellations (built)
+
+The flagship Metra detection and the analog of CTA "ghost" service — a scheduled train
+that isn't running. Two layers, mirroring the CTA model (official alert + bot pulse),
+in `src/metra/cancellations.js`:
+
+- **Confirmed** — Metra flagged the trip: its GTFS-rt `TripDescriptor` carries
+  `schedule_relationship = CANCELED`. Authoritative.
+- **Inferred** — Metra is silent but the schedule disagrees with reality: a scheduled
+  trip whose departure passed by a 15-min grace with **no vehicle ever observed, no
+  live prediction, no CANCELED flag, and no covering alert**. The true "ghost" — a
+  train that should be running but isn't, that Metra never flagged. Because GTFS static
+  binds each `trip_id` to a concrete timetable (`src/metra/schedule.js` resolves today's
+  active `service_id`s and each trip's wall-clock departure), this is a direct
+  schedule-vs-reality comparison, not the statistical reconstruction CTA needs.
+
+**Feed-health guard.** The inferred layer is FP-prone (like CTA pulse): if the whole
+Metra feed stalls, *every* trip looks unobserved. `isFeedHealthy` checks the recent
+snapshot stream for freshness + gap-freeness; when it fails, the bin suppresses the
+inferred layer entirely (confirmed cancellations, which carry an explicit flag, are
+still safe to report).
+
+**Posting model — hourly rollup, website-data-first** (`bin/metra/cancellations.js`).
+Cancellations are **not** posted per-trip. Every cancellation (confirmed + inferred) is
+recorded to `disruption_events` (`kind='metra'`, `source='cancellation'` /
+`'cancellation-inferred'`, `posted=0`) as the durable record the website reads. Once an
+hour — the CTA ghost cadence — the bin posts a single per-line **digest** of the
+cancellations newly seen that hour to `@metraalertinsights`, silent when there are none.
+Confirmed counts are the headline; inferred ones are appended as a hedged, explicitly
+*unconfirmed* line. There is deliberately **no per-incident thread/clear machinery** —
+the rollup is a fire-and-forget summary. Re-recording is prevented by a dedup keyed on
+`trip_id` + `serviceDate` (the same `trip_id` repeats every weekday, so the date scope
+is essential — see `getMetraCancelledTripIds`).
+
+> Watch item: confirmed cancellations depend on Metra actually setting
+> `schedule_relationship = CANCELED`. Observed so far: Metra sometimes posts a "train
+> will not operate" *alert* without flagging the trip CANCELED in trip-updates — in
+> which case the inferred layer is what catches it. Worth confirming the CANCELED
+> encoding against a live one.
+
 ## Forthcoming phases (see `plan-6-9-26.md`)
 
-- **Phase 2** — cancellations (authoritative + inferred, feed-health guard), posted as
-  an **hourly per-line rollup** (ghost cadence; all per-trip data lives on the website).
 - **Phase 3** — delays (record every train's delay for the website; surface systemic
   per-line delays in the rollup).
 - **Phase 4** — frontend: Metra incidents + per-line performance, behind a CTA↔Metra
@@ -209,6 +247,9 @@ refinement. Sparse/empty windows record a non-posting row so the round-robin lin
 - `src/metra/metraAlerts.js` — alert significance gate + post/resolution text.
 - `src/metra/speedmap.js` — corridor builder + DB-based speed sampling.
 - `src/map/metra/speedmap.js` — Metra-colored speedmap renderer.
+- `src/metra/cancellations.js` — confirmed + inferred cancellation detector + feed-health guard.
+- `src/metra/schedule.js` — service-day resolution + scheduled-departure lookup.
+- `bin/metra/cancellations.js` — cancellation detection + hourly rollup (cron).
 - `src/metra/data/{metraLines,metraStations}.json` — generated geometry (committed).
 - `scripts/fetch-metra-gtfs.js` — schedule index + geometry builder.
 - `scripts/observeMetra.js` — live position/trip-update poller.
