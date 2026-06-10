@@ -146,11 +146,20 @@ function buildMetraResolutionText(header) {
   return `${MODE_EMOJI}✅ Metra reports this is resolved:\n\n${head}`;
 }
 
+// Clean link-card headline for the resolution reply — no leading emoji, points
+// at the incident's archive page on chicagotransitalerts.app. Mirrors CTA's
+// buildResolutionReplyCardTitle so both accounts read consistently.
+function buildMetraResolutionCardTitle(header) {
+  const head = header ? truncateSentence(header, 240) : 'Service alert';
+  return `Metra reports this is resolved: ${head}`;
+}
+
 module.exports = {
   isSignificantMetraAlert,
   alertRelevance,
   buildMetraAlertText,
   buildMetraResolutionText,
+  buildMetraResolutionCardTitle,
   MAJOR_PATTERNS,
   MINOR_PATTERNS,
 };

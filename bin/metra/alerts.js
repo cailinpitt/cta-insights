@@ -3,7 +3,9 @@
 // and posts a threaded "resolved" reply when an alert drops out of the feed.
 // Metra analog of bin/train/alerts.js, but streamlined for Phase 1:
 //   - input is native GTFS-rt (no XML quirks, no severity scoring);
-//   - text-only posts (no disruption-segment maps yet);
+//   - alert posts are text-only (no disruption-segment maps yet);
+//   - the resolved reply carries a link card to the incident's archive page on
+//     chicagotransitalerts.app (the /resolved OG variant), like the CTA accounts;
 //   - no pulse-threading / related-quotes sweep (those arrive with cancellations
 //     in Phase 2).
 // Reuses the kind-generic alert_posts lifecycle helpers in src/shared/history.js
@@ -18,9 +20,16 @@ const {
   alertRelevance,
   buildMetraAlertText,
   buildMetraResolutionText,
+  buildMetraResolutionCardTitle,
 } = require('../../src/metra/metraAlerts');
 const { extractMetraStations } = require('../../src/metra/metraStations');
-const { loginMetraAlerts, postText, resolveReplyRef } = require('../../src/metra/bluesky');
+const {
+  loginMetraAlerts,
+  postText,
+  postTextWithLinkCard,
+  resolveReplyRef,
+} = require('../../src/metra/bluesky');
+const { resolvedEventLink } = require('../../src/shared/eventLink');
 const {
   getAlertPost,
   recordAlertSeen,
@@ -103,7 +112,17 @@ async function postResolution(alertRow, agentGetter) {
   try {
     const replyRef = await resolveReplyRef(agent, alertRow.post_uri);
     if (!replyRef) throw new Error('could not resolve reply ref for alert post');
-    const result = await postText(agent, text, replyRef);
+    // Attach a link card to the incident's archive page on
+    // chicagotransitalerts.app (the /resolved variant, with its "Archived" OG
+    // card), mirroring the CTA alerts account. The rkey comes from the original
+    // alert post, which is also the event page's id.
+    const link = resolvedEventLink(
+      alertRow.post_uri,
+      buildMetraResolutionCardTitle(alertRow.headline),
+    );
+    const result = link
+      ? await postTextWithLinkCard(agent, text, replyRef, link)
+      : await postText(agent, text, replyRef);
     console.log(`Posted metra resolution for alert ${alertRow.alert_id}: ${result.url}`);
     recordAlertResolved({ alertId: alertRow.alert_id, replyUri: result.uri });
   } catch (e) {

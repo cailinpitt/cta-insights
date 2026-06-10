@@ -12,7 +12,9 @@ const {
   isSignificantMetraAlert,
   alertRelevance,
   buildMetraAlertText,
+  buildMetraResolutionCardTitle,
 } = require('../../src/metra/metraAlerts');
+const { resolvedEventLink } = require('../../src/shared/eventLink');
 const {
   buildLineCorridor,
   decimatePolyline,
@@ -262,6 +264,26 @@ test('buildMetraAlertText is Metra-branded and within the post limit', () => {
   );
   assert.match(text, /Per Metra/);
   assert.ok([...text].length <= 300);
+});
+
+test('buildMetraResolutionCardTitle is a clean, emoji-free archive headline', () => {
+  assert.strictEqual(
+    buildMetraResolutionCardTitle('UPW train #56 will not operate'),
+    'Metra reports this is resolved: UPW train #56 will not operate',
+  );
+  // Falls back when no header, never empty.
+  assert.match(buildMetraResolutionCardTitle(null), /Metra reports this is resolved:/);
+});
+
+test('resolution reply links to the Metra incident archive page (/resolved variant)', () => {
+  // The rkey of the original alert post is the event page id on the archive.
+  const link = resolvedEventLink(
+    'at://did:plc:abc/app.bsky.feed.post/3kxyzpostrkey',
+    buildMetraResolutionCardTitle('Heritage Corridor delays'),
+  );
+  assert.strictEqual(link.url, 'https://chicagotransitalerts.app/event/3kxyzpostrkey/resolved');
+  assert.match(link.thumbUrl, /\/resolved\/og\.png$/);
+  assert.match(link.title, /Metra reports this is resolved: Heritage Corridor delays/);
 });
 
 // --- speedmap detector ---

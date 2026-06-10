@@ -139,9 +139,16 @@ Metra uses a separate API token, so it's not on the CTA 100k/day budget.
 Republishes Metra's GTFS-realtime service alerts to the Metra alerts account
 (`loginMetraAlerts`), with a threaded "resolved" reply when an alert drops out of the
 feed. The Metra analog of the CTA republish path, streamlined for Phase 1: text-only
-posts (no disruption maps), no pulse-threading/related-quotes (those arrive with
+alert posts (no disruption maps), no pulse-threading/related-quotes (those arrive with
 cancellations in Phase 2). Reuses the kind-generic `alert_posts` lifecycle helpers with
 `kind='metra'`.
+
+The **resolved reply carries a link card** to the incident's archive page on
+chicagotransitalerts.app — `resolvedEventLink` (`src/shared/eventLink.js`, shared with
+the CTA accounts) builds the `/event/<rkey>/resolved` URL from the original alert post's
+rkey, and `buildMetraResolutionCardTitle` is the emoji-free card headline. The
+`/resolved` suffix targets the "Archived" OG variant the frontend prerenders, so the
+card thumbnail reads as resolved rather than active.
 
 The significance gate (`isSignificantMetraAlert`) is **keyword-driven**, because Metra
 sets `effect = UNKNOWN_EFFECT` on essentially every alert — gating on `effect` alone
