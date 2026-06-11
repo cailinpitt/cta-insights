@@ -24,8 +24,10 @@ const {
   buildMetraResolutionText,
   buildMetraResolutionCardTitle,
   buildMetraCancellationCloseText,
+  buildMetraDelayCloseText,
 } = require('../../src/metra/metraAlerts');
 const { classifyCancellationAlert } = require('../../src/metra/cancellationAlert');
+const { classifyDelayAlert } = require('../../src/metra/delayAlert');
 const { extractMetraStations } = require('../../src/metra/metraStations');
 const {
   loginMetraAlerts,
@@ -40,6 +42,8 @@ const {
   recordAlertResolved,
   recordCancellation,
   finalizeCancellation,
+  recordDelay,
+  finalizeDelay,
   incrementAlertClearTicks,
   resetAlertClearTicks,
   listUnresolvedAlerts,
@@ -106,14 +110,30 @@ function persistCancellation(alertId, cancel, now = Date.now()) {
   }
 }
 
-async function postNewAlert(alert, cancel, agentGetter, now = Date.now()) {
+// Persist the schedule-anchored deadline of a single-train delay. Unlike a
+// cancellation we never finalize on first sight here: even a delay first seen after
+// its deadline gets the close-note via the sweep (it carries the schedule context
+// riders want, unlike an already-departed annulment whose post already says it
+// won't run). recordDelay pushes the deadline out if a worse delay arrives.
+function persistDelay(alertId, delay) {
+  recordDelay({
+    alertId,
+    deadlineTs: delay.deadlineMs,
+    delayMin: delay.maxDelayMin,
+    trainNo: delay.trainNumber,
+  });
+}
+
+async function postNewAlert(alert, cancel, delay, agentGetter, now = Date.now()) {
   const routes = routesFor(alert);
   const text = buildMetraAlertText(alert);
 
   if (DRY_RUN) {
     const tag = cancel
       ? ` [single-train cancellation ${cancel.route} #${cancel.trainNumber}, dep ${new Date(cancel.scheduledDepMs).toISOString()}]`
-      : '';
+      : delay
+        ? ` [single-train delay ${delay.route} #${delay.trainNumber}, +${delay.maxDelayMin}m, resolve-at ${new Date(delay.deadlineMs).toISOString()}]`
+        : '';
     console.log(`--- DRY RUN metra alert ${alert.id} (DB write skipped)${tag} ---\n${text}\n`);
     return;
   }
@@ -150,8 +170,10 @@ async function postNewAlert(alert, cancel, agentGetter, now = Date.now()) {
     },
     now,
   );
-  // After the row exists with its post_uri, anchor the cancellation to the schedule.
+  // After the row exists with its post_uri, anchor the cancellation/delay to the
+  // schedule (mutually exclusive — the classifiers don't both fire on one alert).
   if (cancel) persistCancellation(alert.id, cancel, now);
+  else if (delay) persistDelay(alert.id, delay);
 }
 
 async function postResolution(alertRow, agentGetter) {
@@ -238,6 +260,54 @@ async function sweepCancellationCloses(agentGetter, now = Date.now()) {
   }
 }
 
+// Close a single-train delay whose schedule-anchored deadline has passed: post the
+// neutral threaded note (NOT a "✅ resolved" reply — Metra hasn't cleared it; we
+// inferred from the timetable that the train has arrived) and finalize. Finalize
+// happens even if the reply fails — the schedule, not the post, is the source of
+// truth.
+async function postDelayClose(alertRow, agentGetter) {
+  if (DRY_RUN) {
+    console.log(
+      `--- DRY RUN metra delay close for alert ${alertRow.alert_id} (DB write skipped) ---`,
+    );
+    return;
+  }
+  if (!alertRow.post_uri) {
+    finalizeDelay({ alertId: alertRow.alert_id, replyUri: null });
+    return;
+  }
+  const text = buildMetraDelayCloseText();
+  const agent = await agentGetter();
+  try {
+    const replyRef = await io.resolveReplyRef(agent, alertRow.post_uri);
+    if (!replyRef) throw new Error('could not resolve reply ref for alert post');
+    const result = await io.postText(agent, text, replyRef);
+    console.log(`Posted metra delay close for alert ${alertRow.alert_id}: ${result.url}`);
+    finalizeDelay({ alertId: alertRow.alert_id, replyUri: result.uri });
+  } catch (e) {
+    console.warn(`Metra delay close failed for alert ${alertRow.alert_id}: ${e.message}`);
+    finalizeDelay({ alertId: alertRow.alert_id, replyUri: null });
+  }
+}
+
+// Schedule-anchored finalize sweep for single-train delays: any unresolved row whose
+// deadline (final scheduled arrival + announced delay + grace) has now passed gets
+// its close-note + is finalized. Runs INDEPENDENT of the live feed (even on an empty
+// feed, and even while Metra still shows the delay), because the timetable — not
+// Metra leaving the alert on the wire — decides when the train's run is over.
+async function sweepDelayResolutions(agentGetter, now = Date.now()) {
+  const due = listUnresolvedAlerts(KIND).filter(
+    (r) => r.delay_deadline_ts != null && now >= r.delay_deadline_ts,
+  );
+  for (const row of due) {
+    try {
+      await postDelayClose(row, agentGetter);
+    } catch (e) {
+      console.error(`Failed metra delay close for ${row.alert_id}: ${e.stack || e.message}`);
+    }
+  }
+}
+
 async function main({ now = Date.now() } = {}) {
   setup();
   const alerts = await io.getMetraAlerts();
@@ -260,12 +330,15 @@ async function main({ now = Date.now() } = {}) {
     return agent;
   };
 
-  // Classify each significant alert once — a resolved single-train cancellation
-  // descriptor, or null (open-ended notice → existing ongoing→resolved path).
+  // Classify each significant alert once — a resolved single-train cancellation or
+  // delay descriptor, or null (open-ended notice → existing ongoing→resolved path).
+  // The two are mutually exclusive: classifyDelayAlert bails on cancellation text.
   const cancelFor = (alert) => (index ? classifyCancellationAlert({ alert, index, now }) : null);
+  const delayFor = (alert) => (index ? classifyDelayAlert({ alert, index, now }) : null);
 
   for (const alert of relevant) {
     const cancel = cancelFor(alert);
+    const delay = cancel ? null : delayFor(alert);
     const existing = getAlertPost(alert.id);
     if (existing?.post_uri) {
       // Already posted — refresh last_seen so the resolution sweep doesn't think
@@ -285,15 +358,16 @@ async function main({ now = Date.now() } = {}) {
           },
           now,
         );
-        // Backfill the cancellation window on re-sight too, so alerts posted
-        // before this shipped (or before the index resolved) get anchored. Never
-        // downgrades a finalized row; persist also finalizes if already past.
+        // Backfill the cancellation/delay window on re-sight too, so alerts posted
+        // before this shipped (or before the index resolved) get anchored, and a
+        // worsening delay pushes its deadline out. Never downgrades a finalized row.
         if (cancel) persistCancellation(alert.id, cancel, now);
+        else if (delay) persistDelay(alert.id, delay);
       }
       continue;
     }
     try {
-      await postNewAlert(alert, cancel, agentGetter, now);
+      await postNewAlert(alert, cancel, delay, agentGetter, now);
     } catch (e) {
       console.error(`Failed to post metra alert ${alert.id}: ${e.stack || e.message}`);
     }
@@ -302,6 +376,10 @@ async function main({ now = Date.now() } = {}) {
   // Schedule-anchored cancellation closes — before the empty-feed guard, since
   // these are driven by the timetable, not by what's currently on the wire.
   await sweepCancellationCloses(agentGetter, now);
+  // Schedule-anchored delay closes — also timetable-driven, so likewise before the
+  // empty-feed guard. Resolves a delay the moment the train should have arrived,
+  // even while Metra still shows it on the wire.
+  await sweepDelayResolutions(agentGetter, now);
 
   // Feed flicker guard: Metra occasionally returns an empty feed; don't treat
   // that as "everything resolved at once".

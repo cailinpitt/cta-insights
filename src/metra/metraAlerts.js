@@ -155,6 +155,16 @@ function buildMetraCancellationCloseText() {
   return "ℹ️ This train's scheduled departure time has passed.";
 }
 
+// Threaded reply that closes a single-train delay once the train should have
+// finished its run (final scheduled arrival + the announced delay + grace). Like
+// the cancellation close, this is deliberately NOT the "✅ resolved" reply: Metra
+// hasn't reported it cleared — we INFERRED, from the timetable and the stated delay,
+// that the train has reached its destination by now. Neutral, honest, no claim that
+// service was restored. Plain text, threaded under the original delay post.
+function buildMetraDelayCloseText() {
+  return 'ℹ️ Based on the schedule and the reported delay, this train should have reached its destination by now.';
+}
+
 // Clean link-card headline for the resolution reply — no leading emoji, points
 // at the incident's archive page on chicagotransitalerts.app. Mirrors CTA's
 // buildResolutionReplyCardTitle so both accounts read consistently.
@@ -170,6 +180,7 @@ module.exports = {
   buildMetraResolutionText,
   buildMetraResolutionCardTitle,
   buildMetraCancellationCloseText,
+  buildMetraDelayCloseText,
   MAJOR_PATTERNS,
   MINOR_PATTERNS,
 };

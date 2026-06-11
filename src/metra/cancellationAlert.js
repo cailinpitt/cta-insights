@@ -174,5 +174,7 @@ module.exports = {
   isCancellationText,
   runNumberFromTripId,
   extractTrainNumbers,
+  soleRoute,
+  resolveScheduledTrip,
   CANCELLATION_PATTERNS,
 };

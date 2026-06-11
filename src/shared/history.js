@@ -380,6 +380,23 @@ function db() {
   if (!alertCols.includes('cancel_origin')) {
     _db.exec('ALTER TABLE alert_posts ADD COLUMN cancel_origin TEXT');
   }
+  // Schedule-anchored single-train DELAY tracking (the delay analog of the
+  // cancel_* columns). A qualified delay ("25 to 35 minutes behind schedule")
+  // resolves to one scheduled trip, and `delay_deadline_ts` is when that train —
+  // given its final scheduled arrival plus the announced delay plus a grace buffer
+  // — should have completed its run. Past that, the lifecycle finalizes the event
+  // off the timetable instead of waiting for Metra to drop the alert from the feed.
+  // `delay_min` is the announced magnitude and `delay_train_no` the run number,
+  // both for display. All NULL for every non-delay alert.
+  if (!alertCols.includes('delay_deadline_ts')) {
+    _db.exec('ALTER TABLE alert_posts ADD COLUMN delay_deadline_ts INTEGER');
+  }
+  if (!alertCols.includes('delay_min')) {
+    _db.exec('ALTER TABLE alert_posts ADD COLUMN delay_min INTEGER');
+  }
+  if (!alertCols.includes('delay_train_no')) {
+    _db.exec('ALTER TABLE alert_posts ADD COLUMN delay_train_no TEXT');
+  }
   // Seed alert_versions with the current state of every alert_posts row that
   // has no version history yet. Runs once at startup after the table is
   // created (or after an existing DB picks up the new table on this deploy).
@@ -736,6 +753,43 @@ function finalizeCancellation({ alertId, replyUri }) {
       UPDATE alert_posts
       SET cancel_state = 'cancelled',
           resolved_ts = COALESCE(resolved_ts, MAX(cancel_dep_ts, first_seen_ts)),
+          resolved_reply_uri = COALESCE(resolved_reply_uri, ?)
+      WHERE alert_id = ?
+    `)
+    .run(replyUri || null, alertId);
+}
+
+// Record (or refresh) the schedule-anchored deadline of a single-train delay. The
+// magnitude and run number are set once (COALESCE), but the deadline is pushed to
+// the LATEST seen value (MAX) — if Metra updates the alert with a worse delay, the
+// resolve time moves out with it, so we never close while the train is still more
+// delayed than first announced. Never touches a row already finalized (resolved_ts
+// set); the bin calls this every tick for a not-yet-resolved delay.
+function recordDelay({ alertId, deadlineTs, delayMin, trainNo }) {
+  db()
+    .prepare(`
+      UPDATE alert_posts
+      SET delay_deadline_ts = CASE
+            WHEN delay_deadline_ts IS NULL THEN ?
+            ELSE MAX(delay_deadline_ts, ?)
+          END,
+          delay_min = COALESCE(delay_min, ?),
+          delay_train_no = COALESCE(delay_train_no, ?)
+      WHERE alert_id = ? AND resolved_ts IS NULL
+    `)
+    .run(deadlineTs ?? null, deadlineTs ?? null, delayMin ?? null, trainNo ?? null, alertId);
+}
+
+// Finalize a single-train delay once its deadline has passed: stamp resolved_ts so
+// the row leaves listUnresolvedAlerts (and the feed-drop "resolved" sweep). The
+// honest "event ended" moment is the deadline — when the train should have arrived —
+// but never before we first saw the alert. The neutral close-note reply uri goes in
+// resolved_reply_uri (null when the post failed), mirroring finalizeCancellation.
+function finalizeDelay({ alertId, replyUri }) {
+  db()
+    .prepare(`
+      UPDATE alert_posts
+      SET resolved_ts = COALESCE(resolved_ts, MAX(delay_deadline_ts, first_seen_ts)),
           resolved_reply_uri = COALESCE(resolved_reply_uri, ?)
       WHERE alert_id = ?
     `)
@@ -1828,6 +1882,8 @@ module.exports = {
   recordAlertResolved,
   recordCancellation,
   finalizeCancellation,
+  recordDelay,
+  finalizeDelay,
   incrementAlertClearTicks,
   resetAlertClearTicks,
   listUnresolvedAlerts,
