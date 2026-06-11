@@ -45,17 +45,33 @@ migration). Then:
    ```json
    [
      {
-       "AllowedOrigins": [
-         "https://chicagotransitalerts.app",
-         "http://localhost:5173",
-         "http://localhost:4173"
-       ],
+       "AllowedOrigins": ["*"],
        "AllowedMethods": ["GET", "HEAD"],
        "AllowedHeaders": ["*"],
        "MaxAgeSeconds": 86400
      }
    ]
    ```
+
+   **`AllowedOrigins` MUST be `["*"]`, not a specific-origin list.** This data is
+   public by design (see the README "Data as an API"), so `*` is correct — but
+   the load-bearing reason is caching. When R2 is given specific origins it
+   echoes the matching one back and adds **`Vary: Origin`** to the response.
+   Cloudflare refuses to edge-cache any response whose `Vary` contains anything
+   other than `Accept-Encoding`, so the file becomes uncacheable
+   (`cf-cache-status: DYNAMIC`) and **every** poll/visitor is proxied to the R2
+   origin. R2 origin TTFB spikes badly under load (observed 4–37s on 2026-06-10),
+   so with no edge cache those spikes hit real users. `["*"]` returns
+   `Access-Control-Allow-Origin: *` with no `Vary: Origin`, which lets Cloudflare
+   cache per the upload's `Cache-Control: max-age=30` — origin is then hit only on
+   the ~30s revalidation per edge node, and everyone else gets a fast edge HIT.
+
+   Verify after applying: `curl -sI -H 'Origin: https://chicagotransitalerts.app'
+   https://data.chicagotransitalerts.app/alerts.json | grep -i 'cf-cache-status\|vary'`
+   — expect no `Vary: Origin`, and `cf-cache-status` flips to `HIT`/`MISS` (not
+   `DYNAMIC`) on the second request. If it stays `DYNAMIC`, add a Cloudflare
+   **Cache Rule** (Caching → Cache Rules): match hostname
+   `data.chicagotransitalerts.app` → *Eligible for cache* → *Respect origin TTL*.
 
 ### R2 write credentials (server)
 
