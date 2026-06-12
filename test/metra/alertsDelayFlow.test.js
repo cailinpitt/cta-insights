@@ -86,7 +86,11 @@ function loadBinWithTempDb() {
       posts.push({ text, replyRef: replyRef || null, uri });
       return { uri, url: `https://bsky.app/${uri}` };
     },
-    postTextWithLinkCard: async (_agent, text, replyRef) => bin.io.postText(_agent, text, replyRef),
+    postTextWithLinkCard: async (_agent, text, replyRef, link) => {
+      const uri = `at://did/app.bsky.feed.post/rk${posts.length + 1}`;
+      posts.push({ text, replyRef: replyRef || null, uri, link });
+      return { uri, url: `https://bsky.app/${uri}` };
+    },
     resolveReplyRef: async (_agent, uri) => ({ root: { uri }, parent: { uri } }),
   });
 
@@ -138,6 +142,18 @@ test('qualified delay posts with a schedule-anchored deadline; resolves with a n
     assert.equal(closeNotes.length, 1, 'one close-note');
     assert.match(closeNotes[0].text, /should have reached its destination/);
     assert.ok(!/resolved/i.test(closeNotes[0].text), 'NOT a "resolved" reply');
+    // ...but it links to the incident's archive page, with a neutral card title.
+    assert.ok(closeNotes[0].link, 'close-note carries an archive link card');
+    assert.match(
+      closeNotes[0].link.url,
+      /\/event\/rk1\/resolved$/,
+      'links to the incident archive',
+    );
+    assert.doesNotMatch(
+      closeNotes[0].link.title,
+      /reports this is resolved/i,
+      'neutral card title',
+    );
 
     const r2 = history.getAlertPost('a31');
     assert.equal(r2.resolved_ts, DEADLINE, 'resolved at the deadline, not "now"');

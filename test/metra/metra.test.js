@@ -13,6 +13,7 @@ const {
   alertRelevance,
   buildMetraAlertText,
   buildMetraResolutionCardTitle,
+  buildMetraCloseCardTitle,
 } = require('../../src/metra/metraAlerts');
 const { resolvedEventLink } = require('../../src/shared/eventLink');
 const {
@@ -30,7 +31,11 @@ const {
   runNumberFromTripId,
   extractTrainNumbers,
 } = require('../../src/metra/cancellationAlert');
-const { tally, buildRollupText } = require('../../bin/metra/cancellations');
+const {
+  buildRollupPosts,
+  renderBullets,
+  buildDelayPosts,
+} = require('../../bin/metra/cancellations');
 
 // --- lines.js ---
 
@@ -292,6 +297,16 @@ test('resolution reply links to the Metra incident archive page (/resolved varia
   assert.match(link.title, /Metra reports this is resolved: Heritage Corridor delays/);
 });
 
+test('buildMetraCloseCardTitle is neutral — the headline, no "resolved" claim', () => {
+  assert.strictEqual(
+    buildMetraCloseCardTitle('UPNW Train #655 - delayed'),
+    'UPNW Train #655 - delayed',
+  );
+  assert.doesNotMatch(buildMetraCloseCardTitle('UPW train #56 will not operate'), /resolved/i);
+  // Falls back when no header, never empty.
+  assert.match(buildMetraCloseCardTitle(null), /Metra service alert/);
+});
+
 // --- speedmap detector ---
 
 test('buildLineCorridor returns the longest polyline for a line', () => {
@@ -463,23 +478,93 @@ test('isFeedHealthy: fresh + continuous is healthy, stale or gappy is not', () =
 
 // --- rollup text + schedule helpers ---
 
-test('tally formats per-line counts sorted by count desc', () => {
-  const events = [{ route: 'BNSF' }, { route: 'BNSF' }, { route: 'UP-N' }];
-  assert.strictEqual(tally(events), 'BNSF 2 · Union Pacific North 1');
+// Realtime/static Metra trip_ids embed the rider-facing train number (BN1272 → 1272).
+const trip = (route, no) => ({ route, tripId: `${route}_X${no}_V2_B` });
+const lateTrip = (route, no, delayMin) => ({ ...trip(route, no), delayMin });
+const len = (s) => [...new Intl.Segmenter('en', { granularity: 'grapheme' }).segment(s)].length;
+
+test('renderBullets lists train numbers per line, busiest line first', () => {
+  const bullets = renderBullets([trip('BNSF', 1272), trip('BNSF', 1284), trip('RI', 401)]);
+  assert.deepStrictEqual(bullets, ['• BNSF: #1272, #1284', '• Rock Island: #401']);
 });
 
-test('buildRollupText shows cancellation + inferred + delay lines', () => {
-  const text = buildRollupText([{ route: 'BNSF' }], [{ route: 'UP-W' }], [{ route: 'RI' }]);
-  assert.match(text, /Metra service/);
-  assert.match(text, /Cancelled: BNSF 1/);
-  assert.match(text, /unconfirmed/);
-  assert.match(text, /15\+ min late: Rock Island 1/);
+test('renderBullets caps a busy line with "+N more"', () => {
+  const evs = [10, 11, 12, 13, 14, 15, 16, 17].map((n) => trip('BNSF', n));
+  const [bullet] = renderBullets(evs);
+  assert.match(bullet, /• BNSF: #10, #11, #12, #13, #14, #15, \+2 more/);
 });
 
-test('tally caps long lists so the post stays under the limit', () => {
-  const events = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((r) => ({ route: r }));
-  const text = tally(events, 8);
-  assert.match(text, /\+2 more/);
+test('buildDelayPosts groups delays into severity tiers, worst first, no minutes', () => {
+  const posts = buildDelayPosts(
+    [
+      lateTrip('UP-W', 65, 18),
+      lateTrip('UP-W', 71, 16),
+      lateTrip('BNSF', 1276, 32),
+      lateTrip('RI', 401, 72),
+    ],
+    250,
+  );
+  assert.strictEqual(posts.length, 1);
+  const text = posts[0];
+  assert.match(text, /^🐌 Delays\n/);
+  assert.match(text, /60\+ min\n• Rock Island: #401/);
+  assert.match(text, /30–44 min\n• BNSF: #1276/);
+  assert.match(text, /15–29 min\n• Union Pacific West: #65, #71/);
+  // worst tier first, and no per-train "(N min)"
+  assert.ok(text.indexOf('60+ min') < text.indexOf('30–44 min'));
+  assert.ok(text.indexOf('30–44 min') < text.indexOf('15–29 min'));
+  assert.doesNotMatch(text, /\(\d+ min\)/);
+});
+
+test('buildDelayPosts omits empty tiers', () => {
+  const [post] = buildDelayPosts([lateTrip('BNSF', 1276, 22)], 250);
+  assert.match(post, /15–29 min\n• BNSF: #1276/);
+  assert.doesNotMatch(post, /60\+ min/);
+  assert.doesNotMatch(post, /30–44 min/);
+});
+
+test('buildRollupPosts threads cancellations, not-seen, then one grouped delays post', () => {
+  const posts = buildRollupPosts(
+    [trip('BNSF', 1272), trip('BNSF', 1284)],
+    [trip('UP-W', 65)],
+    [lateTrip('RI', 401, 22)],
+  );
+  assert.strictEqual(posts.length, 3);
+  // root: header + worst signal (confirmed cancellations) with train numbers
+  assert.match(posts[0], /🚆 Metra · past hour/);
+  assert.match(posts[0], /❌ Cancelled\n• BNSF: #1272, #1284/);
+  // reply: the hedged inferred layer
+  assert.match(posts[1], /⚠️ Scheduled but not seen \(unconfirmed\)\n• Union Pacific West: #65/);
+  // last reply: one grouped delays post (bucketed), plus the provenance footer
+  assert.match(posts[2], /🐌 Delays\n\n15–29 min\n• Rock Island: #401/);
+  assert.match(posts[2], /Per Metra realtime data\./);
+  // header/footer live only on root/last — never repeated mid-thread
+  assert.doesNotMatch(posts[1], /Metra · past hour/);
+  assert.doesNotMatch(posts[0], /Per Metra realtime data/);
+});
+
+test('buildRollupPosts is a single grouped post when only delays fire', () => {
+  const posts = buildRollupPosts([], [], [lateTrip('BNSF', 1272, 20), lateTrip('RI', 401, 50)]);
+  assert.strictEqual(posts.length, 1);
+  assert.match(posts[0], /🚆 Metra · past hour/);
+  assert.match(posts[0], /🐌 Delays/);
+  assert.match(posts[0], /45–59 min\n• Rock Island: #401/);
+  assert.match(posts[0], /15–29 min\n• BNSF: #1272/);
+  assert.match(posts[0], /Per Metra realtime data\./);
+});
+
+test('buildRollupPosts is empty when there is nothing to report', () => {
+  assert.deepStrictEqual(buildRollupPosts([], [], []), []);
+});
+
+test('every post stays under the 300-grapheme cap, even on a heavy hour', () => {
+  // Every line, several trains each, spread across delay tiers — worst case.
+  const all = ['BNSF', 'HC', 'MD-N', 'MD-W', 'ME', 'NCS', 'RI', 'SWS', 'UP-N', 'UP-NW', 'UP-W'];
+  const cancels = all.flatMap((r) => [1, 2, 3, 4].map((n) => trip(r, 1000 + n)));
+  const delays = all.flatMap((r) => [18, 33, 48, 70].map((m, i) => lateTrip(r, 2000 + i, m)));
+  const posts = buildRollupPosts(cancels, cancels, delays);
+  assert.ok(posts.length >= 3, 'heavy hour threads (and may spill to cont. posts)');
+  for (const p of posts) assert.ok(len(p) <= 300, `post within limit: ${len(p)}`);
 });
 
 // --- delays detector ---

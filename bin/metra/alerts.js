@@ -23,6 +23,7 @@ const {
   buildMetraAlertText,
   buildMetraResolutionText,
   buildMetraResolutionCardTitle,
+  buildMetraCloseCardTitle,
   buildMetraCancellationCloseText,
   buildMetraDelayCloseText,
 } = require('../../src/metra/metraAlerts');
@@ -233,7 +234,12 @@ async function postCancellationClose(alertRow, agentGetter) {
   try {
     const replyRef = await io.resolveReplyRef(agent, alertRow.post_uri);
     if (!replyRef) throw new Error('could not resolve reply ref for alert post');
-    const result = await io.postText(agent, text, replyRef);
+    // Link the neutral close note to the incident's archive page, like the
+    // feed-drop resolution reply — but with a neutral card title (no "resolved").
+    const link = resolvedEventLink(alertRow.post_uri, buildMetraCloseCardTitle(alertRow.headline));
+    const result = link
+      ? await io.postTextWithLinkCard(agent, text, replyRef, link)
+      : await io.postText(agent, text, replyRef);
     console.log(`Posted metra cancellation close for alert ${alertRow.alert_id}: ${result.url}`);
     finalizeCancellation({ alertId: alertRow.alert_id, replyUri: result.uri });
   } catch (e) {
@@ -281,7 +287,12 @@ async function postDelayClose(alertRow, agentGetter) {
   try {
     const replyRef = await io.resolveReplyRef(agent, alertRow.post_uri);
     if (!replyRef) throw new Error('could not resolve reply ref for alert post');
-    const result = await io.postText(agent, text, replyRef);
+    // Link the neutral close note to the incident's archive page, like the
+    // feed-drop resolution reply — but with a neutral card title (no "resolved").
+    const link = resolvedEventLink(alertRow.post_uri, buildMetraCloseCardTitle(alertRow.headline));
+    const result = link
+      ? await io.postTextWithLinkCard(agent, text, replyRef, link)
+      : await io.postText(agent, text, replyRef);
     console.log(`Posted metra delay close for alert ${alertRow.alert_id}: ${result.url}`);
     finalizeDelay({ alertId: alertRow.alert_id, replyUri: result.uri });
   } catch (e) {

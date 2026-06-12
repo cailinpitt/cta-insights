@@ -186,7 +186,11 @@ the **timetable** instead of the feed.
   (`sweepCancellationCloses`, run even on an empty feed) posts a **neutral** threaded
   note — *"ℹ️ This train's scheduled departure time has passed."*
   (`buildMetraCancellationCloseText`, deliberately not the "✅ resolved" reply) and
-  finalizes when the scheduled departure arrives.
+  finalizes when the scheduled departure arrives. Like the feed-drop resolution reply,
+  the close note carries a link card to the incident's archive page on
+  chicagotransitalerts.app (`resolvedEventLink` + `buildMetraCloseCardTitle`, whose
+  title is neutral — the headline, with no "resolved" claim). The delay close
+  (`buildMetraDelayCloseText`, via `sweepDelayResolutions`) works the same way.
 - **Watch item** — schedule-finalize fires regardless of the feed, so if Metra
   announces a cancellation and the train *actually runs* (rare), it's still marked
   cancelled. The confirmed `schedule_relationship = CANCELED` trip-update flag (the
@@ -281,12 +285,31 @@ Cancellations are **not** posted per-trip. Every cancellation (confirmed + infer
 recorded to `disruption_events` (`kind='metra'`, `source='cancellation'` /
 `'cancellation-inferred'`, `posted=0`) as the durable record the website reads. Once an
 hour — the CTA ghost cadence — the bin posts a single per-line **digest** of the
-cancellations newly seen that hour to `@metraalertinsights`, silent when there are none.
-Confirmed counts are the headline; inferred ones are appended as a hedged, explicitly
-*unconfirmed* line. There is deliberately **no per-incident thread/clear machinery** —
-the rollup is a fire-and-forget summary. Re-recording is prevented by a dedup keyed on
-`trip_id` + `serviceDate` (the same `trip_id` repeats every weekday, so the date scope
-is essential — see `getMetraCancelledTripIds`).
+cancellations newly seen that hour to **`@metrainsights`** (`loginMetra`, the
+analytics/insights account), silent when there are none. This mirrors the CTA split:
+the bot's own schedule-vs-reality detections (ghosts, gaps) post to the *insights*
+accounts (`loginBus`/`loginTrain`), while the alerts account carries republished
+official notices. Cancellation is the ghost analog and delay (Phase 3) the gap analog,
+so the combined rollup belongs on the insights account, not `@metraalertinsights`.
+The digest is **grouped by issue**: one bulleted section per signal type, worst-first
+— `❌ Cancelled`, then the hedged `⚠️ Scheduled but not seen (unconfirmed)`, then
+`🐌 Delays` (Phase 3). Under each heading is one bullet per affected line listing its
+**specific train numbers** (`• BNSF: #1272, #1284`). The train number is parsed from the
+`trip_id` via `runNumberFromTripId`, so it resolves even for inferred cancellations that
+never appeared in the live feed. A line with more than `TRAIN_CAP` (6) affected trains
+collapses the tail into `+N more`; the per-line count is implicit in the list
+(`buildRollupPosts` / `renderBullets` in `bin/metra/cancellations.js`). This replaced an
+earlier run-on "line · line · line" tally that was hard to scan. Each issue type is
+**always its own post in a thread** (root = the worst signal carrying the header, a reply
+per following type, the provenance footer on the last); a heavy cancellation/not-seen
+type spills into `(cont.)` replies via `packSection` so every post stays under the
+300-grapheme cap. A signal stands on its own instead of
+crowding one busy post — only one issue type firing yields a thread of one.
+There is deliberately
+**no per-incident thread/clear machinery** — the rollup is a fire-and-forget summary.
+Re-recording is prevented by a dedup keyed on `trip_id` + `serviceDate` (the same
+`trip_id` repeats every weekday, so the date scope is essential — see
+`getMetraCancelledTripIds`).
 
 > Watch item: confirmed cancellations depend on Metra actually setting
 > `schedule_relationship = CANCELED`. Observed so far: Metra sometimes posts a "train
@@ -309,10 +332,13 @@ trip's worst stop is its representative lateness. observeMetra already records t
 predictions every tick, so this works over recorded data — no extra polling.
 
 **Folded into the hourly rollup** (`bin/metra/cancellations.js`, the same job as
-cancellations — now a combined "Metra service · last hour" digest). Trains ≥ 15 min late
-are recorded to `disruption_events` (`source='delay'`, `posted=0`, website-data-first,
-deduped per `trip_id`+`serviceDate`) and surfaced as a per-line line:
-`🐌 15+ min late: BNSF 3 · Union Pacific West 1`. The 15-min threshold
+cancellations). Trains ≥ 15 min late are recorded to `disruption_events`
+(`source='delay'`, `posted=0`, website-data-first, deduped per `trip_id`+`serviceDate`)
+and surfaced as the `🐌 Delays` post of the grouped-by-issue digest. Rather than a flat
+"15+ min late" list, the post **buckets by severity** — `60+ min` / `45–59 min` /
+`30–44 min` / `15–29 min`, worst tier first (`DELAY_BUCKETS` / `buildDelayPosts`) — with
+one bullet per affected line listing its train numbers under each tier. The tier header
+carries the magnitude, so per-train minutes are omitted. The 15-min threshold
 (`DELAY_THRESHOLD_SEC`) sits well above Metra's < 6-min on-time bar so the rollup stays
 quiet on normal days; calibrate against a shadow week. The raw per-stop delay for the
 full service-performance picture lives in `metra_trip_updates`; the rollup records only

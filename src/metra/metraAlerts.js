@@ -149,8 +149,8 @@ function buildMetraResolutionText(header) {
 // Threaded reply that closes a single-train cancellation once its scheduled
 // departure has passed. Deliberately NOT the "resolved" reply: a cancelled train
 // doesn't un-cancel, so we never imply service was restored — just a neutral note
-// that the train's slot has elapsed. Plain text (no link card / "Archived" OG
-// variant), threaded under the original annulment post which carries the context.
+// that the train's slot has elapsed. The bin attaches a link card to the incident's
+// archive page (with the neutral buildMetraCloseCardTitle), like the resolution reply.
 function buildMetraCancellationCloseText() {
   return "ℹ️ This train's scheduled departure time has passed.";
 }
@@ -160,7 +160,8 @@ function buildMetraCancellationCloseText() {
 // the cancellation close, this is deliberately NOT the "✅ resolved" reply: Metra
 // hasn't reported it cleared — we INFERRED, from the timetable and the stated delay,
 // that the train has reached its destination by now. Neutral, honest, no claim that
-// service was restored. Plain text, threaded under the original delay post.
+// service was restored. The bin attaches a link card to the incident's archive page
+// (with the neutral buildMetraCloseCardTitle), like the resolution reply.
 function buildMetraDelayCloseText() {
   return 'ℹ️ Based on the schedule and the reported delay, this train should have reached its destination by now.';
 }
@@ -173,12 +174,22 @@ function buildMetraResolutionCardTitle(header) {
   return `Metra reports this is resolved: ${head}`;
 }
 
+// Link-card headline for a single-train cancellation/delay close reply. Like the
+// resolution card it points at the incident's archive page, but it makes NO
+// "resolved" claim — these closes are deliberately neutral (a cancelled train
+// doesn't un-cancel; a delayed one we only infer has arrived), so the card just
+// carries the incident's own headline.
+function buildMetraCloseCardTitle(header) {
+  return header ? truncateSentence(header, 260) : 'Metra service alert';
+}
+
 module.exports = {
   isSignificantMetraAlert,
   alertRelevance,
   buildMetraAlertText,
   buildMetraResolutionText,
   buildMetraResolutionCardTitle,
+  buildMetraCloseCardTitle,
   buildMetraCancellationCloseText,
   buildMetraDelayCloseText,
   MAJOR_PATTERNS,

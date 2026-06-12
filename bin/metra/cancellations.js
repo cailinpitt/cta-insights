@@ -7,9 +7,14 @@
 // posted per-trip in real time. Every cancellation and significant delay is
 // recorded to disruption_events as website-data-first (posted=0), and this job —
 // run hourly, like the CTA ghost rollups — posts ONE digest of the per-line
-// counts seen in the last hour to the Metra alerts account. Silent when there's
-// nothing. There is deliberately no per-incident thread/clear machinery: the post
-// is a fire-and-forget summary; the website is the full record.
+// counts seen in the last hour to the Metra INSIGHTS account (@metrainsights /
+// loginMetra). This mirrors the CTA split: the bot's own schedule-vs-reality
+// detections (ghosts, gaps) post to the insights account (loginBus/loginTrain),
+// while the alerts account is for republished official notices. Cancellation is
+// the ghost analog and delay the gap analog, so both belong on the insights
+// account. Silent when there's nothing. There is deliberately no per-incident
+// thread/clear machinery: the post is a fire-and-forget summary; the website is
+// the full record.
 //
 // Three signals:
 //   - confirmed cancellation — Metra flagged the trip CANCELED. Authoritative.
@@ -39,7 +44,10 @@ const {
 } = require('../../src/metra/schedule');
 const { getMetraAlerts } = require('../../src/metra/api');
 const { lineLabel, LINE_NAMES } = require('../../src/metra/lines');
-const { loginMetraAlerts, postText } = require('../../src/metra/bluesky');
+const { loginMetra, postText } = require('../../src/metra/bluesky');
+const { resolveReplyRef } = require('../../src/shared/bluesky');
+const { graphemeLength } = require('../../src/shared/post');
+const { runNumberFromTripId } = require('../../src/metra/cancellationAlert');
 const {
   getMetraCanceledTrips,
   getMetraObservedTripIds,
@@ -104,29 +112,140 @@ function toDisruption(event, index) {
   };
 }
 
-// "BNSF 2 · UP-N 1" sorted by count desc then line order, capped so a system-wide
-// bad hour can't blow the 300-grapheme post limit.
-function tally(events, maxItems = 8) {
-  const counts = new Map();
-  for (const e of events) counts.set(e.route, (counts.get(e.route) || 0) + 1);
-  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  const shown = sorted.slice(0, maxItems).map(([route, n]) => `${LINE_NAMES[route] || route} ${n}`);
-  if (sorted.length > maxItems) shown.push(`+${sorted.length - maxItems} more`);
-  return shown.join(' · ');
+const ROLLUP_HEADER = '🚆 Metra · past hour';
+const ROLLUP_FOOTER = 'Per Metra realtime data.';
+
+// Most train numbers to list per line before collapsing the rest into "+N more".
+// Keeps a single line's bullet bounded; a line with this many affected trains in
+// one hour is already an extreme outlier.
+const TRAIN_CAP = 6;
+// Per-post budget, leaving headroom for the rollup header (~22) AND footer (~26)
+// both landing on the same post when there's only one. Header/footer are added at
+// assembly; keeping each section post ≤ this guarantees ≤ 300 graphemes.
+const SECTION_BUDGET = 250;
+
+// Delay severity tiers, worst-first: [minInclusive, maxExclusive, label]. Every
+// delay event is ≥ DELAY_THRESHOLD (15 min), so 15–29 is the floor.
+const DELAY_BUCKETS = [
+  [60, Number.POSITIVE_INFINITY, '60+ min'],
+  [45, 60, '45–59 min'],
+  [30, 45, '30–44 min'],
+  [15, 30, '15–29 min'],
+];
+
+// Train number (rider-facing run number) parsed from the trip_id — works for every
+// event including inferred cancellations, which never appear in the live feed.
+const trainNo = (e) => runNumberFromTripId(e.tripId);
+const numOf = (e) => Number(trainNo(e)) || 0;
+
+// Bullets for a bucket of events: one line per affected route (busiest first, then
+// alphabetical), listing its specific train numbers in ascending order. A line over
+// TRAIN_CAP trains shows the first few then "+N more"; the per-line count is implicit
+// in the list.
+function renderBullets(events) {
+  const byRoute = new Map();
+  for (const e of events) {
+    if (!byRoute.has(e.route)) byRoute.set(e.route, []);
+    byRoute.get(e.route).push(e);
+  }
+  const rows = [...byRoute.entries()].map(([route, evs]) => ({
+    name: LINE_NAMES[route] || route,
+    evs,
+  }));
+  rows.sort((a, b) => b.evs.length - a.evs.length || a.name.localeCompare(b.name));
+
+  return rows.map(({ name, evs }) => {
+    let parts = [...evs]
+      .sort((a, b) => numOf(a) - numOf(b))
+      .map((e) => (trainNo(e) ? `#${trainNo(e)}` : null))
+      .filter(Boolean);
+    let suffix = '';
+    if (parts.length > TRAIN_CAP) {
+      suffix = `, +${parts.length - TRAIN_CAP} more`;
+      parts = parts.slice(0, TRAIN_CAP);
+    }
+    // Fallback if no trip_id resolved to a number (shouldn't happen for Metra ids).
+    return parts.length === 0 ? `• ${name}` : `• ${name}: ${parts.join(', ')}${suffix}`;
+  });
 }
 
-// One hourly digest covering cancellations + delays. Each non-empty category gets
-// one line; the bin only posts when at least one category has events.
-function buildRollupText(confirmed, inferred, delays) {
-  const lines = ['🚆 Metra service · last hour', ''];
-  if (confirmed.length > 0) lines.push(`❌ Cancelled: ${tally(confirmed)}`);
-  if (inferred.length > 0) {
-    lines.push(`⚠️ Scheduled but not seen running (unconfirmed): ${tally(inferred)}`);
+// Pack a heading + flat bullet list into one or more post bodies under `budget`.
+// The heading leads the first; bullets that spill repeat it with "(cont.)" so a
+// continuation reads in context. Used for the cancellation + not-seen sections.
+function packSection(heading, bullets, budget) {
+  const posts = [];
+  let i = 0;
+  let first = true;
+  while (i < bullets.length) {
+    let body = first ? heading : `${heading} (cont.)`;
+    let placed = 0;
+    while (i < bullets.length) {
+      const candidate = `${body}\n${bullets[i]}`;
+      if (placed > 0 && graphemeLength(candidate) > budget) break;
+      body = candidate;
+      i++;
+      placed++;
+    }
+    posts.push(body);
+    first = false;
   }
-  if (delays.length > 0) lines.push(`🐌 15+ min late: ${tally(delays)}`);
-  lines.push('');
-  lines.push('Per Metra realtime data.');
-  return lines.join('\n');
+  return posts;
+}
+
+// The delay post(s): a single "🐌 Delays" post with the severity tiers as
+// sub-sections (worst tier first), train numbers under each. The bucket header
+// conveys the magnitude, so per-train minutes are omitted. On a heavy hour it spills
+// into "🐌 Delays (cont.)" replies; a tier sub-heading always travels with at least
+// one of its bullets (never orphaned at a post boundary).
+function buildDelayPosts(delays, budget) {
+  const within = (e, lo, hi) => (e.delayMin ?? 0) >= lo && (e.delayMin ?? 0) < hi;
+  const tiers = DELAY_BUCKETS.map(([lo, hi, label]) => ({
+    label,
+    bullets: renderBullets(delays.filter((e) => within(e, lo, hi))),
+  })).filter((t) => t.bullets.length > 0);
+  if (tiers.length === 0) return [];
+
+  const HEAD = '🐌 Delays';
+  const posts = [];
+  let body = HEAD;
+  const onlyHeading = () => body === HEAD || body === `${HEAD} (cont.)`;
+  for (const { label, bullets } of tiers) {
+    for (let j = 0; j < bullets.length; j++) {
+      const piece = j === 0 ? `\n\n${label}\n${bullets[j]}` : `\n${bullets[j]}`;
+      if (!onlyHeading() && graphemeLength(body + piece) > budget) {
+        posts.push(body);
+        body = `${HEAD} (cont.)\n\n${label}\n${bullets[j]}`; // re-attach the tier label
+      } else {
+        body += piece;
+      }
+    }
+  }
+  posts.push(body);
+  return posts;
+}
+
+// The hourly digest as an array of post bodies for a thread: one post per non-empty
+// issue type (a heavy type can spill into "(cont.)" replies), so each signal stands
+// on its own rather than crowding one busy post. Cancellations + not-seen lead
+// (worst-first); the delay tiers share one "🐌 Delays" post. The header leads the
+// root and the provenance footer closes the last post; neither repeats. Empty → [].
+function buildRollupPosts(confirmed, inferred, delays) {
+  const posts = [];
+  for (const [events, emoji, title] of [
+    [confirmed, '❌', 'Cancelled'],
+    [inferred, '⚠️', 'Scheduled but not seen (unconfirmed)'],
+  ]) {
+    const bullets = renderBullets(events);
+    if (bullets.length > 0) {
+      posts.push(...packSection(`${emoji} ${title}`, bullets, SECTION_BUDGET));
+    }
+  }
+  posts.push(...buildDelayPosts(delays, SECTION_BUDGET));
+  if (posts.length === 0) return [];
+
+  posts[0] = `${ROLLUP_HEADER}\n\n${posts[0]}`;
+  posts[posts.length - 1] = `${posts[posts.length - 1]}\n\n${ROLLUP_FOOTER}`;
+  return posts;
 }
 
 async function fetchAlertCoveredTripIds() {
@@ -245,6 +364,7 @@ async function main() {
   );
 
   const all = [...newConfirmed, ...newInferred, ...newDelays];
+  const posts = buildRollupPosts(newConfirmed, newInferred, newDelays);
 
   if (DRY_RUN) {
     for (const t of all) {
@@ -256,30 +376,36 @@ async function main() {
         `  [${t.source}] ${lineLabel(t.route)} ${t.tripId} ${detail} → ${t.headsign || '?'}`,
       );
     }
-    const text =
-      all.length > 0
-        ? buildRollupText(newConfirmed, newInferred, newDelays)
-        : '(silent — nothing this hour)';
-    console.log(`\n--- DRY RUN rollup (DB write skipped) ---\n${text}`);
+    if (posts.length === 0) {
+      console.log('\n--- DRY RUN rollup (DB write skipped) ---\n(silent — nothing this hour)');
+    } else {
+      posts.forEach((text, i) => {
+        console.log(`\n--- DRY RUN post ${i + 1}/${posts.length} (DB write skipped) ---\n${text}`);
+      });
+    }
     return;
   }
 
   // Record every new event (website-data-first), then post the digest.
   for (const t of all) recordDisruption(toDisruption(t, index), now);
 
-  if (all.length === 0) {
+  if (posts.length === 0) {
     console.log('metra service rollup: nothing this hour — staying silent');
     return;
   }
 
-  const text = buildRollupText(newConfirmed, newInferred, newDelays);
-  const agent = await loginMetraAlerts();
-  const result = await postText(agent, text);
-  console.log(`Posted metra service rollup: ${result.url}`);
+  // Thread continuations under the root, like the CTA ghost rollup.
+  const agent = await loginMetra();
+  let replyRef = null;
+  for (let i = 0; i < posts.length; i++) {
+    const result = await postText(agent, posts[i], replyRef);
+    console.log(`Posted metra service rollup ${i + 1}/${posts.length}: ${result.url}`);
+    if (i < posts.length - 1) replyRef = await resolveReplyRef(agent, result.uri);
+  }
 }
 
 if (require.main === module) {
   runBin(main);
 }
 
-module.exports = { buildRollupText, tally, toDisruption };
+module.exports = { buildRollupPosts, renderBullets, buildDelayPosts, packSection, toDisruption };
