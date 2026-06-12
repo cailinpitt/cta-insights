@@ -300,6 +300,51 @@ test('does not consolidate non-planned Metra delays across lines', () => {
   assert.equal(incidents.length, 2);
 });
 
+test('planned-work Metra notice does not absorb live per-train observations', () => {
+  const incidents = buildIncidents(
+    [
+      alert({
+        alert_id: 'DevAPI-UPNW',
+        kind: 'metra',
+        routes: ['UP-NW'],
+        headline: 'Track Construction Saturday, June 13 through Sunday, June 14',
+        short_description:
+          'Track construction will be taking place on Saturday, June 13 through Sunday, June 14. Trains may incur delays enroute up to 15 minutes behind scheduled passing through the work zone.',
+        first_seen_ts: NOW,
+        post_url: url('plannedwork'),
+      }),
+    ],
+    [
+      obs({
+        id: 612,
+        kind: 'metra',
+        line: 'UP-NW',
+        detection_source: 'delay',
+        train_number: '612',
+        ts: NOW + 5 * 60_000,
+        post_url: url('delay612'),
+      }),
+      obs({
+        id: 614,
+        kind: 'metra',
+        line: 'UP-NW',
+        detection_source: 'cancellation',
+        train_number: '614',
+        ts: NOW + 20 * 60_000,
+        post_url: url('cancel614'),
+      }),
+    ],
+  );
+  // The planned notice stays cta-only; the two live observations stand alone.
+  assert.equal(incidents.length, 3);
+  const planned = incidents.find((i) => i.official_alert?.id === 'DevAPI-UPNW');
+  assert.deepEqual(planned.sources, ['metra']);
+  assert.deepEqual(planned.detections, []);
+  const botOnly = incidents.filter((i) => i.official_alert === null);
+  assert.equal(botOnly.length, 2);
+  assert.ok(botOnly.every((i) => i.sources.length === 1 && i.sources[0] === 'bot'));
+});
+
 test('official Metra cancellation alerts export cancellation status', () => {
   const incidents = buildIncidents(
     [

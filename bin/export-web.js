@@ -485,7 +485,16 @@ function buildIncidents(builtAlerts, builtObservations) {
 
   for (const alert of alerts) {
     const matches = [];
+    // Planned-work Metra notices (scheduled track construction/maintenance)
+    // describe a future window spanning many lines. They must not absorb live
+    // per-train delay/cancellation observations that merely share a line and
+    // fall inside the 2h proximity window — doing so mislabels the planned
+    // notice with unrelated trains (e.g. a track-construction post retitled
+    // "trains #612 and #614 affected"). Leave the notice as a cta-only incident
+    // and let the live observations stand on their own as bot-only incidents.
+    const isPlannedMetra = alert.kind === 'metra' && statusBlock(alert)?.type === 'planned-delay';
     for (const obs of observations) {
+      if (isPlannedMetra) break;
       if (usedObsIds.has(obs.id)) continue;
       if (alert.kind !== obs.kind) continue;
       if (!alert.routes.includes(obs.line)) continue;
