@@ -4,7 +4,7 @@
 # Replaces the old git-commit-to-Pages flow. The high-churn data files now live
 # in R2 (served at https://data.chicagotransitalerts.app), so data refreshes no
 # longer create commits or run a deploy. A rebuild is only needed to refresh the
-# prerendered per-incident OG cards / CSV / feed — fired here as a GitHub
+# prerendered per-incident OG cards / feed — fired here as a GitHub
 # repository_dispatch when the data actually changed, with the Actions schedule
 # as the catch-up net.
 #
@@ -60,10 +60,11 @@ hc_ping start  # signal start for duration measurement
 # 1. Export current data into the working dir (readonly DB read, cron-safe).
 node "$CTA_INSIGHTS/bin/export-web.js" "$WORK/alerts.json"
 node "$CTA_INSIGHTS/bin/export-daily.js" "$WORK/daily-counts.json"
+node "$CTA_INSIGHTS/bin/export-csv.js" "$WORK/alerts.json" "$WORK/alerts.csv"
 
-# 2. Change detection: bail if both files match the last successful upload.
+# 2. Change detection: bail if all files match the last successful upload.
 changed=0
-for f in alerts.json daily-counts.json; do
+for f in alerts.json daily-counts.json alerts.csv; do
   if ! cmp -s "$WORK/$f" "$LAST/$f" 2>/dev/null; then
     changed=1
   fi
@@ -75,7 +76,7 @@ fi
 
 # 3. Upload to R2 with a short edge-cache TTL. The client also revalidates on
 #    generated_at, so 30s bounds worst-case staleness without hammering origin.
-for f in alerts.json daily-counts.json; do
+for f in alerts.json daily-counts.json alerts.csv; do
   rclone copyto "$WORK/$f" "$REMOTE/$f" \
     --s3-no-check-bucket \
     --header-upload "Cache-Control: public, max-age=30"
@@ -84,6 +85,7 @@ done
 # Record the new baseline only after a successful upload.
 cp "$WORK/alerts.json" "$LAST/alerts.json"
 cp "$WORK/daily-counts.json" "$LAST/daily-counts.json"
+cp "$WORK/alerts.csv" "$LAST/alerts.csv"
 echo "push-web-data: uploaded to $REMOTE"
 
 # 4. Trigger a rebuild so prerendered OG cards pick up new incidents.

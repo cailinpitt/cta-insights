@@ -1,9 +1,10 @@
 # Web data origin (R2)
 
-The high-churn public data files (`alerts.json`, `daily-counts.json`) are served
-from **Cloudflare R2** at `https://data.chicagotransitalerts.app`, not committed
-into the Pages repo. This removes the every-~7-minutes data commit (and the
-deploy it triggered) from `cta-alert-history`.
+The high-churn public data files (`alerts.json`, `daily-counts.json`, and
+`alerts.csv`) are served from **Cloudflare R2** at
+`https://data.chicagotransitalerts.app`, not committed into the Pages repo. This
+removes the every-~7-minutes data commit (and the deploy it triggered) from
+`cta-alert-history`.
 
 ## Data flow
 
@@ -13,12 +14,13 @@ cta-insights (server)                         cta-alert-history (GitHub Pages)
 bin/push-web-data.sh                          runtime: client fetch()s
   export-web.js   -> tmp/web-data/alerts.json     https://data.chicago…/alerts.json
   export-daily.js -> tmp/web-data/daily-counts     (VITE_DATA_BASE_URL, always fresh)
+  export-csv.js   -> tmp/web-data/alerts.csv
   cmp vs .last  ── unchanged? stop
         │ changed
         ├─ rclone copyto … r2web:cta-alert-history-data    build time: scripts/fetch-data.js
         │   (Cache-Control: max-age=30)           pulls the same files from R2 into
         └─ POST repository_dispatch ─────────►    public/data/, then vite + postbuild
-            {event_type: data-updated}            prerender OG cards / feed / csv
+            {event_type: data-updated}            prerender OG cards / feed
 ```
 
 - **Live app data** comes straight from R2 — fresh regardless of when the site
@@ -28,7 +30,7 @@ bin/push-web-data.sh                          runtime: client fetch()s
   - **event-driven** — `push-web-data.sh` fires `repository_dispatch` on change,
   - **catch-up** — `deploy.yml`'s `schedule` (every 30 min) for any missed dispatch.
 
-`CHANGELOG.md` and `alerts.csv` stay site-served (low-churn / build artifacts).
+`CHANGELOG.md` stays site-served (low-churn documentation).
 
 ## One-time setup
 

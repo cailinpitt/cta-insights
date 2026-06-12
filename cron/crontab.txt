@@ -145,7 +145,7 @@ R=/path/to/cta-insights/bin/cron-run.sh
 0       4  1  *  *   $R fetch-signals    scripts/fetch-signals.js
 
 # --- Web data publish ---
-# Publishes alerts.json + daily-counts.json to the R2 data origin
+# Publishes alerts.json + daily-counts.json + alerts.csv to the R2 data origin
 # (data.chicagotransitalerts.app) and fires a GitHub repository_dispatch rebuild
 # when the data changed. Standalone /bin/sh script (not via cron-run.sh, which is
 # node-only); also invoked event-driven by src/shared/webPushTrigger.js ~30s
