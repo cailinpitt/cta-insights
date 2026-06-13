@@ -5,10 +5,10 @@
 // Usage:
 //   node bin/export-web.js [output-path]
 //
-// If output-path is omitted, JSON is written to stdout. The typical cron
-// wrapper clones the GitHub Pages repo, runs this script pointing at
-// data/alerts.json inside that clone, then commits + pushes only if the
-// file changed.
+// If output-path is omitted, JSON is written to stdout. The production publish
+// wrapper writes this into tmp/web-data/alerts.json, uploads changed bytes to
+// the R2 data origin, then triggers a static-site rebuild for prerendered
+// artifacts.
 
 require('../src/shared/env');
 
